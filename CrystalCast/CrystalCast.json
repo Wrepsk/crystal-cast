@@ -1,0 +1,12 @@
+{
+  "Author": "CrystalCast",
+  "Name": "CrystalCast",
+  "Punchline": "World-space video screen prototype.",
+  "Description": "Renders a local-only world-space image/video screen through Pictomancy. Use /crystalcast to configure placement, source, and sync IPC state.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "video",
+    "world-space",
+    "pictomancy"
+  ]
+}

@@ -1,0 +1,3 @@
+[submodule "ThirdParty/ffxiv_pictomancy"]
+	path = ThirdParty/ffxiv_pictomancy
+	url = https://github.com/sourpuh/ffxiv_pictomancy

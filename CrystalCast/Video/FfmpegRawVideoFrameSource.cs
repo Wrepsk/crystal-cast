@@ -196,15 +196,26 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
             return null;
         }
 
-        var executableName = Path.GetExtension(candidate).Length == 0 ? $"{candidate}.exe" : candidate;
+        var executableNames = GetExecutableNames(candidate);
         foreach (var directory in GetSearchDirectories())
         {
-            var path = Path.Combine(directory, executableName);
-            if (File.Exists(path))
-                return path;
+            foreach (var executableName in executableNames)
+            {
+                var path = Path.Combine(directory, executableName);
+                if (File.Exists(path))
+                    return path;
+            }
         }
 
         return null;
+    }
+
+    private static string[] GetExecutableNames(string candidate)
+    {
+        if (Path.GetExtension(candidate).Length > 0)
+            return [candidate];
+
+        return ["ffmpeg.exe", "ffmpeg.cmd", "ffmpeg.bat", "ffmpeg"];
     }
 
     private static IEnumerable<string> GetSearchDirectories()
@@ -217,11 +228,29 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
                 yield return directory;
         }
 
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var directory in GetPathDirectories())
         {
             if (Directory.Exists(directory) && seen.Add(directory))
                 yield return directory;
+        }
+    }
+
+    private static IEnumerable<string> GetPathDirectories()
+    {
+        foreach (var target in new[]
+        {
+            EnvironmentVariableTarget.Process,
+            EnvironmentVariableTarget.User,
+            EnvironmentVariableTarget.Machine,
+        })
+        {
+            var path = Environment.GetEnvironmentVariable("PATH", target) ?? string.Empty;
+            foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var expanded = Environment.ExpandEnvironmentVariables(directory);
+                if (!string.IsNullOrWhiteSpace(expanded))
+                    yield return expanded;
+            }
         }
     }
 

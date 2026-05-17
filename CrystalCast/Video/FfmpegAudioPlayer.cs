@@ -19,7 +19,7 @@ public sealed class FfmpegAudioPlayer : IDisposable
         this.ffmpegPath = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg.exe" : ffmpegPath;
         this.videoPath = videoPath;
         this.loop = loop;
-        Volume = Math.Clamp(volume, 0.0f, 1.0f);
+        Volume = ClampVolume(volume);
     }
 
     public bool IsRunning => process is { HasExited: false };
@@ -56,7 +56,7 @@ public sealed class FfmpegAudioPlayer : IDisposable
         output = new WaveOutEvent
         {
             DesiredLatency = 180,
-            Volume = Volume,
+            Volume = 1.0f,
         };
         output.Init(buffer);
         output.Play();
@@ -122,9 +122,7 @@ public sealed class FfmpegAudioPlayer : IDisposable
 
     public void SetVolume(float volume)
     {
-        Volume = Math.Clamp(volume, 0.0f, 1.0f);
-        if (output != null)
-            output.Volume = Volume;
+        Volume = ClampVolume(volume);
     }
 
     public void Stop()
@@ -177,6 +175,7 @@ public sealed class FfmpegAudioPlayer : IDisposable
                     return;
                 }
 
+                ApplyVolumeInPlace(scratch, read, Volume);
                 currentBuffer.AddSamples(scratch, 0, read);
             }
         }
@@ -186,6 +185,32 @@ public sealed class FfmpegAudioPlayer : IDisposable
         catch (Exception ex)
         {
             Status = ex.Message;
+        }
+    }
+
+    private static float ClampVolume(float volume)
+    {
+        return float.IsFinite(volume) ? Math.Clamp(volume, 0.0f, 1.0f) : 0.0f;
+    }
+
+    private static void ApplyVolumeInPlace(byte[] samples, int byteCount, float volume)
+    {
+        if (volume >= 0.999f)
+            return;
+
+        if (volume <= 0.001f)
+        {
+            Array.Clear(samples, 0, byteCount);
+            return;
+        }
+
+        var alignedByteCount = byteCount & ~1;
+        for (var i = 0; i < alignedByteCount; i += 2)
+        {
+            var sample = (short)(samples[i] | (samples[i + 1] << 8));
+            var scaled = (short)(sample * volume);
+            samples[i] = (byte)(scaled & 0xFF);
+            samples[i + 1] = (byte)((scaled >> 8) & 0xFF);
         }
     }
 }

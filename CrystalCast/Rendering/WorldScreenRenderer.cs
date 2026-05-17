@@ -280,8 +280,7 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         return configuration.UiMaskMode switch
         {
-            1 => UIMask.BackbufferAlpha,
-            2 => UIMask.BackbufferSubtraction,
+            > 0 => UIMask.BackbufferSubtraction,
             _ => UIMask.None,
         };
     }

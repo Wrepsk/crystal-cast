@@ -290,6 +290,7 @@ public sealed class WorldScreenRenderer : IDisposable
         return configuration.OutputMode switch
         {
             1 => AutoDraw.NativeOverlay,
+            2 => AutoDraw.NamePlateOverlay,
             _ => AutoDraw.ImGuiOverlay,
         };
     }

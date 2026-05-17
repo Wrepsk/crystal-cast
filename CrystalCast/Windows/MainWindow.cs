@@ -12,6 +12,7 @@ public sealed class MainWindow : Window, IDisposable
     [
         "ImGui overlay",
         "Native overlay",
+        "NamePlate native overlay",
     ];
 
     private static readonly string[] UiMaskNames =

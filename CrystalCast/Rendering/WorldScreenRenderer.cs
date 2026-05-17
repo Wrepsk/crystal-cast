@@ -72,7 +72,7 @@ public sealed class WorldScreenRenderer : IDisposable
         {
             AutoDraw = AutoDraw.ImGuiOverlay,
             AlphaBlendMode = AlphaBlendMode.Add,
-            UIMask = UIMask.None,
+            UIMask = GetUiMask(),
             DefaultParams = p,
         });
 
@@ -273,6 +273,16 @@ public sealed class WorldScreenRenderer : IDisposable
             FadeStart = configuration.EnableDistanceFade ? Math.Max(0.0f, configuration.FadeStartMeters) : float.PositiveInfinity,
             FadeStop = configuration.EnableDistanceFade ? Math.Max(configuration.FadeStartMeters + 0.01f, configuration.FadeStopMeters) : float.PositiveInfinity,
             ProjectionHeight = 0.0f,
+        };
+    }
+
+    private UIMask GetUiMask()
+    {
+        return configuration.UiMaskMode switch
+        {
+            1 => UIMask.BackbufferAlpha,
+            2 => UIMask.BackbufferSubtraction,
+            _ => UIMask.None,
         };
     }
 

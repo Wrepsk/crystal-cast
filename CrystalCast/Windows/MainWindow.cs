@@ -8,6 +8,13 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
+    private static readonly string[] UiMaskNames =
+    [
+        "None",
+        "Backbuffer alpha",
+        "Backbuffer subtraction",
+    ];
+
     private static readonly string[] SourceNames =
     [
         "Static image",
@@ -90,6 +97,26 @@ public sealed class MainWindow : Window, IDisposable
     {
         var changed = false;
         var showMarker = config.ShowDebugMarker;
+        var uiMaskMode = Math.Clamp(config.UiMaskMode, 0, UiMaskNames.Length - 1);
+
+        if (ImGui.BeginCombo("UI mask", UiMaskNames[uiMaskMode]))
+        {
+            for (var i = 0; i < UiMaskNames.Length; i++)
+            {
+                var selected = i == uiMaskMode;
+                if (ImGui.Selectable(UiMaskNames[i], selected))
+                {
+                    config.UiMaskMode = i;
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+
         if (ImGui.Checkbox("Debug marker", ref showMarker))
         {
             config.ShowDebugMarker = showMarker;

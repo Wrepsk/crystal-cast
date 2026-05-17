@@ -29,7 +29,7 @@ public sealed class WorldScreenRenderer : IDisposable
             pictomancyContext = PctService.Initialize(Plugin.PluginInterface, new PctOptions
             {
                 EnableVfxRenderer = false,
-                EnableKtkOutput = false,
+                EnableKtkOutput = true,
                 MaxImages = 16,
             });
             Status = "Pictomancy ready";
@@ -70,7 +70,7 @@ public sealed class WorldScreenRenderer : IDisposable
         var p = BuildDxParams();
         using var drawList = PctService.Draw(hints: new PctDrawHints
         {
-            AutoDraw = AutoDraw.ImGuiOverlay,
+            AutoDraw = GetAutoDraw(),
             AlphaBlendMode = AlphaBlendMode.Add,
             UIMask = GetUiMask(),
             DefaultParams = p,
@@ -283,6 +283,15 @@ public sealed class WorldScreenRenderer : IDisposable
             1 => UIMask.BackbufferAlpha,
             2 => UIMask.BackbufferSubtraction,
             _ => UIMask.None,
+        };
+    }
+
+    private AutoDraw GetAutoDraw()
+    {
+        return configuration.OutputMode switch
+        {
+            1 => AutoDraw.NativeOverlay,
+            _ => AutoDraw.ImGuiOverlay,
         };
     }
 

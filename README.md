@@ -26,7 +26,7 @@ Open the controls with `/crystalcast`.
 
 The panel can be enabled, placed in front of the player, rotated/scaled, and switched between source modes. The local video source expects an `ffmpeg.exe` path and a local video file path. Video frames are decoded to BGRA and uploaded into one stable dynamic D3D11 texture so Pictomancy can reuse the same texture handle across frames. Audio is decoded by a second FFmpeg process and played locally through the default Windows output device with a volume slider.
 
-If the screen draws over player names or other UI elements, try the `UI mask` modes in `/crystalcast`. `None` is the most compatible baseline; `Backbuffer alpha` or `Backbuffer subtraction` can let UI/nameplate pixels appear above the world screen on setups where Pictomancy can derive a usable UI mask.
+If the screen draws over player names or other UI elements, try `Output layer` -> `Native overlay` in `/crystalcast`. If that is not enough, try the `UI mask` modes too. `None` is the most compatible mask baseline; `Backbuffer alpha` or `Backbuffer subtraction` can let UI/nameplate pixels appear above the world screen on setups where Pictomancy can derive a usable UI mask.
 
 ## IPC
 

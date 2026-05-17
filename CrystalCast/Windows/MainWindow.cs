@@ -8,6 +8,12 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
+    private static readonly string[] OutputModeNames =
+    [
+        "ImGui overlay",
+        "Native overlay",
+    ];
+
     private static readonly string[] UiMaskNames =
     [
         "None",
@@ -96,8 +102,27 @@ public sealed class MainWindow : Window, IDisposable
     private static bool DrawDebug(Configuration config)
     {
         var changed = false;
+        var outputMode = Math.Clamp(config.OutputMode, 0, OutputModeNames.Length - 1);
         var showMarker = config.ShowDebugMarker;
         var uiMaskMode = Math.Clamp(config.UiMaskMode, 0, UiMaskNames.Length - 1);
+
+        if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
+        {
+            for (var i = 0; i < OutputModeNames.Length; i++)
+            {
+                var selected = i == outputMode;
+                if (ImGui.Selectable(OutputModeNames[i], selected))
+                {
+                    config.OutputMode = i;
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
 
         if (ImGui.BeginCombo("UI mask", UiMaskNames[uiMaskMode]))
         {

@@ -39,6 +39,7 @@ public class Configuration : IPluginConfiguration
     public string LocalVideoPath { get; set; } = string.Empty;
     public int LocalVideoWidth { get; set; } = 512;
     public int LocalVideoHeight { get; set; } = 288;
+    public float LocalVideoScalePercent { get; set; } = 50.0f;
     public float LocalVideoFps { get; set; } = 30.0f;
     public bool LoopLocalVideo { get; set; } = true;
     public bool AudioEnabled { get; set; } = true;

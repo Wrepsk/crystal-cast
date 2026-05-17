@@ -150,7 +150,7 @@ public sealed class ScreenStateIpc : IDisposable
         return configuration.SourceKind switch
         {
             ScreenSourceKind.StaticImage => BuildFileSourceState(ScreenSourceKind.StaticImage, bundledStaticImagePath, "bundled-static"),
-            ScreenSourceKind.LocalVideo => BuildFileSourceState(ScreenSourceKind.LocalVideo, configuration.LocalVideoPath, "local-video"),
+            ScreenSourceKind.LocalVideo => BuildLocalVideoSourceState(),
             ScreenSourceKind.Generated => new ScreenSourceState
             {
                 Kind = ScreenSourceKind.Generated,
@@ -179,6 +179,13 @@ public sealed class ScreenStateIpc : IDisposable
             Title = title,
             Hash = hash,
         };
+    }
+
+    private ScreenSourceState BuildLocalVideoSourceState()
+    {
+        var source = BuildFileSourceState(ScreenSourceKind.LocalVideo, configuration.LocalVideoPath, "local-video");
+        source.Identity = $"{source.Identity}|scale={configuration.LocalVideoScalePercent.ToString("0.#", CultureInfo.InvariantCulture)}";
+        return source;
     }
 
     private static string TryHashFile(string path)

@@ -84,14 +84,15 @@ public sealed class WorldScreenRenderer : IDisposable
 
         var center = GetCenter();
         var rotation = GetRotation();
-        var right = Vector3.Transform(Vector3.UnitX * Math.Max(0.01f, configuration.WidthMeters), rotation);
-        var down = Vector3.Transform(-Vector3.UnitY * Math.Max(0.01f, configuration.HeightMeters), rotation);
+        var panelSize = GetPanelSize(texture);
+        var right = Vector3.Transform(Vector3.UnitX * panelSize.X, rotation);
+        var down = Vector3.Transform(-Vector3.UnitY * panelSize.Y, rotation);
         drawList.AddImage(texture, center, right, down, p);
 
         if (configuration.ShowDebugMarker)
         {
             drawList.AddDot(center, 8.0f, 0xFF00FFFF);
-            drawList.AddText(center + new Vector3(0, configuration.HeightMeters * 0.65f, 0), 0xFF00FFFF, "CrystalCast", 1.0f);
+            drawList.AddText(center + new Vector3(0, panelSize.Y * 0.65f, 0), 0xFF00FFFF, "CrystalCast", 1.0f);
         }
 
         LastDrawStatus = TryProjectCenter(out var screen)
@@ -196,10 +197,11 @@ public sealed class WorldScreenRenderer : IDisposable
                 frameSource = new FfmpegRawVideoFrameSource(
                     configuration.FfmpegPath,
                     configuration.LocalVideoPath,
-                    configuration.LocalVideoWidth,
-                    configuration.LocalVideoHeight,
+                    configuration.LocalVideoScalePercent,
                     configuration.LocalVideoFps,
-                    configuration.LoopLocalVideo);
+                    configuration.LoopLocalVideo,
+                    configuration.LocalVideoWidth,
+                    configuration.LocalVideoHeight);
                 break;
             default:
                 StopAudio();
@@ -221,8 +223,7 @@ public sealed class WorldScreenRenderer : IDisposable
                 configuration.SourceKind,
                 configuration.FfmpegPath,
                 configuration.LocalVideoPath,
-                configuration.LocalVideoWidth,
-                configuration.LocalVideoHeight,
+                configuration.LocalVideoScalePercent,
                 configuration.LocalVideoFps,
                 configuration.LoopLocalVideo),
             _ => configuration.SourceKind.ToString(),
@@ -273,6 +274,16 @@ public sealed class WorldScreenRenderer : IDisposable
             FadeStop = configuration.EnableDistanceFade ? Math.Max(configuration.FadeStartMeters + 0.01f, configuration.FadeStopMeters) : float.PositiveInfinity,
             ProjectionHeight = 0.0f,
         };
+    }
+
+    private Vector2 GetPanelSize(IDalamudTextureWrap texture)
+    {
+        var width = Math.Max(0.01f, configuration.WidthMeters);
+        var height = Math.Max(0.01f, configuration.HeightMeters);
+        if (configuration.SourceKind == ScreenSourceKind.LocalVideo && texture.Width > 0 && texture.Height > 0)
+            height = width * texture.Height / texture.Width;
+
+        return new Vector2(width, height);
     }
 
     private Vector3 GetCenter()

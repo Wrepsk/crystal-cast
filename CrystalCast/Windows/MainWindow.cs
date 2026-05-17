@@ -146,11 +146,21 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        var height = config.HeightMeters;
-        if (ImGui.InputFloat("Height meters", ref height, 0.1f, 0.5f))
+        if (config.SourceKind == ScreenSourceKind.LocalVideo)
         {
-            config.HeightMeters = Math.Max(0.1f, height);
-            changed = true;
+            if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
+                ImGui.TextUnformatted($"Height meters: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###}");
+            else
+                ImGui.TextUnformatted($"Height meters: auto");
+        }
+        else
+        {
+            var height = config.HeightMeters;
+            if (ImGui.InputFloat("Height meters", ref height, 0.1f, 0.5f))
+            {
+                config.HeightMeters = Math.Max(0.1f, height);
+                changed = true;
+            }
         }
 
         return changed;
@@ -229,8 +239,7 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
         var ffmpegPath = config.FfmpegPath;
         var videoPath = config.LocalVideoPath;
-        var width = config.LocalVideoWidth;
-        var height = config.LocalVideoHeight;
+        var scalePercent = config.LocalVideoScalePercent;
         var fps = config.LocalVideoFps;
         var loop = config.LoopLocalVideo;
         var audioEnabled = config.AudioEnabled;
@@ -248,15 +257,9 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        if (ImGui.InputInt("Output width", ref width))
+        if (ImGui.SliderFloat("Scale percent", ref scalePercent, 5.0f, 200.0f))
         {
-            config.LocalVideoWidth = Math.Clamp(width, 64, 3840);
-            changed = true;
-        }
-
-        if (ImGui.InputInt("Output height", ref height))
-        {
-            config.LocalVideoHeight = Math.Clamp(height, 64, 2160);
+            config.LocalVideoScalePercent = Math.Clamp(scalePercent, 5.0f, 200.0f);
             changed = true;
         }
 
@@ -340,6 +343,8 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
         ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
         ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
+        if (plugin.Configuration.SourceKind == ScreenSourceKind.LocalVideo && renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
+            ImGui.TextUnformatted($"Auto height: {plugin.Configuration.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m");
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
         ImGui.TextUnformatted($"Frame age: {renderer.FrameAgeMilliseconds} ms");

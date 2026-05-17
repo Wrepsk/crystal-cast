@@ -8,18 +8,29 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
     private readonly string ffmpegPath;
     private readonly string videoPath;
     private readonly bool loop;
+    private readonly VideoDimensions sourceDimensions;
     private CancellationTokenSource? cancellation;
     private Process? process;
     private Task? readTask;
     private VideoFrame? latestFrame;
     private long sequence;
 
-    public FfmpegRawVideoFrameSource(string ffmpegPath, string videoPath, int width, int height, float fps, bool loop)
+    public FfmpegRawVideoFrameSource(string ffmpegPath, string videoPath, float scalePercent, float fps, bool loop, int fallbackWidth, int fallbackHeight)
     {
         this.ffmpegPath = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg.exe" : ffmpegPath;
         this.videoPath = videoPath;
-        Width = Math.Clamp(width, 64, 3840);
-        Height = Math.Clamp(height, 64, 2160);
+        if (!FfmpegVideoProbe.TryProbeSize(this.ffmpegPath, videoPath, out sourceDimensions, out var probeMessage))
+        {
+            sourceDimensions = new VideoDimensions(
+                Math.Clamp(fallbackWidth, 64, 3840),
+                Math.Clamp(fallbackHeight, 64, 2160));
+            Status = $"using fallback size: {probeMessage}";
+        }
+
+        var scaledDimensions = FfmpegVideoProbe.Scale(sourceDimensions, scalePercent);
+        Width = scaledDimensions.Width;
+        Height = scaledDimensions.Height;
+        ScalePercent = Math.Clamp(scalePercent, 5.0f, 200.0f);
         FramesPerSecond = Math.Clamp(fps, 1.0f, 120.0f);
         this.loop = loop;
     }
@@ -27,6 +38,7 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
     public string Name => "Local video via ffmpeg";
     public int Width { get; }
     public int Height { get; }
+    public float ScalePercent { get; }
     public float FramesPerSecond { get; }
     public bool IsRunning => process is { HasExited: false };
     public string Status { get; private set; } = "stopped";
@@ -74,7 +86,7 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
         psi.ArgumentList.Add(videoPath);
         psi.ArgumentList.Add("-vf");
         var fpsText = FramesPerSecond.ToString("0.###", CultureInfo.InvariantCulture);
-        psi.ArgumentList.Add($"scale=w={Width}:h={Height}:force_original_aspect_ratio=decrease,pad={Width}:{Height}:(ow-iw)/2:(oh-ih)/2:color=black,fps={fpsText},format=bgra");
+        psi.ArgumentList.Add($"fps={fpsText},scale=w={Width}:h={Height}:flags=bicubic,setsar=1,format=bgra");
         psi.ArgumentList.Add("-an");
         psi.ArgumentList.Add("-sn");
         psi.ArgumentList.Add("-f");
@@ -98,7 +110,7 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
             });
 
             readTask = Task.Run(() => ReadLoop(cancellation.Token));
-            Status = $"running: {resolvedFfmpegPath}";
+            Status = $"running: {sourceDimensions} -> {Width}x{Height} ({ScalePercent:0.#}%)";
         }
         catch (Exception ex)
         {

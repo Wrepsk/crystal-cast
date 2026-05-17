@@ -34,6 +34,23 @@ internal static class FfmpegLocator
         return null;
     }
 
+    public static string? ResolveFfprobePath(string configuredFfmpegPath)
+    {
+        var ffmpegPath = ResolveFfmpegPath(configuredFfmpegPath);
+        var ffmpegDirectory = string.IsNullOrWhiteSpace(ffmpegPath) ? null : Path.GetDirectoryName(ffmpegPath);
+        if (!string.IsNullOrWhiteSpace(ffmpegDirectory))
+        {
+            foreach (var executableName in GetExecutableNames("ffprobe"))
+            {
+                var sibling = Path.Combine(ffmpegDirectory, executableName);
+                if (File.Exists(sibling))
+                    return sibling;
+            }
+        }
+
+        return ResolveToolPath("ffprobe");
+    }
+
     public static string ResolveWorkingDirectory(string inputPath)
     {
         var videoDirectory = Path.GetDirectoryName(inputPath);
@@ -48,7 +65,23 @@ internal static class FfmpegLocator
         if (Path.GetExtension(candidate).Length > 0)
             return [candidate];
 
-        return ["ffmpeg.exe", "ffmpeg.cmd", "ffmpeg.bat", "ffmpeg"];
+        return [$"{candidate}.exe", $"{candidate}.cmd", $"{candidate}.bat", candidate];
+    }
+
+    private static string? ResolveToolPath(string toolName)
+    {
+        var executableNames = GetExecutableNames(toolName);
+        foreach (var directory in GetSearchDirectories())
+        {
+            foreach (var executableName in executableNames)
+            {
+                var path = Path.Combine(directory, executableName);
+                if (File.Exists(path))
+                    return path;
+            }
+        }
+
+        return null;
     }
 
     private static IEnumerable<string> GetSearchDirectories()

@@ -233,6 +233,8 @@ public sealed class MainWindow : Window, IDisposable
         var height = config.LocalVideoHeight;
         var fps = config.LocalVideoFps;
         var loop = config.LoopLocalVideo;
+        var audioEnabled = config.AudioEnabled;
+        var audioVolume = config.AudioVolume;
 
         if (ImGui.InputText("FFmpeg path", ref ffmpegPath, 512))
         {
@@ -267,6 +269,18 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Checkbox("Loop video", ref loop))
         {
             config.LoopLocalVideo = loop;
+            changed = true;
+        }
+
+        if (ImGui.Checkbox("Audio", ref audioEnabled))
+        {
+            config.AudioEnabled = audioEnabled;
+            changed = true;
+        }
+
+        if (config.AudioEnabled && ImGui.SliderFloat("Audio volume", ref audioVolume, 0.0f, 1.0f))
+        {
+            config.AudioVolume = Math.Clamp(audioVolume, 0.0f, 1.0f);
             changed = true;
         }
 
@@ -324,6 +338,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted($"Draw: {renderer.LastDrawStatus}");
         ImGui.TextUnformatted($"Source: {renderer.SourceName}");
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
+        ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
         ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");

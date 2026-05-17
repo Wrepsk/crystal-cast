@@ -24,7 +24,7 @@ It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxi
 
 Open the controls with `/crystalcast`.
 
-The panel can be enabled, placed in front of the player, rotated/scaled, and switched between source modes. The local video source expects an `ffmpeg.exe` path and a local video file path. Video frames are decoded to BGRA and uploaded into one stable dynamic D3D11 texture so Pictomancy can reuse the same texture handle across frames.
+The panel can be enabled, placed in front of the player, rotated/scaled, and switched between source modes. The local video source expects an `ffmpeg.exe` path and a local video file path. Video frames are decoded to BGRA and uploaded into one stable dynamic D3D11 texture so Pictomancy can reuse the same texture handle across frames. Audio is decoded by a second FFmpeg process and played locally through the default Windows output device with a volume slider.
 
 ## IPC
 

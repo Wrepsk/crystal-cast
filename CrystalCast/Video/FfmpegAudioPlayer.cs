@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using System.Globalization;
+using NAudio.Wave;
 
 namespace CrystalCast.Video;
 
-public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
+public sealed class FfmpegAudioPlayer : IDisposable
 {
     private readonly string ffmpegPath;
     private readonly string videoPath;
@@ -11,24 +11,19 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
     private CancellationTokenSource? cancellation;
     private Process? process;
     private Task? readTask;
-    private VideoFrame? latestFrame;
-    private long sequence;
+    private BufferedWaveProvider? buffer;
+    private WaveOutEvent? output;
 
-    public FfmpegRawVideoFrameSource(string ffmpegPath, string videoPath, int width, int height, float fps, bool loop)
+    public FfmpegAudioPlayer(string ffmpegPath, string videoPath, bool loop, float volume)
     {
         this.ffmpegPath = string.IsNullOrWhiteSpace(ffmpegPath) ? "ffmpeg.exe" : ffmpegPath;
         this.videoPath = videoPath;
-        Width = Math.Clamp(width, 64, 3840);
-        Height = Math.Clamp(height, 64, 2160);
-        FramesPerSecond = Math.Clamp(fps, 1.0f, 120.0f);
         this.loop = loop;
+        Volume = Math.Clamp(volume, 0.0f, 1.0f);
     }
 
-    public string Name => "Local video via ffmpeg";
-    public int Width { get; }
-    public int Height { get; }
-    public float FramesPerSecond { get; }
     public bool IsRunning => process is { HasExited: false };
+    public float Volume { get; private set; }
     public string Status { get; private set; } = "stopped";
 
     public void Start()
@@ -38,18 +33,34 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
 
         if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
         {
-            Status = "video file not found";
+            Status = "audio video file not found";
             return;
         }
 
         var resolvedFfmpegPath = FfmpegLocator.ResolveFfmpegPath(ffmpegPath);
         if (resolvedFfmpegPath == null)
         {
-            Status = $"ffmpeg not found: {ffmpegPath}. Set FFmpeg path to the full ffmpeg.exe path, put ffmpeg.exe next to CrystalCast.dll, or install FFmpeg on PATH.";
+            Status = $"audio ffmpeg not found: {ffmpegPath}";
             return;
         }
 
         cancellation = new CancellationTokenSource();
+
+        var waveFormat = new WaveFormat(48000, 16, 2);
+        buffer = new BufferedWaveProvider(waveFormat)
+        {
+            BufferDuration = TimeSpan.FromSeconds(2),
+            DiscardOnBufferOverflow = true,
+        };
+
+        output = new WaveOutEvent
+        {
+            DesiredLatency = 180,
+            Volume = Volume,
+        };
+        output.Init(buffer);
+        output.Play();
+
         var psi = new ProcessStartInfo
         {
             FileName = resolvedFfmpegPath,
@@ -72,13 +83,14 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
         psi.ArgumentList.Add("-re");
         psi.ArgumentList.Add("-i");
         psi.ArgumentList.Add(videoPath);
-        psi.ArgumentList.Add("-vf");
-        var fpsText = FramesPerSecond.ToString("0.###", CultureInfo.InvariantCulture);
-        psi.ArgumentList.Add($"scale=w={Width}:h={Height}:force_original_aspect_ratio=decrease,pad={Width}:{Height}:(ow-iw)/2:(oh-ih)/2:color=black,fps={fpsText},format=bgra");
-        psi.ArgumentList.Add("-an");
+        psi.ArgumentList.Add("-vn");
         psi.ArgumentList.Add("-sn");
         psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("rawvideo");
+        psi.ArgumentList.Add("s16le");
+        psi.ArgumentList.Add("-ac");
+        psi.ArgumentList.Add("2");
+        psi.ArgumentList.Add("-ar");
+        psi.ArgumentList.Add("48000");
         psi.ArgumentList.Add("pipe:1");
 
         try
@@ -86,7 +98,8 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
             process = Process.Start(psi);
             if (process == null)
             {
-                Status = "failed to start ffmpeg";
+                Status = "failed to start audio ffmpeg";
+                Stop();
                 return;
             }
 
@@ -98,12 +111,20 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
             });
 
             readTask = Task.Run(() => ReadLoop(cancellation.Token));
-            Status = $"running: {resolvedFfmpegPath}";
+            Status = $"audio running: {resolvedFfmpegPath}";
         }
         catch (Exception ex)
         {
             Status = ex.Message;
+            Stop();
         }
+    }
+
+    public void SetVolume(float volume)
+    {
+        Volume = Math.Clamp(volume, 0.0f, 1.0f);
+        if (output != null)
+            output.Volume = Volume;
     }
 
     public void Stop()
@@ -125,13 +146,12 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
         process?.Dispose();
         process = null;
         readTask = null;
-        Status = "stopped";
-    }
 
-    public bool TryGetLatestFrame(out VideoFrame frame)
-    {
-        frame = latestFrame!;
-        return frame != null;
+        output?.Stop();
+        output?.Dispose();
+        output = null;
+        buffer = null;
+        Status = "stopped";
     }
 
     public void Dispose() => Stop();
@@ -139,34 +159,25 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
     private async Task ReadLoop(CancellationToken token)
     {
         var currentProcess = process;
-        if (currentProcess == null)
+        var currentBuffer = buffer;
+        if (currentProcess == null || currentBuffer == null)
             return;
 
-        var frameSize = checked(Width * Height * 4);
-        var scratch = new byte[frameSize];
+        var scratch = new byte[16 * 1024];
         var stream = currentProcess.StandardOutput.BaseStream;
 
         try
         {
             while (!token.IsCancellationRequested)
             {
-                var offset = 0;
-                while (offset < frameSize)
+                var read = await stream.ReadAsync(scratch.AsMemory(0, scratch.Length), token).ConfigureAwait(false);
+                if (read == 0)
                 {
-                    var read = await stream.ReadAsync(scratch.AsMemory(offset, frameSize - offset), token).ConfigureAwait(false);
-                    if (read == 0)
-                    {
-                        Status = "ffmpeg ended";
-                        return;
-                    }
-
-                    offset += read;
+                    Status = "audio ended";
+                    return;
                 }
 
-                var pixels = new byte[frameSize];
-                Buffer.BlockCopy(scratch, 0, pixels, 0, frameSize);
-                var frame = new VideoFrame(pixels, Width, Height, Interlocked.Increment(ref sequence), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                Interlocked.Exchange(ref latestFrame, frame);
+                currentBuffer.AddSamples(scratch, 0, read);
             }
         }
         catch (OperationCanceledException)
@@ -177,5 +188,4 @@ public sealed class FfmpegRawVideoFrameSource : IVideoFrameSource
             Status = ex.Message;
         }
     }
-
 }

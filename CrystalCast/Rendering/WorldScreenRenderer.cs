@@ -13,7 +13,9 @@ public sealed class WorldScreenRenderer : IDisposable
     private readonly DynamicVideoTexture dynamicTexture;
     private PctContext? pictomancyContext;
     private IVideoFrameSource? frameSource;
+    private FfmpegAudioPlayer? audioPlayer;
     private string frameSourceSignature = string.Empty;
+    private string audioSignature = string.Empty;
     private long lastFrameUnixMs;
 
     public WorldScreenRenderer(Configuration configuration, string bundledStaticImagePath)
@@ -41,6 +43,7 @@ public sealed class WorldScreenRenderer : IDisposable
 
     public string Status { get; private set; } = "not initialized";
     public string SourceStatus => frameSource?.Status ?? "no dynamic source";
+    public string AudioStatus => audioPlayer?.Status ?? "audio stopped";
     public string SourceName => frameSource?.Name ?? "static image";
     public double LastUploadMilliseconds => dynamicTexture.LastUploadMilliseconds;
     public long UploadCount => dynamicTexture.UploadCount;
@@ -124,6 +127,8 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         frameSource?.Dispose();
         frameSource = null;
+        audioPlayer?.Dispose();
+        audioPlayer = null;
         dynamicTexture.Dispose();
         pictomancyContext?.Dispose();
         pictomancyContext = null;
@@ -136,6 +141,7 @@ public sealed class WorldScreenRenderer : IDisposable
             frameSource?.Dispose();
             frameSource = null;
             frameSourceSignature = string.Empty;
+            StopAudio();
 
             var path = File.Exists(bundledStaticImagePath) ? bundledStaticImagePath : string.Empty;
             return string.IsNullOrEmpty(path)
@@ -145,15 +151,20 @@ public sealed class WorldScreenRenderer : IDisposable
 
         EnsureFrameSource();
         if (frameSource == null)
+        {
+            StopAudio();
             return null;
+        }
 
         if (configuration.PlaybackPaused)
         {
             frameSource.Stop();
+            StopAudio();
             return dynamicTexture.TextureWrap;
         }
 
         frameSource.Start();
+        UpdateAudio();
         if (frameSource.TryGetLatestFrame(out var frame))
         {
             if (dynamicTexture.Upload(frame))
@@ -191,6 +202,7 @@ public sealed class WorldScreenRenderer : IDisposable
                     configuration.LoopLocalVideo);
                 break;
             default:
+                StopAudio();
                 Status = $"{configuration.SourceKind} source is not implemented yet";
                 break;
         }
@@ -215,6 +227,40 @@ public sealed class WorldScreenRenderer : IDisposable
                 configuration.LoopLocalVideo),
             _ => configuration.SourceKind.ToString(),
         };
+    }
+
+    private void UpdateAudio()
+    {
+        if (configuration.SourceKind != ScreenSourceKind.LocalVideo || !configuration.AudioEnabled)
+        {
+            StopAudio();
+            return;
+        }
+
+        var signature = string.Join('|',
+            configuration.FfmpegPath,
+            configuration.LocalVideoPath,
+            configuration.LoopLocalVideo);
+
+        if (audioPlayer == null || signature != audioSignature)
+        {
+            audioPlayer?.Dispose();
+            audioSignature = signature;
+            audioPlayer = new FfmpegAudioPlayer(
+                configuration.FfmpegPath,
+                configuration.LocalVideoPath,
+                configuration.LoopLocalVideo,
+                configuration.AudioVolume);
+        }
+
+        audioPlayer.SetVolume(configuration.AudioVolume);
+        audioPlayer.Start();
+    }
+
+    private void StopAudio()
+    {
+        audioPlayer?.Stop();
+        audioSignature = string.Empty;
     }
 
     private PctDxParams BuildDxParams()

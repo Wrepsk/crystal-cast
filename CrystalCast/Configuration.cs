@@ -41,6 +41,8 @@ public class Configuration : IPluginConfiguration
     public int LocalVideoHeight { get; set; } = 288;
     public float LocalVideoFps { get; set; } = 30.0f;
     public bool LoopLocalVideo { get; set; } = true;
+    public bool AudioEnabled { get; set; } = true;
+    public float AudioVolume { get; set; } = 0.7f;
     public bool PlaybackPaused { get; set; }
 
     public void Save()

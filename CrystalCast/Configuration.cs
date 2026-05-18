@@ -27,6 +27,7 @@ public class Configuration : IPluginConfiguration
     public float RollRadians { get; set; }
     public float WidthMeters { get; set; } = 3.0f;
     public float HeightMeters { get; set; } = 1.6875f;
+    public float ScreenCurveAmountMeters { get; set; }
 
     public float OccludedAlpha { get; set; } = 0.0f;
     public float OcclusionTolerance { get; set; } = 0.02f;

@@ -9,6 +9,8 @@ namespace CrystalCast.Rendering;
 public sealed class WorldScreenRenderer : IDisposable
 {
     private const float AudioVolumeSmoothingSeconds = 0.45f;
+    private const float ScreenCurveEpsilonMeters = 0.001f;
+    private const int CurvedScreenSegments = 32;
 
     private readonly Configuration configuration;
     private readonly DynamicVideoTexture dynamicTexture;
@@ -32,7 +34,7 @@ public sealed class WorldScreenRenderer : IDisposable
             {
                 EnableVfxRenderer = false,
                 EnableKtkOutput = true,
-                MaxImages = 16,
+                MaxImages = CurvedScreenSegments + 1,
             });
             Status = "Pictomancy ready";
         }
@@ -94,9 +96,9 @@ public sealed class WorldScreenRenderer : IDisposable
         var center = GetCenter();
         var rotation = GetRotation();
         var panelSize = GetPanelSize(texture);
-        var right = Vector3.Transform(Vector3.UnitX * panelSize.X, rotation);
+        var rightAxis = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, rotation));
         var down = Vector3.Transform(-Vector3.UnitY * panelSize.Y, rotation);
-        drawList.AddImage(texture, center, right, down, p);
+        DrawScreenImage(drawList, texture, center, rightAxis, down, panelSize, p);
 
         if (configuration.ShowDebugMarker)
         {
@@ -104,9 +106,11 @@ public sealed class WorldScreenRenderer : IDisposable
             drawList.AddText(center + new Vector3(0, panelSize.Y * 0.65f, 0), 0xFF00FFFF, "CrystalCast", 1.0f);
         }
 
+        var curveAmount = GetScreenCurveAmount(panelSize.X);
+        var shapeStatus = curveAmount > ScreenCurveEpsilonMeters ? $"curved {curveAmount:0.##} m" : "flat";
         LastDrawStatus = TryProjectCenter(out var screen)
-            ? $"drawn; center on screen at {screen.X:0}, {screen.Y:0}"
-            : "drawn; center is off-screen or behind camera";
+            ? $"drawn {shapeStatus}; center on screen at {screen.X:0}, {screen.Y:0}"
+            : $"drawn {shapeStatus}; center is off-screen or behind camera";
     }
 
     public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
@@ -427,8 +431,12 @@ public sealed class WorldScreenRenderer : IDisposable
         var rotation = GetRotation();
         var right = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, rotation));
         var down = Vector3.Normalize(Vector3.Transform(-Vector3.UnitY, rotation));
-        var normal = Vector3.Normalize(Vector3.Cross(right, down));
         var panelSize = GetPanelSizeForSource();
+        var curveAmount = GetScreenCurveAmount(panelSize.X);
+        if (curveAmount > ScreenCurveEpsilonMeters)
+            return DistanceToCurvedScreen(position, GetCenter(), right, down * panelSize.Y, panelSize.X, curveAmount);
+
+        var normal = Vector3.Normalize(Vector3.Cross(right, down));
         var halfWidth = panelSize.X * 0.5f;
         var halfHeight = panelSize.Y * 0.5f;
         var offset = position - GetCenter();
@@ -439,6 +447,60 @@ public sealed class WorldScreenRenderer : IDisposable
         var outsideY = MathF.Max(MathF.Abs(localY) - halfHeight, 0.0f);
 
         return MathF.Sqrt((outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ));
+    }
+
+    private void DrawScreenImage(PctDrawList drawList, IDalamudTextureWrap texture, Vector3 center, Vector3 rightAxis, Vector3 down, Vector2 panelSize, PctDxParams p)
+    {
+        var curveAmount = GetScreenCurveAmount(panelSize.X);
+        if (curveAmount <= ScreenCurveEpsilonMeters)
+        {
+            drawList.AddImage(texture, center, rightAxis * panelSize.X, down, p);
+            return;
+        }
+
+        var downAxis = Vector3.Normalize(down);
+        var curveForward = -Vector3.Normalize(Vector3.Cross(rightAxis, downAxis));
+        var curve = BuildCurve(panelSize.X, curveAmount);
+        for (var i = 0; i < CurvedScreenSegments; i++)
+        {
+            var u0 = (float)i / CurvedScreenSegments;
+            var u1 = (float)(i + 1) / CurvedScreenSegments;
+            var start = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u0);
+            var stop = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u1);
+            var stripRight = stop - start;
+            var stripCenter = (start + stop) * 0.5f;
+
+            drawList.AddImage(
+                texture,
+                stripCenter,
+                stripRight,
+                down,
+                new Vector2(u0, 0.0f),
+                new Vector2(u1, 1.0f),
+                p);
+        }
+    }
+
+    private float DistanceToCurvedScreen(Vector3 position, Vector3 center, Vector3 rightAxis, Vector3 down, float width, float curveAmount)
+    {
+        var downAxis = Vector3.Normalize(down);
+        var curveForward = -Vector3.Normalize(Vector3.Cross(rightAxis, downAxis));
+        var curve = BuildCurve(width, curveAmount);
+        var minDistanceSquared = float.PositiveInfinity;
+
+        for (var i = 0; i < CurvedScreenSegments; i++)
+        {
+            var u0 = (float)i / CurvedScreenSegments;
+            var u1 = (float)(i + 1) / CurvedScreenSegments;
+            var start = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u0);
+            var stop = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u1);
+            var stripRight = stop - start;
+            var stripCenter = (start + stop) * 0.5f;
+
+            minDistanceSquared = MathF.Min(minDistanceSquared, DistanceSquaredToPanel(position, stripCenter, stripRight, down));
+        }
+
+        return MathF.Sqrt(minDistanceSquared);
     }
 
     private void UpdatePlaybackTelemetry()
@@ -494,6 +556,66 @@ public sealed class WorldScreenRenderer : IDisposable
             height = width * frameSource.Height / frameSource.Width;
 
         return new Vector2(width, height);
+    }
+
+    private float GetScreenCurveAmount(float width)
+    {
+        return Math.Clamp(configuration.ScreenCurveAmountMeters, 0.0f, GetMaxScreenCurveAmount(width));
+    }
+
+    private static (float Radius, float HalfAngle) BuildCurve(float width, float curveAmount)
+    {
+        var halfArcLength = width * 0.5f;
+        var targetDepth = Math.Clamp(curveAmount, 0.0f, GetMaxScreenCurveAmount(width));
+        var low = 0.0f;
+        var high = MathF.PI * 0.5f;
+
+        for (var i = 0; i < 32; i++)
+        {
+            var mid = (low + high) * 0.5f;
+            var depth = halfArcLength * (1.0f - MathF.Cos(mid)) / mid;
+            if (depth < targetDepth)
+                low = mid;
+            else
+                high = mid;
+        }
+
+        var halfAngle = (low + high) * 0.5f;
+        var radius = halfArcLength / halfAngle;
+        return (radius, halfAngle);
+    }
+
+    private static float GetMaxScreenCurveAmount(float width)
+    {
+        return Math.Max(0.0f, width / MathF.PI);
+    }
+
+    private static Vector3 GetCurvedScreenPoint(Vector3 center, Vector3 rightAxis, Vector3 curveForward, float radius, float halfAngle, float u)
+    {
+        var theta = ((u * 2.0f) - 1.0f) * halfAngle;
+        var horizontal = radius * MathF.Sin(theta);
+        var depth = radius * (1.0f - MathF.Cos(theta));
+        return center + (rightAxis * horizontal) + (curveForward * depth);
+    }
+
+    private static float DistanceSquaredToPanel(Vector3 position, Vector3 center, Vector3 right, Vector3 down)
+    {
+        var rightLength = right.Length();
+        var downLength = down.Length();
+        if (rightLength <= 0.0001f || downLength <= 0.0001f)
+            return Vector3.DistanceSquared(position, center);
+
+        var rightAxis = right / rightLength;
+        var downAxis = down / downLength;
+        var normal = Vector3.Normalize(Vector3.Cross(rightAxis, downAxis));
+        var offset = position - center;
+        var localX = Vector3.Dot(offset, rightAxis);
+        var localY = Vector3.Dot(offset, downAxis);
+        var localZ = Vector3.Dot(offset, normal);
+        var outsideX = MathF.Max(MathF.Abs(localX) - (rightLength * 0.5f), 0.0f);
+        var outsideY = MathF.Max(MathF.Abs(localY) - (downLength * 0.5f), 0.0f);
+
+        return (outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ);
     }
 
     private Vector3 GetCenter()

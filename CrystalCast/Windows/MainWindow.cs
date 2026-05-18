@@ -152,6 +152,20 @@ public sealed class MainWindow : Window, IDisposable
             ? $"Auto height: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m"
             : "Auto height: waiting for texture");
 
+        var maxCurveAmount = Math.Max(0.001f, config.WidthMeters / MathF.PI);
+        var curveAmount = Math.Clamp(config.ScreenCurveAmountMeters, 0.0f, maxCurveAmount);
+        if (Math.Abs(config.ScreenCurveAmountMeters - curveAmount) > 0.0001f)
+        {
+            config.ScreenCurveAmountMeters = curveAmount;
+            changed = true;
+        }
+
+        if (ImGui.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
+        {
+            config.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
+            changed = true;
+        }
+
         return changed;
     }
 

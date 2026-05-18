@@ -79,6 +79,7 @@ public sealed class ScreenStateIpc : IDisposable
             {
                 OccludedAlpha = configuration.OccludedAlpha,
                 OcclusionTolerance = configuration.OcclusionTolerance,
+                ScreenCurveAmountMeters = configuration.ScreenCurveAmountMeters,
                 DistanceFadeEnabled = configuration.EnableDistanceFade,
                 FadeStartMeters = configuration.FadeStartMeters,
                 FadeStopMeters = configuration.FadeStopMeters,

@@ -45,6 +45,7 @@ public sealed class ScreenVisualState
 {
     public float OccludedAlpha { get; set; }
     public float OcclusionTolerance { get; set; } = 0.02f;
+    public float ScreenCurveAmountMeters { get; set; }
     public bool DistanceFadeEnabled { get; set; }
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;

@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly WindowSystem windowSystem = new("CrystalCast");
     private readonly MainWindow mainWindow;
+    private readonly ConfigWindow configWindow;
     private readonly WorldScreenRenderer renderer;
     private readonly ScreenStateIpc ipc;
 
@@ -38,7 +39,9 @@ public sealed class Plugin : IDalamudPlugin
         renderer = new WorldScreenRenderer(Configuration);
         ipc = new ScreenStateIpc(Configuration, () => renderer.PlaybackTelemetry);
         mainWindow = new MainWindow(this, renderer, ipc);
+        configWindow = new ConfigWindow(this, renderer, ipc);
         windowSystem.AddWindow(mainWindow);
+        windowSystem.AddWindow(configWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -46,7 +49,7 @@ public sealed class Plugin : IDalamudPlugin
         });
 
         PluginInterface.UiBuilder.Draw += OnDraw;
-        PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
+        PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
         Log.Information("CrystalCast loaded.");
@@ -57,17 +60,19 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         PluginInterface.UiBuilder.Draw -= OnDraw;
-        PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
+        PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
 
         CommandManager.RemoveHandler(CommandName);
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
+        configWindow.Dispose();
         ipc.Dispose();
         renderer.Dispose();
     }
 
     public void ToggleMainUi() => mainWindow.Toggle();
+    public void ToggleConfigUi() => configWindow.Toggle();
 
     private void OnCommand(string command, string args) => ToggleMainUi();
 

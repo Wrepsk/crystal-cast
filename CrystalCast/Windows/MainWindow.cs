@@ -36,7 +36,7 @@ public sealed class MainWindow : Window, IDisposable
         this.renderer = renderer;
         this.ipc = ipc;
 
-        Size = new Vector2(520, 640);
+        Size = new Vector2(520, 520);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -49,31 +49,26 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
         var config = plugin.Configuration;
 
-        changed |= DrawEnabled(config);
-        ImGui.Separator();
-        changed |= DrawPlacement(config);
-        ImGui.Separator();
+        DrawHeader();
+        changed |= DrawPlaybackShell(config);
+        DrawSectionTitle("Source");
         changed |= DrawSource(config);
-        ImGui.Separator();
-        changed |= DrawDepth(config);
-        ImGui.Separator();
-        changed |= DrawDebug(config);
-        ImGui.Separator();
-        DrawStatus();
+        DrawSectionTitle("Placement");
+        changed |= DrawPlacement(config);
 
         if (changed)
             SaveAndPublish();
-
-        ImGui.Separator();
-        if (ImGui.Button("Save"))
-            config.Save();
-
-        ImGui.SameLine();
-        if (ImGui.Button("Broadcast state"))
-            ipc.PublishLocalState();
     }
 
-    private bool DrawEnabled(Configuration config)
+    private static void DrawHeader()
+    {
+        ImGui.TextUnformatted("CrystalCast");
+        ImGui.SameLine();
+        ImGui.TextDisabled("Scene composite world screen");
+        ImGui.Separator();
+    }
+
+    private bool DrawPlaybackShell(Configuration config)
     {
         var changed = false;
         var enabled = config.Enabled;
@@ -83,44 +78,38 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        var paused = config.PlaybackPaused;
-        if (ImGui.Checkbox("Pause dynamic source", ref paused))
+        ImGui.SameLine();
+        var source = SourceNames[FindSourceIndex(config.SourceKind)];
+        ImGui.TextDisabled($"Source: {source}");
+
+        if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
-            config.PlaybackPaused = paused;
-            changed = true;
+            var telemetry = renderer.PlaybackTelemetry;
+            var position = telemetry == null
+                ? "0:00"
+                : FormatPlaybackPosition(telemetry.PositionMs);
+            var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
+            ImGui.TextUnformatted($"{state} @ {position}");
+        }
+        else
+        {
+            var paused = config.PlaybackPaused;
+            if (ImGui.Checkbox("Paused", ref paused))
+            {
+                config.PlaybackPaused = paused;
+                changed = true;
+            }
         }
 
-        ImGui.TextUnformatted($"Screen ID: {config.ScreenId}");
+        ImGui.TextDisabled(ShortStatus(renderer.SourceStatus));
         return changed;
     }
 
-    private static bool DrawDebug(Configuration config)
+    private static void DrawSectionTitle(string label)
     {
-        var changed = false;
-        var showMarker = config.ShowDebugMarker;
-
-        ImGui.TextUnformatted("Output layer: Scene composite");
-
-        if (ImGui.Checkbox("Debug marker", ref showMarker))
-        {
-            config.ShowDebugMarker = showMarker;
-            changed = true;
-        }
-
-        if (ImGui.Button("Make fully visible"))
-        {
-            config.OccludedAlpha = 1.0f;
-            changed = true;
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Depth occlusion"))
-        {
-            config.OccludedAlpha = 0.0f;
-            changed = true;
-        }
-
-        return changed;
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextUnformatted(label);
     }
 
     private bool DrawPlacement(Configuration config)
@@ -157,10 +146,9 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
-            ImGui.TextUnformatted($"Height meters: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###}");
-        else
-            ImGui.TextUnformatted($"Height meters: auto");
+        ImGui.TextDisabled(renderer.TextureWidth > 0 && renderer.TextureHeight > 0
+            ? $"Auto height: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m"
+            : "Auto height: waiting for texture");
 
         return changed;
     }
@@ -230,9 +218,9 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         if (YouTubeVideoId.TryParse(config.YouTubeUrl, out var parsedVideoId))
-            ImGui.TextUnformatted($"Video ID: {parsedVideoId}");
+            ImGui.TextDisabled($"Video ID: {parsedVideoId}");
         else
-            ImGui.TextUnformatted("Video ID: invalid or empty");
+            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Video ID: invalid or empty");
 
         changed |= DrawYouTubePlaybackControls(config);
 
@@ -328,7 +316,7 @@ public sealed class MainWindow : Window, IDisposable
             : FormatPlaybackPosition(telemetry.PositionMs);
         var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
 
-        ImGui.TextUnformatted($"Playback: {state} @ {position}");
+        ImGui.TextDisabled($"Playback: {state} @ {position}");
 
         if (ImGui.Button("Play"))
         {
@@ -447,65 +435,15 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private static bool DrawDepth(Configuration config)
+    private static string ShortStatus(string status)
     {
-        var changed = false;
-        var occludedAlpha = config.OccludedAlpha;
-        var tolerance = config.OcclusionTolerance;
-        var distanceFade = config.EnableDistanceFade;
-        var fadeStart = config.FadeStartMeters;
-        var fadeStop = config.FadeStopMeters;
+        if (string.IsNullOrWhiteSpace(status))
+            return string.Empty;
 
-        if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
-        {
-            config.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
-            changed = true;
-        }
-
-        if (ImGui.InputFloat("Occlusion tolerance", ref tolerance, 0.01f, 0.1f))
-        {
-            config.OcclusionTolerance = Math.Max(0.0f, tolerance);
-            changed = true;
-        }
-
-        if (ImGui.Checkbox("Distance fade", ref distanceFade))
-        {
-            config.EnableDistanceFade = distanceFade;
-            changed = true;
-        }
-
-        if (config.EnableDistanceFade)
-        {
-            if (ImGui.InputFloat("Fade start", ref fadeStart, 1.0f, 5.0f))
-            {
-                config.FadeStartMeters = Math.Max(0.0f, fadeStart);
-                changed = true;
-            }
-
-            if (ImGui.InputFloat("Fade stop", ref fadeStop, 1.0f, 5.0f))
-            {
-                config.FadeStopMeters = Math.Max(config.FadeStartMeters + 0.01f, fadeStop);
-                changed = true;
-            }
-        }
-
-        return changed;
-    }
-
-    private void DrawStatus()
-    {
-        ImGui.TextUnformatted($"Renderer: {renderer.Status}");
-        ImGui.TextUnformatted($"Draw: {renderer.LastDrawStatus}");
-        ImGui.TextUnformatted($"Source: {renderer.SourceName}");
-        ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
-        ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
-        ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
-        if (plugin.Configuration.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser && renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
-            ImGui.TextUnformatted($"Auto height: {plugin.Configuration.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m");
-        ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
-        ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
-        ImGui.TextUnformatted($"Frame age: {renderer.FrameAgeMilliseconds} ms");
-        ImGui.TextUnformatted($"Remote screens in IPC store: {ipc.RemoteScreens.Count}");
+        const int maxLength = 96;
+        return status.Length <= maxLength
+            ? status
+            : $"{status[..maxLength]}...";
     }
 
     private void SaveAndPublish()

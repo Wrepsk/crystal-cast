@@ -11,6 +11,7 @@ public sealed class WorldScreenRenderer : IDisposable
     private const float AudioVolumeSmoothingSeconds = 0.45f;
     private const float ScreenCurveEpsilonMeters = 0.001f;
     private const int CurvedScreenSegments = 32;
+    private static readonly TimeSpan SceneCompositeFallbackDelay = TimeSpan.FromSeconds(2);
 
     private readonly Configuration configuration;
     private readonly DynamicVideoTexture dynamicTexture;
@@ -22,6 +23,9 @@ public sealed class WorldScreenRenderer : IDisposable
     private long lastFrameUnixMs;
     private long lastEffectiveAudioVolumeUnixMs;
     private float smoothedEffectiveAudioVolume;
+    private bool sceneCompositeFallbackActive;
+    private bool sceneCompositeFallbackLogged;
+    private string sceneCompositeFallbackReason = string.Empty;
 
     public WorldScreenRenderer(Configuration configuration)
     {
@@ -79,9 +83,10 @@ public sealed class WorldScreenRenderer : IDisposable
         }
 
         var p = BuildDxParams();
+        var autoDraw = ResolveAutoDraw(GetAutoDraw());
         using var drawList = PctService.Draw(hints: new PctDrawHints
         {
-            AutoDraw = GetAutoDraw(),
+            AutoDraw = autoDraw,
             AlphaBlendMode = AlphaBlendMode.Add,
             UIMask = GetUiMask(),
             DefaultParams = p,
@@ -89,7 +94,9 @@ public sealed class WorldScreenRenderer : IDisposable
 
         if (drawList == null)
         {
-            LastDrawStatus = "Pictomancy skipped this frame";
+            LastDrawStatus = autoDraw == AutoDraw.SceneComposite
+                ? $"scene composite waiting; {PctService.SceneCompositeStatus}"
+                : "Pictomancy skipped this frame";
             return;
         }
 
@@ -108,9 +115,10 @@ public sealed class WorldScreenRenderer : IDisposable
 
         var curveAmount = GetScreenCurveAmount(panelSize.X);
         var shapeStatus = curveAmount > ScreenCurveEpsilonMeters ? $"curved {curveAmount:0.##} m" : "flat";
+        var outputStatus = DescribeDrawMode(autoDraw);
         LastDrawStatus = TryProjectCenter(out var screen)
-            ? $"drawn {shapeStatus}; center on screen at {screen.X:0}, {screen.Y:0}"
-            : $"drawn {shapeStatus}; center is off-screen or behind camera";
+            ? $"{outputStatus} drawn {shapeStatus}; center on screen at {screen.X:0}, {screen.Y:0}"
+            : $"{outputStatus} drawn {shapeStatus}; center is off-screen or behind camera";
     }
 
     public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
@@ -536,6 +544,61 @@ public sealed class WorldScreenRenderer : IDisposable
             Configuration.OutputModeSceneComposite or 3 => AutoDraw.SceneComposite,
             _ => AutoDraw.ImGuiOverlay,
         };
+    }
+
+    private AutoDraw ResolveAutoDraw(AutoDraw configuredAutoDraw)
+    {
+        if (configuredAutoDraw != AutoDraw.SceneComposite)
+        {
+            sceneCompositeFallbackActive = false;
+            sceneCompositeFallbackLogged = false;
+            sceneCompositeFallbackReason = string.Empty;
+            return configuredAutoDraw;
+        }
+
+        if (sceneCompositeFallbackActive)
+            return AutoDraw.NativeOverlay;
+
+        var fallbackReason = string.Empty;
+        if (PctService.IsSceneCompositeHookUnavailable)
+            fallbackReason = $"scene composite hook unavailable; {PctService.SceneCompositeStatus}";
+        else if (PctService.IsSceneCompositeStalled(SceneCompositeFallbackDelay))
+            fallbackReason = $"scene composite stalled for {SceneCompositeFallbackDelay.TotalSeconds:0.#}s; {PctService.SceneCompositeStatus}";
+
+        if (string.IsNullOrWhiteSpace(fallbackReason))
+            return AutoDraw.SceneComposite;
+
+        sceneCompositeFallbackActive = true;
+        sceneCompositeFallbackReason = fallbackReason;
+        PctService.CancelSceneComposite($"CrystalCast switching to NativeOverlay fallback: {fallbackReason}");
+
+        if (!sceneCompositeFallbackLogged)
+        {
+            sceneCompositeFallbackLogged = true;
+            Plugin.Log.Warning($"Scene composite is unavailable; using NativeOverlay fallback. {fallbackReason}");
+        }
+
+        return AutoDraw.NativeOverlay;
+    }
+
+    private string DescribeDrawMode(AutoDraw autoDraw)
+    {
+        return autoDraw switch
+        {
+            AutoDraw.SceneComposite => "scene composite",
+            AutoDraw.NativeOverlay when sceneCompositeFallbackActive => $"native overlay fallback ({Abbreviate(sceneCompositeFallbackReason, 96)})",
+            AutoDraw.NativeOverlay => "native overlay",
+            AutoDraw.ImGuiOverlay => "ImGui overlay",
+            _ => "manual",
+        };
+    }
+
+    private static string Abbreviate(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= maxLength)
+            return value;
+
+        return $"{value[..maxLength]}...";
     }
 
     private Vector2 GetPanelSize(IDalamudTextureWrap texture)

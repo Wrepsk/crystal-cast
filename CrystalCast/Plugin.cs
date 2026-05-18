@@ -12,6 +12,7 @@ namespace CrystalCast;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/crystalcast";
+    private const string SettingsCommandName = "/ccsettings";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
@@ -47,6 +48,10 @@ public sealed class Plugin : IDalamudPlugin
         {
             HelpMessage = "Open the CrystalCast world-screen controls.",
         });
+        CommandManager.AddHandler(SettingsCommandName, new CommandInfo(OnSettingsCommand)
+        {
+            HelpMessage = "Open the CrystalCast settings window.",
+        });
 
         PluginInterface.UiBuilder.Draw += OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
@@ -64,6 +69,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
 
         CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(SettingsCommandName);
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
         configWindow.Dispose();
@@ -75,6 +81,7 @@ public sealed class Plugin : IDalamudPlugin
     public void ToggleConfigUi() => configWindow.Toggle();
 
     private void OnCommand(string command, string args) => ToggleMainUi();
+    private void OnSettingsCommand(string command, string args) => ToggleConfigUi();
 
     private void OnDraw()
     {

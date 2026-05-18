@@ -20,14 +20,10 @@ public sealed class MainWindow : Window, IDisposable
     ];
 
     private static readonly string[] SourceNames =
-    [
-        "Static image",
-        "Generated frames",
-        "Local video",
-        "YouTube browser",
-        "Browser capture (later)",
-        "Offscreen browser (later)",
-    ];
+        ["Local video", "YouTube browser"];
+
+    private static readonly ScreenSourceKind[] SourceKinds =
+        [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
 
     private readonly Plugin plugin;
     private readonly WorldScreenRenderer renderer;
@@ -161,22 +157,10 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        if (config.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser)
-        {
-            if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
-                ImGui.TextUnformatted($"Height meters: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###}");
-            else
-                ImGui.TextUnformatted($"Height meters: auto");
-        }
+        if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
+            ImGui.TextUnformatted($"Height meters: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###}");
         else
-        {
-            var height = config.HeightMeters;
-            if (ImGui.InputFloat("Height meters", ref height, 0.1f, 0.5f))
-            {
-                config.HeightMeters = Math.Max(0.1f, height);
-                changed = true;
-            }
-        }
+            ImGui.TextUnformatted($"Height meters: auto");
 
         return changed;
     }
@@ -184,7 +168,7 @@ public sealed class MainWindow : Window, IDisposable
     private bool DrawSource(Configuration config)
     {
         var changed = false;
-        var current = Math.Clamp((int)config.SourceKind, 0, SourceNames.Length - 1);
+        var current = FindSourceIndex(config.SourceKind);
 
         if (ImGui.BeginCombo("Source", SourceNames[current]))
         {
@@ -193,7 +177,7 @@ public sealed class MainWindow : Window, IDisposable
                 var selected = i == current;
                 if (ImGui.Selectable(SourceNames[i], selected))
                 {
-                    config.SourceKind = (ScreenSourceKind)i;
+                    config.SourceKind = SourceKinds[i];
                     changed = true;
                 }
 
@@ -206,22 +190,26 @@ public sealed class MainWindow : Window, IDisposable
 
         switch (config.SourceKind)
         {
-            case ScreenSourceKind.Generated:
-                changed |= DrawGeneratedSource(config);
-                break;
             case ScreenSourceKind.LocalVideo:
                 changed |= DrawLocalVideoSource(config);
                 break;
             case ScreenSourceKind.YouTubeBrowser:
                 changed |= DrawYouTubeSource(config);
                 break;
-            case ScreenSourceKind.BrowserCapture:
-            case ScreenSourceKind.OffscreenBrowser:
-                ImGui.TextUnformatted("This source is reserved for a later phase.");
-                break;
         }
 
         return changed;
+    }
+
+    private static int FindSourceIndex(ScreenSourceKind sourceKind)
+    {
+        for (var i = 0; i < SourceKinds.Length; i++)
+        {
+            if (SourceKinds[i] == sourceKind)
+                return i;
+        }
+
+        return 0;
     }
 
     private bool DrawYouTubeSource(Configuration config)
@@ -401,34 +389,6 @@ public sealed class MainWindow : Window, IDisposable
         return time.TotalHours >= 1.0
             ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
             : $"{time.Minutes}:{time.Seconds:00}";
-    }
-
-    private static bool DrawGeneratedSource(Configuration config)
-    {
-        var changed = false;
-        var width = config.GeneratedWidth;
-        var height = config.GeneratedHeight;
-        var fps = config.GeneratedFps;
-
-        if (ImGui.InputInt("Generated width", ref width))
-        {
-            config.GeneratedWidth = Math.Clamp(width, 64, 3840);
-            changed = true;
-        }
-
-        if (ImGui.InputInt("Generated height", ref height))
-        {
-            config.GeneratedHeight = Math.Clamp(height, 64, 2160);
-            changed = true;
-        }
-
-        if (ImGui.InputFloat("Generated FPS", ref fps, 1.0f, 5.0f))
-        {
-            config.GeneratedFps = Math.Clamp(fps, 1.0f, 120.0f);
-            changed = true;
-        }
-
-        return changed;
     }
 
     private static bool DrawLocalVideoSource(Configuration config)

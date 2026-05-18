@@ -19,7 +19,6 @@ public sealed class ScreenStateIpc : IDisposable
     };
 
     private readonly Configuration configuration;
-    private readonly string bundledStaticImagePath;
     private readonly Func<MediaPlaybackTelemetry?> playbackTelemetryProvider;
     private readonly ICallGateProvider<int> apiVersionProvider;
     private readonly ICallGateProvider<string> snapshotProvider;
@@ -28,10 +27,9 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, object> localStateChangedProvider;
     private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
 
-    public ScreenStateIpc(Configuration configuration, string bundledStaticImagePath, Func<MediaPlaybackTelemetry?>? playbackTelemetryProvider = null)
+    public ScreenStateIpc(Configuration configuration, Func<MediaPlaybackTelemetry?>? playbackTelemetryProvider = null)
     {
         this.configuration = configuration;
-        this.bundledStaticImagePath = bundledStaticImagePath;
         this.playbackTelemetryProvider = playbackTelemetryProvider ?? (() => null);
 
         apiVersionProvider = Plugin.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
@@ -147,16 +145,8 @@ public sealed class ScreenStateIpc : IDisposable
     {
         return configuration.SourceKind switch
         {
-            ScreenSourceKind.StaticImage => BuildFileSourceState(ScreenSourceKind.StaticImage, bundledStaticImagePath, "bundled-static"),
             ScreenSourceKind.LocalVideo => BuildLocalVideoSourceState(),
             ScreenSourceKind.YouTubeBrowser => BuildYouTubeSourceState(),
-            ScreenSourceKind.Generated => new ScreenSourceState
-            {
-                Kind = ScreenSourceKind.Generated,
-                Identity = $"generated:{configuration.GeneratedWidth}x{configuration.GeneratedHeight}@{configuration.GeneratedFps.ToString("0.###", CultureInfo.InvariantCulture)}",
-                Title = "Generated test frames",
-                Hash = string.Empty,
-            },
             _ => new ScreenSourceState
             {
                 Kind = configuration.SourceKind,

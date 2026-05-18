@@ -2,7 +2,7 @@
 
 CrystalCast is a Dalamud API 15 prototype for rendering a local world-space media surface in FFXIV.
 
-It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws a flat `AddImage` panel through `AutoDraw.SceneComposite` with scene-depth occlusion. Implemented sources include a bundled static image, generated BGRA test frames, local video decoded through `ffmpeg`, and a first-pass YouTube browser source rendered through WebView2 capture.
+It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws a flat `AddImage` panel through `AutoDraw.SceneComposite` with scene-depth occlusion. Implemented sources are local video decoded through `ffmpeg` and a first-pass YouTube browser source rendered through WebView2 capture.
 
 ## Build
 

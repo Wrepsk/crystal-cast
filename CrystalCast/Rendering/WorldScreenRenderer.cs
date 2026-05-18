@@ -9,7 +9,6 @@ namespace CrystalCast.Rendering;
 public sealed class WorldScreenRenderer : IDisposable
 {
     private readonly Configuration configuration;
-    private readonly string bundledStaticImagePath;
     private readonly DynamicVideoTexture dynamicTexture;
     private PctContext? pictomancyContext;
     private IVideoFrameSource? frameSource;
@@ -18,10 +17,9 @@ public sealed class WorldScreenRenderer : IDisposable
     private string audioSignature = string.Empty;
     private long lastFrameUnixMs;
 
-    public WorldScreenRenderer(Configuration configuration, string bundledStaticImagePath)
+    public WorldScreenRenderer(Configuration configuration)
     {
         this.configuration = configuration;
-        this.bundledStaticImagePath = bundledStaticImagePath;
         dynamicTexture = new DynamicVideoTexture(Plugin.TextureProvider);
 
         try
@@ -44,7 +42,7 @@ public sealed class WorldScreenRenderer : IDisposable
     public string Status { get; private set; } = "not initialized";
     public string SourceStatus => frameSource?.Status ?? "no dynamic source";
     public string AudioStatus => audioPlayer?.Status ?? "audio stopped";
-    public string SourceName => frameSource?.Name ?? "static image";
+    public string SourceName => frameSource?.Name ?? "no source";
     public double LastUploadMilliseconds => dynamicTexture.LastUploadMilliseconds;
     public long UploadCount => dynamicTexture.UploadCount;
     public int TextureWidth => dynamicTexture.Width;
@@ -177,20 +175,6 @@ public sealed class WorldScreenRenderer : IDisposable
 
     private IDalamudTextureWrap? ResolveTexture()
     {
-        if (configuration.SourceKind == ScreenSourceKind.StaticImage)
-        {
-            frameSource?.Dispose();
-            frameSource = null;
-            frameSourceSignature = string.Empty;
-            StopAudio();
-            PlaybackTelemetry = null;
-
-            var path = File.Exists(bundledStaticImagePath) ? bundledStaticImagePath : string.Empty;
-            return string.IsNullOrEmpty(path)
-                ? null
-                : Plugin.TextureProvider.GetFromFileAbsolute(path).GetWrapOrDefault();
-        }
-
         EnsureFrameSource();
         if (frameSource == null)
         {
@@ -232,12 +216,6 @@ public sealed class WorldScreenRenderer : IDisposable
 
         switch (configuration.SourceKind)
         {
-            case ScreenSourceKind.Generated:
-                frameSource = new GeneratedFrameSource(
-                    configuration.GeneratedWidth,
-                    configuration.GeneratedHeight,
-                    configuration.GeneratedFps);
-                break;
             case ScreenSourceKind.LocalVideo:
                 frameSource = new FfmpegRawVideoFrameSource(
                     configuration.FfmpegPath,
@@ -271,11 +249,6 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         return configuration.SourceKind switch
         {
-            ScreenSourceKind.Generated => string.Join('|',
-                configuration.SourceKind,
-                configuration.GeneratedWidth,
-                configuration.GeneratedHeight,
-                configuration.GeneratedFps),
             ScreenSourceKind.LocalVideo => string.Join('|',
                 configuration.SourceKind,
                 configuration.FfmpegPath,

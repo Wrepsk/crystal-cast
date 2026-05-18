@@ -9,7 +9,7 @@ public class Configuration : IPluginConfiguration
     public int Version { get; set; } = 1;
 
     public bool Enabled { get; set; } = true;
-    public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.StaticImage;
+    public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.LocalVideo;
 
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
     public string OwnerSessionId { get; set; } = Guid.NewGuid().ToString("N");
@@ -32,10 +32,6 @@ public class Configuration : IPluginConfiguration
     public int OutputMode { get; set; } = 2;
     public int UiMaskMode { get; set; }
     public bool ShowDebugMarker { get; set; } = true;
-
-    public int GeneratedWidth { get; set; } = 512;
-    public int GeneratedHeight { get; set; } = 288;
-    public float GeneratedFps { get; set; } = 30.0f;
 
     public string FfmpegPath { get; set; } = "ffmpeg.exe";
     public string LocalVideoPath { get; set; } = string.Empty;

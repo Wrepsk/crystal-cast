@@ -29,10 +29,14 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        var staticImagePath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
+        if (Configuration.SourceKind is not (ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser))
+        {
+            Configuration.SourceKind = ScreenSourceKind.LocalVideo;
+            Configuration.Save();
+        }
 
-        renderer = new WorldScreenRenderer(Configuration, staticImagePath);
-        ipc = new ScreenStateIpc(Configuration, staticImagePath, () => renderer.PlaybackTelemetry);
+        renderer = new WorldScreenRenderer(Configuration);
+        ipc = new ScreenStateIpc(Configuration, () => renderer.PlaybackTelemetry);
         mainWindow = new MainWindow(this, renderer, ipc);
         windowSystem.AddWindow(mainWindow);
 

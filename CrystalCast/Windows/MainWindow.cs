@@ -13,11 +13,13 @@ public sealed class MainWindow : Window, IDisposable
         "ImGui overlay",
         "Native overlay",
         "NamePlate native overlay",
+        "Scene composite (experimental)",
     ];
 
     private static readonly string[] UiMaskNames =
     [
         "None",
+        "Backbuffer alpha",
         "Backbuffer subtraction",
     ];
 
@@ -104,7 +106,7 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
         var outputMode = Math.Clamp(config.OutputMode, 0, OutputModeNames.Length - 1);
         var showMarker = config.ShowDebugMarker;
-        var uiMaskMode = config.UiMaskMode <= 0 ? 0 : 1;
+        var uiMaskMode = Math.Clamp(config.UiMaskMode, 0, UiMaskNames.Length - 1);
 
         if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
         {
@@ -131,7 +133,7 @@ public sealed class MainWindow : Window, IDisposable
                 var selected = i == uiMaskMode;
                 if (ImGui.Selectable(UiMaskNames[i], selected))
                 {
-                    config.UiMaskMode = i == 0 ? 0 : 1;
+                    config.UiMaskMode = i;
                     changed = true;
                 }
 

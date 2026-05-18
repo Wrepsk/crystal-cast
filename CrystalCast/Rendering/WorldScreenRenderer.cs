@@ -280,7 +280,8 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         return configuration.UiMaskMode switch
         {
-            > 0 => UIMask.BackbufferSubtraction,
+            1 => UIMask.BackbufferAlpha,
+            2 => UIMask.BackbufferSubtraction,
             _ => UIMask.None,
         };
     }
@@ -291,6 +292,7 @@ public sealed class WorldScreenRenderer : IDisposable
         {
             1 => AutoDraw.NativeOverlay,
             2 => AutoDraw.NamePlateOverlay,
+            3 => AutoDraw.SceneComposite,
             _ => AutoDraw.ImGuiOverlay,
         };
     }

@@ -31,6 +31,8 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Dictionary<string, YouTubeUiState> youtubeUiStates = new(StringComparer.Ordinal);
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
+    private string renamingPlacementPresetId = string.Empty;
+    private string placementPresetRenameDraft = string.Empty;
 
     public MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast###CrystalCastMain")
@@ -62,7 +64,7 @@ public sealed class MainWindow : Window, IDisposable
         changed |= DrawSource(config, activeBrowserScreen);
         DrawSectionTitle("Placement");
         changed |= config.SourceKind == ScreenSourceKind.YouTubeBrowser
-            ? DrawPlacement(activeBrowserScreen.Placement)
+            ? DrawPlacement(activeBrowserScreen)
             : DrawPlacement(config);
 
         if (changed)
@@ -349,6 +351,10 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Button("Place in front of player"))
             changed |= renderer.PlaceInFrontOfPlayer();
 
+        changed |= DrawPlacementPresets(
+            () => config.GetLocalVideoPlacement(),
+            config.ApplyLocalVideoPlacement);
+
         var position = new Vector3(config.PositionX, config.PositionY, config.PositionZ);
         if (ImGui.InputFloat3("Position", ref position))
         {
@@ -371,13 +377,18 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private bool DrawPlacement(ScreenPlacementSettings placement)
+    private bool DrawPlacement(BrowserScreenProfile screen)
     {
         var changed = false;
 
         if (ImGui.Button("Place in front of player"))
             changed |= renderer.PlaceInFrontOfPlayer();
 
+        changed |= DrawPlacementPresets(
+            () => screen.Placement,
+            placement => screen.Placement = placement.Clone());
+
+        var placement = screen.Placement;
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
         if (ImGui.InputFloat3("Position", ref position))
         {
@@ -397,6 +408,122 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         changed |= DrawPlacementSizeAndCurve(placement);
+        return changed;
+    }
+
+    private bool DrawPlacementPresets(Func<ScreenPlacementSettings> getCurrentPlacement, Action<ScreenPlacementSettings> applyPlacement)
+    {
+        var config = plugin.Configuration;
+        config.Normalize();
+        var changed = false;
+        var activePreset = config.GetActivePlacementPreset();
+        var presetLabel = activePreset?.Name ?? "No presets";
+
+        ImGui.Spacing();
+        ImGui.PushID("PlacementPresets");
+        if (ImGui.BeginCombo("Placement preset", presetLabel))
+        {
+            if (config.PlacementPresets.Count == 0)
+            {
+                ImGui.TextDisabled("No presets saved");
+            }
+            else
+            {
+                foreach (var preset in config.PlacementPresets)
+                {
+                    var selected = preset.PresetId == config.ActivePlacementPresetId;
+                    if (ImGui.Selectable($"{preset.Name}##PlacementPreset{preset.PresetId}", selected))
+                    {
+                        config.ActivePlacementPresetId = preset.PresetId;
+                        config.Save();
+                        activePreset = preset;
+                    }
+
+                    if (selected)
+                        ImGui.SetItemDefaultFocus();
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        if (ImGui.Button("Save New"))
+        {
+            var preset = config.CreatePlacementPreset(GetNextPlacementPresetName(config), getCurrentPlacement());
+            config.PlacementPresets.Add(preset);
+            config.ActivePlacementPresetId = preset.PresetId;
+            config.Save();
+            activePreset = preset;
+        }
+
+        var hasPreset = activePreset != null;
+        ImGui.SameLine();
+        if (!hasPreset)
+            ImGui.BeginDisabled();
+        if (ImGui.Button("Update") && activePreset != null)
+        {
+            activePreset.Placement = getCurrentPlacement().Clone();
+            activePreset.Placement.Normalize();
+            config.Save();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Load") && activePreset != null)
+        {
+            applyPlacement(activePreset.Placement);
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Rename") && activePreset != null)
+        {
+            renamingPlacementPresetId = activePreset.PresetId;
+            placementPresetRenameDraft = activePreset.Name;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Delete") && activePreset != null)
+        {
+            var removedId = activePreset.PresetId;
+            var removedIndex = Math.Max(0, config.PlacementPresets.FindIndex(preset => preset.PresetId == removedId));
+            config.PlacementPresets.RemoveAll(preset => preset.PresetId == removedId);
+            if (renamingPlacementPresetId == removedId)
+                renamingPlacementPresetId = string.Empty;
+
+            config.ActivePlacementPresetId = config.PlacementPresets.Count == 0
+                ? string.Empty
+                : config.PlacementPresets[Math.Clamp(removedIndex - 1, 0, config.PlacementPresets.Count - 1)].PresetId;
+            config.Save();
+            activePreset = config.GetActivePlacementPreset();
+        }
+
+        if (!hasPreset)
+            ImGui.EndDisabled();
+
+        if (activePreset != null && renamingPlacementPresetId == activePreset.PresetId)
+        {
+            var draft = placementPresetRenameDraft;
+            var pressedEnter = ImGui.InputText("Preset name", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+            placementPresetRenameDraft = draft;
+            ImGui.SameLine();
+            if (ImGui.Button("Save preset name") || pressedEnter)
+            {
+                var trimmed = placementPresetRenameDraft.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmed))
+                {
+                    activePreset.Name = GetUniquePlacementPresetName(config, trimmed, activePreset.PresetId);
+                    config.Save();
+                }
+
+                renamingPlacementPresetId = string.Empty;
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel preset rename"))
+                renamingPlacementPresetId = string.Empty;
+        }
+
+        ImGui.PopID();
         return changed;
     }
 
@@ -853,6 +980,31 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return $"YouTube screen {config.BrowserScreens.Count + 1}";
+    }
+
+    private static string GetNextPlacementPresetName(Configuration config)
+    {
+        for (var i = 1; ; i++)
+        {
+            var name = $"Placement {i}";
+            if (config.PlacementPresets.All(preset => !string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return name;
+        }
+    }
+
+    private static string GetUniquePlacementPresetName(Configuration config, string name, string presetIdToIgnore)
+    {
+        if (config.PlacementPresets.All(preset =>
+                preset.PresetId == presetIdToIgnore || !string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase)))
+            return name;
+
+        for (var i = 2; ; i++)
+        {
+            var candidate = $"{name} {i}";
+            if (config.PlacementPresets.All(preset =>
+                    preset.PresetId == presetIdToIgnore || !string.Equals(preset.Name, candidate, StringComparison.OrdinalIgnoreCase)))
+                return candidate;
+        }
     }
 
     private static string GetDuplicateScreenName(Configuration config, string sourceName)

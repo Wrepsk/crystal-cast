@@ -67,6 +67,8 @@ public class Configuration : IPluginConfiguration
 
     public List<BrowserScreenProfile> BrowserScreens { get; set; } = [];
     public string ActiveBrowserScreenId { get; set; } = string.Empty;
+    public List<ScreenPlacementPreset> PlacementPresets { get; set; } = [];
+    public string ActivePlacementPresetId { get; set; } = string.Empty;
 
     public static int DefaultOutputMode => OperatingSystem.IsWindows()
         ? OutputModeSceneComposite
@@ -115,6 +117,30 @@ public class Configuration : IPluginConfiguration
             changed = true;
         }
 
+        if (PlacementPresets == null)
+        {
+            PlacementPresets = [];
+            changed = true;
+        }
+
+        var usedPresetIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < PlacementPresets.Count; i++)
+            changed |= PlacementPresets[i].Normalize($"Placement {i + 1}", usedPresetIds);
+
+        if (PlacementPresets.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(ActivePlacementPresetId))
+            {
+                ActivePlacementPresetId = string.Empty;
+                changed = true;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(ActivePlacementPresetId) || PlacementPresets.All(preset => preset.PresetId != ActivePlacementPresetId))
+        {
+            ActivePlacementPresetId = PlacementPresets[0].PresetId;
+            changed = true;
+        }
+
         return changed;
     }
 
@@ -133,6 +159,66 @@ public class Configuration : IPluginConfiguration
         };
         screen.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
         return screen;
+    }
+
+    public ScreenPlacementPreset? GetActivePlacementPreset()
+    {
+        Normalize();
+        return PlacementPresets.FirstOrDefault(preset => preset.PresetId == ActivePlacementPresetId);
+    }
+
+    public ScreenPlacementPreset CreatePlacementPreset(string name, ScreenPlacementSettings placement)
+    {
+        var preset = new ScreenPlacementPreset
+        {
+            Name = name,
+            Placement = placement.Clone(),
+        };
+        preset.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
+        return preset;
+    }
+
+    public ScreenPlacementSettings GetLocalVideoPlacement()
+    {
+        var placement = new ScreenPlacementSettings
+        {
+            PositionX = PositionX,
+            PositionY = PositionY,
+            PositionZ = PositionZ,
+            YawRadians = YawRadians,
+            PitchRadians = PitchRadians,
+            RollRadians = RollRadians,
+            WidthMeters = WidthMeters,
+            HeightMeters = HeightMeters,
+            ScreenCurveAmountMeters = ScreenCurveAmountMeters,
+            OccludedAlpha = OccludedAlpha,
+            OcclusionTolerance = OcclusionTolerance,
+            EnableDistanceFade = EnableDistanceFade,
+            FadeStartMeters = FadeStartMeters,
+            FadeStopMeters = FadeStopMeters,
+        };
+        placement.Normalize();
+        return placement;
+    }
+
+    public void ApplyLocalVideoPlacement(ScreenPlacementSettings placement)
+    {
+        var copy = placement.Clone();
+        copy.Normalize();
+        PositionX = copy.PositionX;
+        PositionY = copy.PositionY;
+        PositionZ = copy.PositionZ;
+        YawRadians = copy.YawRadians;
+        PitchRadians = copy.PitchRadians;
+        RollRadians = copy.RollRadians;
+        WidthMeters = copy.WidthMeters;
+        HeightMeters = copy.HeightMeters;
+        ScreenCurveAmountMeters = copy.ScreenCurveAmountMeters;
+        OccludedAlpha = copy.OccludedAlpha;
+        OcclusionTolerance = copy.OcclusionTolerance;
+        EnableDistanceFade = copy.EnableDistanceFade;
+        FadeStartMeters = copy.FadeStartMeters;
+        FadeStopMeters = copy.FadeStopMeters;
     }
 
     private BrowserScreenProfile CreateBrowserScreenFromLegacy(string name)
@@ -188,6 +274,40 @@ public class Configuration : IPluginConfiguration
 public enum BrowserSourceProviderKind
 {
     YouTube = 1,
+}
+
+[Serializable]
+public sealed class ScreenPlacementPreset
+{
+    public string PresetId { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Placement";
+    public ScreenPlacementSettings Placement { get; set; } = new();
+
+    public bool Normalize(string defaultName, ISet<string> usedPresetIds)
+    {
+        var changed = false;
+        if (string.IsNullOrWhiteSpace(PresetId) || !usedPresetIds.Add(PresetId))
+        {
+            PresetId = Guid.NewGuid().ToString("N");
+            usedPresetIds.Add(PresetId);
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Name))
+        {
+            Name = defaultName;
+            changed = true;
+        }
+
+        if (Placement == null)
+        {
+            Placement = new ScreenPlacementSettings();
+            changed = true;
+        }
+
+        changed |= Placement.Normalize();
+        return changed;
+    }
 }
 
 [Serializable]

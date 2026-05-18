@@ -63,7 +63,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         this.autoplay = autoplay;
         this.loop = loop;
         this.audioEnabled = audioEnabled;
-        this.volume = ClampVolume(volume);
+        this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
 
         if (!isValidVideoId)
@@ -867,7 +867,10 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
 
     private static float QuantizeVolume(float volume)
     {
-        return MathF.Round(ClampVolume(volume) * 100.0f) / 100.0f;
+        var clamped = ClampVolume(volume);
+        return clamped <= 0.0f
+            ? 0.0f
+            : MathF.Ceiling(clamped * 100.0f) / 100.0f;
     }
 
     private static string TryGetString(JsonElement root, string propertyName, string fallback)

@@ -8,6 +8,8 @@ namespace CrystalCast.Rendering;
 
 public sealed class WorldScreenRenderer : IDisposable
 {
+    private const float AudioVolumeSmoothingSeconds = 0.45f;
+
     private readonly Configuration configuration;
     private readonly DynamicVideoTexture dynamicTexture;
     private PctContext? pictomancyContext;
@@ -16,6 +18,8 @@ public sealed class WorldScreenRenderer : IDisposable
     private string frameSourceSignature = string.Empty;
     private string audioSignature = string.Empty;
     private long lastFrameUnixMs;
+    private long lastEffectiveAudioVolumeUnixMs;
+    private float smoothedEffectiveAudioVolume;
 
     public WorldScreenRenderer(Configuration configuration)
     {
@@ -194,7 +198,7 @@ public sealed class WorldScreenRenderer : IDisposable
         {
             frameSource.Stop();
             StopAudio();
-            CalculateEffectiveAudioVolume(0.0f);
+            CalculateEffectiveAudioVolume(0.0f, smooth: false);
             UpdatePlaybackTelemetry();
             return dynamicTexture.TextureWrap;
         }
@@ -285,7 +289,7 @@ public sealed class WorldScreenRenderer : IDisposable
 
         if (!configuration.AudioEnabled)
         {
-            CalculateEffectiveAudioVolume(0.0f);
+            CalculateEffectiveAudioVolume(0.0f, smooth: false);
             StopAudio();
             return;
         }
@@ -323,7 +327,7 @@ public sealed class WorldScreenRenderer : IDisposable
         {
             var effectiveVolume = configuration.YouTubeAudioEnabled
                 ? CalculateEffectiveAudioVolume(configuration.YouTubeVolume)
-                : CalculateEffectiveAudioVolume(0.0f);
+                : CalculateEffectiveAudioVolume(0.0f, smooth: false);
             controller.ApplyPlaybackSettings(
                 configuration.YouTubeAudioEnabled,
                 effectiveVolume,
@@ -336,7 +340,7 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         frameSource?.Stop();
         StopAudio();
-        EffectiveAudioVolume = 0.0f;
+        ResetEffectiveAudioVolume();
     }
 
     private void UpdateSpatialAudioMetrics()
@@ -344,10 +348,48 @@ public sealed class WorldScreenRenderer : IDisposable
         SpatialAudioAttenuation = CalculateSpatialAudioAttenuation();
     }
 
-    private float CalculateEffectiveAudioVolume(float baseVolume)
+    private float CalculateEffectiveAudioVolume(float baseVolume, bool smooth = true)
     {
-        EffectiveAudioVolume = Math.Clamp(baseVolume, 0.0f, 1.0f) * SpatialAudioAttenuation;
+        var targetVolume = Math.Clamp(baseVolume, 0.0f, 1.0f) * SpatialAudioAttenuation;
+        if (!smooth || !configuration.SpatialAudioEnabled)
+        {
+            SetEffectiveAudioVolume(targetVolume);
+            return EffectiveAudioVolume;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (lastEffectiveAudioVolumeUnixMs == 0)
+        {
+            smoothedEffectiveAudioVolume = targetVolume;
+        }
+        else
+        {
+            var deltaSeconds = Math.Clamp((now - lastEffectiveAudioVolumeUnixMs) / 1000.0f, 0.0f, 0.25f);
+            var alpha = 1.0f - MathF.Exp(-deltaSeconds / AudioVolumeSmoothingSeconds);
+            smoothedEffectiveAudioVolume += (targetVolume - smoothedEffectiveAudioVolume) * alpha;
+            if (targetVolume <= 0.0f && smoothedEffectiveAudioVolume < 0.005f)
+                smoothedEffectiveAudioVolume = 0.0f;
+            else if (MathF.Abs(targetVolume - smoothedEffectiveAudioVolume) < 0.0005f)
+                smoothedEffectiveAudioVolume = targetVolume;
+        }
+
+        lastEffectiveAudioVolumeUnixMs = now;
+        EffectiveAudioVolume = Math.Clamp(smoothedEffectiveAudioVolume, 0.0f, 1.0f);
         return EffectiveAudioVolume;
+    }
+
+    private void SetEffectiveAudioVolume(float volume)
+    {
+        smoothedEffectiveAudioVolume = Math.Clamp(volume, 0.0f, 1.0f);
+        EffectiveAudioVolume = smoothedEffectiveAudioVolume;
+        lastEffectiveAudioVolumeUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    }
+
+    private void ResetEffectiveAudioVolume()
+    {
+        smoothedEffectiveAudioVolume = 0.0f;
+        EffectiveAudioVolume = 0.0f;
+        lastEffectiveAudioVolumeUnixMs = 0;
     }
 
     private float CalculateSpatialAudioAttenuation()

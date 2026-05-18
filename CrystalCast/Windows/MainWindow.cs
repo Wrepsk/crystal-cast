@@ -489,8 +489,8 @@ public sealed class MainWindow : Window, IDisposable
                 changed = true;
             }
 
-            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {renderer.SpatialAudioAttenuation * 100.0f:0}%");
-            ImGui.TextDisabled($"Applied volume: {renderer.EffectiveAudioVolume * 100.0f:0}%");
+            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {FormatPercent(renderer.SpatialAudioAttenuation)}");
+            ImGui.TextDisabled($"Applied volume: {FormatPercent(renderer.EffectiveAudioVolume)}");
         }
         else
         {
@@ -509,6 +509,17 @@ public sealed class MainWindow : Window, IDisposable
         return status.Length <= maxLength
             ? status
             : $"{status[..maxLength]}...";
+    }
+
+    private static string FormatPercent(float value)
+    {
+        if (!float.IsFinite(value) || value <= 0.0f)
+            return "0%";
+
+        var percent = value * 100.0f;
+        return percent < 1.0f
+            ? "<1%"
+            : $"{percent:0}%";
     }
 
     private void SaveAndPublish()

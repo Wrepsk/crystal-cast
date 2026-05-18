@@ -26,7 +26,7 @@ internal static class YouTubePlayerPage
             autoplay,
             loop,
             audioEnabled,
-            volume = (int)Math.Round(volume * 100.0f),
+            volume = ToPlayerVolumePercent(volume),
             playbackRate,
             origin = PlayerOrigin,
         }, JsonOptions);
@@ -140,6 +140,15 @@ internal static class YouTubePlayerPage
     let player = null;
     let playerReady = false;
 
+    function toPlayerVolumePercent(volume) {
+      const clamped = Math.max(0, Math.min(1, Number(volume) || 0));
+      if (clamped <= 0) {
+        return 0;
+      }
+
+      return Math.max(1, Math.min(100, Math.ceil(clamped * 100)));
+    }
+
     function post(type, data) {
       const payload = data || {};
       payload.type = type;
@@ -182,7 +191,7 @@ internal static class YouTubePlayerPage
     function applySettings(settings) {
       if (settings) {
         crystalCastConfig.audioEnabled = !!settings.audioEnabled;
-        crystalCastConfig.volume = Math.max(0, Math.min(100, Math.round(settings.volume * 100)));
+        crystalCastConfig.volume = toPlayerVolumePercent(settings.volume);
         crystalCastConfig.playbackRate = settings.playbackRate;
         crystalCastConfig.loop = !!settings.loop;
       }
@@ -359,5 +368,16 @@ internal static class YouTubePlayerPage
 </body>
 </html>
 """;
+    }
+
+    private static int ToPlayerVolumePercent(float volume)
+    {
+        if (!float.IsFinite(volume))
+            return 0;
+
+        var clamped = Math.Clamp(volume, 0.0f, 1.0f);
+        return clamped <= 0.0f
+            ? 0
+            : Math.Clamp((int)MathF.Ceiling(clamped * 100.0f), 1, 100);
     }
 }

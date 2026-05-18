@@ -29,8 +29,8 @@ public class Configuration : IPluginConfiguration
     public bool EnableDistanceFade { get; set; }
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
-    public int OutputMode { get; set; }
-    public int UiMaskMode { get; set; } = 1;
+    public int OutputMode { get; set; } = 2;
+    public int UiMaskMode { get; set; }
     public bool ShowDebugMarker { get; set; } = true;
 
     public int GeneratedWidth { get; set; } = 512;
@@ -46,6 +46,17 @@ public class Configuration : IPluginConfiguration
     public bool LoopLocalVideo { get; set; } = true;
     public bool AudioEnabled { get; set; } = true;
     public float AudioVolume { get; set; } = 0.7f;
+
+    public string YouTubeUrl { get; set; } = string.Empty;
+    public int YouTubeBrowserWidth { get; set; } = 1280;
+    public int YouTubeBrowserHeight { get; set; } = 720;
+    public float YouTubeCaptureFps { get; set; } = 15.0f;
+    public bool YouTubeAutoplay { get; set; } = true;
+    public bool LoopYouTube { get; set; }
+    public bool YouTubeAudioEnabled { get; set; }
+    public float YouTubeVolume { get; set; } = 0.7f;
+    public float YouTubePlaybackRate { get; set; } = 1.0f;
+
     public bool PlaybackPaused { get; set; }
 
     public void Save()

@@ -1,8 +1,8 @@
 # CrystalCast
 
-CrystalCast is a Dalamud API 15 prototype for rendering a local world-space video surface in FFXIV.
+CrystalCast is a Dalamud API 15 prototype for rendering a local world-space media surface in FFXIV.
 
-It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) at commit `6544d934dc78f16d4a6ce43ba1ddd12854b685d6` and draws a flat `AddImage` panel with scene-depth occlusion. The first implemented sources are a bundled static image, generated BGRA test frames, and local video decoded through `ffmpeg`.
+It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws a flat `AddImage` panel through `AutoDraw.SceneComposite` with scene-depth occlusion. Implemented sources include a bundled static image, generated BGRA test frames, local video decoded through `ffmpeg`, and a first-pass YouTube browser source rendered through WebView2 capture.
 
 ## Build
 
@@ -26,7 +26,9 @@ Open the controls with `/crystalcast`.
 
 The panel can be enabled, placed in front of the player, rotated/scaled, and switched between source modes. The local video source expects an `ffmpeg.exe` path and a local video file path. Video frames are decoded to BGRA and uploaded into one stable dynamic D3D11 texture so Pictomancy can reuse the same texture handle across frames. Audio is decoded by a second FFmpeg process and played locally through the default Windows output device with a volume slider.
 
-If the screen draws over player names or other UI elements, try `Output layer` -> `Native overlay` in `/crystalcast`. If that is not enough, try the `UI mask` modes too. `None` is the most compatible mask baseline; `Backbuffer alpha` or `Backbuffer subtraction` can let UI/nameplate pixels appear above the world screen on setups where Pictomancy can derive a usable UI mask.
+The YouTube browser source expects a YouTube URL or 11-character video ID. Each client loads the embedded YouTube player locally through the YouTube IFrame API; CrystalCast captures the browser pixels into the same dynamic texture path and does not download or extract YouTube media. The first pass uses WebView2's local browser audio when enabled, or starts muted by default. If the Microsoft Edge WebView2 Runtime is unavailable, the source reports that in the status panel and leaves the plugin running.
+
+CrystalCast's intended render output is Pictomancy `SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
 
 ## IPC
 
@@ -38,4 +40,4 @@ CrystalCast exposes state-only IPC for a separate sync plugin:
 - `CrystalCast.Screen.Remove`
 - `CrystalCast.Screen.LocalStateChanged`
 
-The IPC payload intentionally syncs screen pose, source identity, playback state, sequence, and visual flags only. It does not sync raw pixels or absolute local file paths.
+The IPC payload intentionally syncs screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. For YouTube, it includes the video ID/canonical URL and playback position/rate telemetry. It does not sync raw pixels, audio, or absolute local file paths.

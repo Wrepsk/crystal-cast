@@ -27,6 +27,8 @@ public sealed class ScreenSourceState
     public string Identity { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Hash { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string VideoId { get; set; } = string.Empty;
 }
 
 public sealed class ScreenPlaybackStateDto
@@ -36,6 +38,7 @@ public sealed class ScreenPlaybackStateDto
 
     public long PositionMs { get; set; }
     public float Rate { get; set; } = 1.0f;
+    public long HostTimestampUnixMs { get; set; }
 }
 
 public sealed class ScreenVisualState

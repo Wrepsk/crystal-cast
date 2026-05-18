@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
+using CrystalCast.Video;
 using Dalamud.Plugin.Ipc;
 
 namespace CrystalCast.Sync;
@@ -19,6 +20,7 @@ public sealed class ScreenStateIpc : IDisposable
 
     private readonly Configuration configuration;
     private readonly string bundledStaticImagePath;
+    private readonly Func<MediaPlaybackTelemetry?> playbackTelemetryProvider;
     private readonly ICallGateProvider<int> apiVersionProvider;
     private readonly ICallGateProvider<string> snapshotProvider;
     private readonly ICallGateProvider<string, bool> applyStateProvider;
@@ -26,10 +28,11 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, object> localStateChangedProvider;
     private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
 
-    public ScreenStateIpc(Configuration configuration, string bundledStaticImagePath)
+    public ScreenStateIpc(Configuration configuration, string bundledStaticImagePath, Func<MediaPlaybackTelemetry?>? playbackTelemetryProvider = null)
     {
         this.configuration = configuration;
         this.bundledStaticImagePath = bundledStaticImagePath;
+        this.playbackTelemetryProvider = playbackTelemetryProvider ?? (() => null);
 
         apiVersionProvider = Plugin.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
         snapshotProvider = Plugin.PluginInterface.GetIpcProvider<string>("CrystalCast.Screen.GetSnapshot");
@@ -73,12 +76,7 @@ public sealed class ScreenStateIpc : IDisposable
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
             SizeMeters = new Vector2Dto(configuration.WidthMeters, configuration.HeightMeters),
             Source = source,
-            Playback = new ScreenPlaybackStateDto
-            {
-                State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
-                PositionMs = 0,
-                Rate = 1.0f,
-            },
+            Playback = BuildPlaybackState(),
             Visual = new ScreenVisualState
             {
                 OccludedAlpha = configuration.OccludedAlpha,
@@ -151,6 +149,7 @@ public sealed class ScreenStateIpc : IDisposable
         {
             ScreenSourceKind.StaticImage => BuildFileSourceState(ScreenSourceKind.StaticImage, bundledStaticImagePath, "bundled-static"),
             ScreenSourceKind.LocalVideo => BuildLocalVideoSourceState(),
+            ScreenSourceKind.YouTubeBrowser => BuildYouTubeSourceState(),
             ScreenSourceKind.Generated => new ScreenSourceState
             {
                 Kind = ScreenSourceKind.Generated,
@@ -165,6 +164,29 @@ public sealed class ScreenStateIpc : IDisposable
                 Title = $"{configuration.SourceKind} source",
                 Hash = string.Empty,
             },
+        };
+    }
+
+    private ScreenPlaybackStateDto BuildPlaybackState()
+    {
+        var telemetry = playbackTelemetryProvider();
+        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser && telemetry != null)
+        {
+            return new ScreenPlaybackStateDto
+            {
+                State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : telemetry.State,
+                PositionMs = telemetry.PositionMs,
+                Rate = telemetry.Rate,
+                HostTimestampUnixMs = telemetry.HostTimestampUnixMs,
+            };
+        }
+
+        return new ScreenPlaybackStateDto
+        {
+            State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
+            PositionMs = 0,
+            Rate = 1.0f,
+            HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }
 
@@ -186,6 +208,31 @@ public sealed class ScreenStateIpc : IDisposable
         var source = BuildFileSourceState(ScreenSourceKind.LocalVideo, configuration.LocalVideoPath, "local-video");
         source.Identity = $"{source.Identity}|scale={configuration.LocalVideoScalePercent.ToString("0.#", CultureInfo.InvariantCulture)}";
         return source;
+    }
+
+    private ScreenSourceState BuildYouTubeSourceState()
+    {
+        var telemetry = playbackTelemetryProvider();
+        if (!YouTubeVideoId.TryParse(configuration.YouTubeUrl, out var videoId))
+        {
+            return new ScreenSourceState
+            {
+                Kind = ScreenSourceKind.YouTubeBrowser,
+                Identity = "youtube:invalid",
+                Title = "Invalid YouTube source",
+            };
+        }
+
+        var canonicalUrl = YouTubeVideoId.BuildCanonicalWatchUrl(videoId);
+        return new ScreenSourceState
+        {
+            Kind = ScreenSourceKind.YouTubeBrowser,
+            Identity = $"youtube:{videoId}",
+            Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "YouTube video" : telemetry.Title,
+            Hash = string.Empty,
+            Url = canonicalUrl,
+            VideoId = videoId,
+        };
     }
 
     private static string TryHashFile(string path)

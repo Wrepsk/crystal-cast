@@ -1,6 +1,7 @@
 using System.Numerics;
 using CrystalCast.Rendering;
 using CrystalCast.Sync;
+using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
@@ -8,18 +9,14 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
-    private static readonly string[] OutputModeNames =
+    private static readonly (string Name, int Width, int Height)[] YouTubeResolutionPresets =
     [
-        "ImGui overlay",
-        "Native overlay",
-        "Scene composite (experimental)",
-    ];
-
-    private static readonly string[] UiMaskNames =
-    [
-        "None",
-        "Backbuffer alpha",
-        "Backbuffer subtraction",
+        ("360p (640 x 360)", 640, 360),
+        ("480p (854 x 480)", 854, 480),
+        ("720p (1280 x 720)", 1280, 720),
+        ("1080p (1920 x 1080)", 1920, 1080),
+        ("1440p (2560 x 1440)", 2560, 1440),
+        ("4K (3840 x 2160)", 3840, 2160),
     ];
 
     private static readonly string[] SourceNames =
@@ -27,6 +24,7 @@ public sealed class MainWindow : Window, IDisposable
         "Static image",
         "Generated frames",
         "Local video",
+        "YouTube browser",
         "Browser capture (later)",
         "Offscreen browser (later)",
     ];
@@ -103,45 +101,9 @@ public sealed class MainWindow : Window, IDisposable
     private static bool DrawDebug(Configuration config)
     {
         var changed = false;
-        var outputMode = Math.Clamp(config.OutputMode, 0, OutputModeNames.Length - 1);
         var showMarker = config.ShowDebugMarker;
-        var uiMaskMode = Math.Clamp(config.UiMaskMode, 0, UiMaskNames.Length - 1);
 
-        if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
-        {
-            for (var i = 0; i < OutputModeNames.Length; i++)
-            {
-                var selected = i == outputMode;
-                if (ImGui.Selectable(OutputModeNames[i], selected))
-                {
-                    config.OutputMode = i;
-                    changed = true;
-                }
-
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
-        }
-
-        if (ImGui.BeginCombo("UI mask", UiMaskNames[uiMaskMode]))
-        {
-            for (var i = 0; i < UiMaskNames.Length; i++)
-            {
-                var selected = i == uiMaskMode;
-                if (ImGui.Selectable(UiMaskNames[i], selected))
-                {
-                    config.UiMaskMode = i;
-                    changed = true;
-                }
-
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
-        }
+        ImGui.TextUnformatted("Output layer: Scene composite");
 
         if (ImGui.Checkbox("Debug marker", ref showMarker))
         {
@@ -199,7 +161,7 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        if (config.SourceKind == ScreenSourceKind.LocalVideo)
+        if (config.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser)
         {
             if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
                 ImGui.TextUnformatted($"Height meters: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###}");
@@ -250,6 +212,9 @@ public sealed class MainWindow : Window, IDisposable
             case ScreenSourceKind.LocalVideo:
                 changed |= DrawLocalVideoSource(config);
                 break;
+            case ScreenSourceKind.YouTubeBrowser:
+                changed |= DrawYouTubeSource(config);
+                break;
             case ScreenSourceKind.BrowserCapture:
             case ScreenSourceKind.OffscreenBrowser:
                 ImGui.TextUnformatted("This source is reserved for a later phase.");
@@ -257,6 +222,185 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return changed;
+    }
+
+    private bool DrawYouTubeSource(Configuration config)
+    {
+        var changed = false;
+        var youtubeUrl = config.YouTubeUrl;
+        var fps = config.YouTubeCaptureFps;
+        var autoplay = config.YouTubeAutoplay;
+        var loop = config.LoopYouTube;
+        var audioEnabled = config.YouTubeAudioEnabled;
+        var volume = config.YouTubeVolume;
+        var rate = config.YouTubePlaybackRate;
+
+        if (ImGui.InputText("YouTube URL / ID", ref youtubeUrl, 1024))
+        {
+            config.YouTubeUrl = youtubeUrl;
+            changed = true;
+        }
+
+        if (YouTubeVideoId.TryParse(config.YouTubeUrl, out var parsedVideoId))
+            ImGui.TextUnformatted($"Video ID: {parsedVideoId}");
+        else
+            ImGui.TextUnformatted("Video ID: invalid or empty");
+
+        changed |= DrawYouTubePlaybackControls(config);
+
+        changed |= DrawYouTubeResolutionPreset(config);
+
+        if (ImGui.InputFloat("Capture FPS", ref fps, 1.0f, 5.0f))
+        {
+            config.YouTubeCaptureFps = Math.Clamp(fps, 1.0f, 60.0f);
+            changed = true;
+        }
+
+        if (ImGui.Checkbox("Autoplay on load", ref autoplay))
+        {
+            config.YouTubeAutoplay = autoplay;
+            changed = true;
+        }
+
+        if (ImGui.Checkbox("Loop YouTube video", ref loop))
+        {
+            config.LoopYouTube = loop;
+            changed = true;
+        }
+
+        if (ImGui.Checkbox("Browser audio", ref audioEnabled))
+        {
+            config.YouTubeAudioEnabled = audioEnabled;
+            changed = true;
+        }
+
+        if (config.YouTubeAudioEnabled && ImGui.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
+        {
+            config.YouTubeVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            changed = true;
+        }
+
+        if (ImGui.SliderFloat("Playback rate", ref rate, 0.25f, 2.0f))
+        {
+            config.YouTubePlaybackRate = Math.Clamp(rate, 0.25f, 2.0f);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool DrawYouTubeResolutionPreset(Configuration config)
+    {
+        var current = FindYouTubeResolutionPreset(config.YouTubeBrowserWidth, config.YouTubeBrowserHeight);
+        var currentLabel = current >= 0
+            ? YouTubeResolutionPresets[current].Name
+            : $"Custom ({config.YouTubeBrowserWidth} x {config.YouTubeBrowserHeight})";
+
+        if (!ImGui.BeginCombo("Browser resolution", currentLabel))
+            return false;
+
+        var changed = false;
+        for (var i = 0; i < YouTubeResolutionPresets.Length; i++)
+        {
+            var preset = YouTubeResolutionPresets[i];
+            var selected = i == current;
+            if (ImGui.Selectable(preset.Name, selected))
+            {
+                config.YouTubeBrowserWidth = preset.Width;
+                config.YouTubeBrowserHeight = preset.Height;
+                changed = true;
+            }
+
+            if (selected)
+                ImGui.SetItemDefaultFocus();
+        }
+
+        ImGui.EndCombo();
+        return changed;
+    }
+
+    private static int FindYouTubeResolutionPreset(int width, int height)
+    {
+        for (var i = 0; i < YouTubeResolutionPresets.Length; i++)
+        {
+            var preset = YouTubeResolutionPresets[i];
+            if (preset.Width == width && preset.Height == height)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private bool DrawYouTubePlaybackControls(Configuration config)
+    {
+        var changed = false;
+        var telemetry = renderer.PlaybackTelemetry;
+        var position = telemetry == null
+            ? "0:00"
+            : FormatPlaybackPosition(telemetry.PositionMs);
+        var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
+
+        ImGui.TextUnformatted($"Playback: {state} @ {position}");
+
+        if (ImGui.Button("Play"))
+        {
+            config.PlaybackPaused = false;
+            renderer.TryPlayDynamicSource();
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Pause"))
+        {
+            config.PlaybackPaused = true;
+            renderer.TryPauseDynamicSource();
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Restart"))
+        {
+            config.PlaybackPaused = false;
+            renderer.TryRestartDynamicSource();
+            changed = true;
+        }
+
+        if (ImGui.Button("-10s"))
+        {
+            renderer.TrySeekDynamicSourceBy(-10.0);
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("+10s"))
+        {
+            renderer.TrySeekDynamicSourceBy(10.0);
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("-60s"))
+        {
+            renderer.TrySeekDynamicSourceBy(-60.0);
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("+60s"))
+        {
+            renderer.TrySeekDynamicSourceBy(60.0);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static string FormatPlaybackPosition(long positionMs)
+    {
+        var time = TimeSpan.FromMilliseconds(Math.Max(0, positionMs));
+        return time.TotalHours >= 1.0
+            ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+            : $"{time.Minutes}:{time.Seconds:00}";
     }
 
     private static bool DrawGeneratedSource(Configuration config)
@@ -396,7 +540,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
         ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
         ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
-        if (plugin.Configuration.SourceKind == ScreenSourceKind.LocalVideo && renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
+        if (plugin.Configuration.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser && renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
             ImGui.TextUnformatted($"Auto height: {plugin.Configuration.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m");
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");

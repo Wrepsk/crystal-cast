@@ -32,7 +32,7 @@ public sealed class Plugin : IDalamudPlugin
         var staticImagePath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
 
         renderer = new WorldScreenRenderer(Configuration, staticImagePath);
-        ipc = new ScreenStateIpc(Configuration, staticImagePath);
+        ipc = new ScreenStateIpc(Configuration, staticImagePath, () => renderer.PlaybackTelemetry);
         mainWindow = new MainWindow(this, renderer, ipc);
         windowSystem.AddWindow(mainWindow);
 

@@ -51,6 +51,7 @@ public sealed class WorldScreenRenderer : IDisposable
     public int TextureHeight => dynamicTexture.Height;
     public long FrameAgeMilliseconds => lastFrameUnixMs == 0 ? 0 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs;
     public string LastDrawStatus { get; private set; } = "not drawn yet";
+    public MediaPlaybackTelemetry? PlaybackTelemetry { get; private set; }
 
     public void DrawWorld()
     {
@@ -124,6 +125,45 @@ public sealed class WorldScreenRenderer : IDisposable
         return Plugin.GameGui.WorldToScreen(GetCenter(), out screenPosition);
     }
 
+    public bool TryPlayDynamicSource()
+    {
+        configuration.PlaybackPaused = false;
+        if (frameSource is not IMediaPlaybackController controller)
+            return false;
+
+        controller.Play();
+        return true;
+    }
+
+    public bool TryPauseDynamicSource()
+    {
+        configuration.PlaybackPaused = true;
+        if (frameSource is not IMediaPlaybackController controller)
+            return false;
+
+        controller.Pause();
+        return true;
+    }
+
+    public bool TrySeekDynamicSourceBy(double seconds)
+    {
+        if (frameSource is not IMediaPlaybackController controller)
+            return false;
+
+        controller.SeekBy(seconds);
+        return true;
+    }
+
+    public bool TryRestartDynamicSource()
+    {
+        configuration.PlaybackPaused = false;
+        if (frameSource is not IMediaPlaybackController controller)
+            return false;
+
+        controller.Restart();
+        return true;
+    }
+
     public void Dispose()
     {
         frameSource?.Dispose();
@@ -143,6 +183,7 @@ public sealed class WorldScreenRenderer : IDisposable
             frameSource = null;
             frameSourceSignature = string.Empty;
             StopAudio();
+            PlaybackTelemetry = null;
 
             var path = File.Exists(bundledStaticImagePath) ? bundledStaticImagePath : string.Empty;
             return string.IsNullOrEmpty(path)
@@ -154,18 +195,22 @@ public sealed class WorldScreenRenderer : IDisposable
         if (frameSource == null)
         {
             StopAudio();
+            PlaybackTelemetry = null;
             return null;
         }
 
+        ApplyLiveSourceSettings();
         if (configuration.PlaybackPaused)
         {
             frameSource.Stop();
             StopAudio();
+            UpdatePlaybackTelemetry();
             return dynamicTexture.TextureWrap;
         }
 
         frameSource.Start();
         UpdateAudio();
+        UpdatePlaybackTelemetry();
         if (frameSource.TryGetLatestFrame(out var frame))
         {
             if (dynamicTexture.Upload(frame))
@@ -203,6 +248,18 @@ public sealed class WorldScreenRenderer : IDisposable
                     configuration.LocalVideoWidth,
                     configuration.LocalVideoHeight);
                 break;
+            case ScreenSourceKind.YouTubeBrowser:
+                frameSource = new YouTubeBrowserFrameSource(
+                    configuration.YouTubeUrl,
+                    configuration.YouTubeBrowserWidth,
+                    configuration.YouTubeBrowserHeight,
+                    configuration.YouTubeCaptureFps,
+                    configuration.YouTubeAutoplay,
+                    configuration.LoopYouTube,
+                    configuration.YouTubeAudioEnabled,
+                    configuration.YouTubeVolume,
+                    configuration.YouTubePlaybackRate);
+                break;
             default:
                 StopAudio();
                 Status = $"{configuration.SourceKind} source is not implemented yet";
@@ -226,6 +283,12 @@ public sealed class WorldScreenRenderer : IDisposable
                 configuration.LocalVideoScalePercent,
                 configuration.LocalVideoFps,
                 configuration.LoopLocalVideo),
+            ScreenSourceKind.YouTubeBrowser => string.Join('|',
+                configuration.SourceKind,
+                configuration.YouTubeUrl,
+                configuration.YouTubeBrowserWidth,
+                configuration.YouTubeBrowserHeight,
+                configuration.YouTubeCaptureFps),
             _ => configuration.SourceKind.ToString(),
         };
     }
@@ -264,6 +327,29 @@ public sealed class WorldScreenRenderer : IDisposable
         audioSignature = string.Empty;
     }
 
+    private void ApplyLiveSourceSettings()
+    {
+        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser && frameSource is IMediaPlaybackController controller)
+        {
+            controller.ApplyPlaybackSettings(
+                configuration.YouTubeAudioEnabled,
+                configuration.YouTubeVolume,
+                configuration.YouTubePlaybackRate,
+                configuration.LoopYouTube);
+        }
+    }
+
+    private void UpdatePlaybackTelemetry()
+    {
+        if (frameSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var telemetry))
+        {
+            PlaybackTelemetry = telemetry;
+            return;
+        }
+
+        PlaybackTelemetry = null;
+    }
+
     private PctDxParams BuildDxParams()
     {
         return new PctDxParams
@@ -276,31 +362,15 @@ public sealed class WorldScreenRenderer : IDisposable
         };
     }
 
-    private UIMask GetUiMask()
-    {
-        return configuration.UiMaskMode switch
-        {
-            1 => UIMask.BackbufferAlpha,
-            2 => UIMask.BackbufferSubtraction,
-            _ => UIMask.None,
-        };
-    }
+    private static UIMask GetUiMask() => UIMask.None;
 
-    private AutoDraw GetAutoDraw()
-    {
-        return configuration.OutputMode switch
-        {
-            1 => AutoDraw.NativeOverlay,
-            2 or 3 => AutoDraw.SceneComposite,
-            _ => AutoDraw.ImGuiOverlay,
-        };
-    }
+    private static AutoDraw GetAutoDraw() => AutoDraw.SceneComposite;
 
     private Vector2 GetPanelSize(IDalamudTextureWrap texture)
     {
         var width = Math.Max(0.01f, configuration.WidthMeters);
         var height = Math.Max(0.01f, configuration.HeightMeters);
-        if (configuration.SourceKind == ScreenSourceKind.LocalVideo && texture.Width > 0 && texture.Height > 0)
+        if (configuration.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser && texture.Width > 0 && texture.Height > 0)
             height = width * texture.Height / texture.Width;
 
         return new Vector2(width, height);

@@ -69,7 +69,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         if (!isValidVideoId)
             browserStatus = "invalid YouTube URL or video ID";
 
-        UpdateTelemetry(ScreenPlaybackState.Stopped, 0, this.playbackRate, string.Empty);
+        UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty);
     }
 
     public string Name => "YouTube browser (CEF offscreen)";
@@ -117,7 +117,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         if (wasCaptureEnabled)
             Pause();
 
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), playbackRate, GetTelemetryTitle());
+        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
     public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
@@ -159,7 +159,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     {
         captureEnabled = false;
         ExecutePlayerScript("crystalCastPause");
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), playbackRate, GetTelemetryTitle());
+        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
     public void SeekBy(double seconds)
@@ -209,7 +209,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         }
 
         browserStatus = "disposed";
-        UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), playbackRate, GetTelemetryTitle());
+        UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
     private void CreateBrowser()
@@ -774,6 +774,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     {
         var title = TryGetString(root, "title", string.Empty);
         var positionSeconds = TryGetDouble(root, "positionSeconds", 0.0);
+        var durationSeconds = TryGetDouble(root, "durationSeconds", 0.0);
         var rate = (float)TryGetDouble(root, "rate", playbackRate);
         var stateCode = TryGetInt(root, "state", -1);
         var playbackState = stateCode switch
@@ -784,13 +785,14 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         };
 
         var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
-        UpdateTelemetry(playbackState, positionMs, rate, title);
+        var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
+        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title);
         playerStatus = string.IsNullOrWhiteSpace(title)
-            ? $"player state {stateCode}; {positionSeconds:0.0}s"
-            : $"{title}; state {stateCode}; {positionSeconds:0.0}s";
+            ? $"player state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s"
+            : $"{title}; state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s";
     }
 
-    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, float rate, string title)
+    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title)
     {
         lock (telemetryLock)
         {
@@ -798,6 +800,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             {
                 State = state,
                 PositionMs = positionMs,
+                DurationMs = durationMs,
                 Rate = ClampPlaybackRate(rate),
                 Title = title,
                 VideoId = videoId,
@@ -828,6 +831,14 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         lock (telemetryLock)
         {
             return telemetry.PositionMs;
+        }
+    }
+
+    private long GetTelemetryDurationMs()
+    {
+        lock (telemetryLock)
+        {
+            return telemetry.DurationMs;
         }
     }
 

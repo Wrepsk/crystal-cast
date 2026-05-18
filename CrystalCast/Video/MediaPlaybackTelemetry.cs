@@ -4,6 +4,7 @@ public sealed class MediaPlaybackTelemetry
 {
     public ScreenPlaybackState State { get; init; } = ScreenPlaybackState.Stopped;
     public long PositionMs { get; init; }
+    public long DurationMs { get; init; }
     public float Rate { get; init; } = 1.0f;
     public string Title { get; init; } = string.Empty;
     public string VideoId { get; init; } = string.Empty;

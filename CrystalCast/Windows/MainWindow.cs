@@ -30,6 +30,8 @@ public sealed class MainWindow : Window, IDisposable
     private readonly ScreenStateIpc ipc;
     private string youtubeUrlDraft = string.Empty;
     private string youtubeUrlDraftSource = string.Empty;
+    private float youtubeProgressDraftSeconds = -1.0f;
+    private bool youtubeProgressScrubbing;
 
     public MainWindow(Plugin plugin, WorldScreenRenderer renderer, ScreenStateIpc ipc)
         : base("CrystalCast###CrystalCastMain")
@@ -91,7 +93,11 @@ public sealed class MainWindow : Window, IDisposable
                 ? "0:00"
                 : FormatPlaybackPosition(telemetry.PositionMs);
             var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
-            ImGui.TextUnformatted($"{state} @ {position}");
+            var duration = telemetry is { DurationMs: > 0 }
+                ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
+                : string.Empty;
+            ImGui.TextUnformatted($"{state} @ {position}{duration}");
+            changed |= DrawYouTubeProgressBar(telemetry);
         }
         else
         {
@@ -104,6 +110,75 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.TextDisabled(ShortStatus(renderer.SourceStatus));
+        return changed;
+    }
+
+    private bool DrawYouTubeProgressBar(MediaPlaybackTelemetry? telemetry)
+    {
+        var durationMs = telemetry?.DurationMs ?? 0;
+        if (durationMs <= 0)
+        {
+            youtubeProgressDraftSeconds = -1.0f;
+            youtubeProgressScrubbing = false;
+            ImGui.ProgressBar(0.0f, new Vector2(-1.0f, 0.0f), "0:00");
+            return false;
+        }
+
+        var changed = false;
+        var durationSeconds = Math.Max(0.001f, durationMs / 1000.0f);
+        var positionSeconds = Math.Clamp((telemetry?.PositionMs ?? 0) / 1000.0f, 0.0f, durationSeconds);
+        if (youtubeProgressDraftSeconds < 0.0f)
+            youtubeProgressDraftSeconds = positionSeconds;
+
+        var start = ImGui.GetCursorScreenPos();
+        var width = Math.Max(1.0f, ImGui.GetContentRegionAvail().X);
+        var height = Math.Max(16.0f, ImGui.GetFrameHeight());
+        var size = new Vector2(width, height);
+        ImGui.InvisibleButton("##YouTubeProgress", size);
+
+        var active = ImGui.IsItemActive();
+        var hovered = ImGui.IsItemHovered();
+        if (active)
+        {
+            var mouseX = ImGui.GetIO().MousePos.X;
+            youtubeProgressDraftSeconds = Math.Clamp((mouseX - start.X) / width * durationSeconds, 0.0f, durationSeconds);
+            youtubeProgressScrubbing = true;
+        }
+        else if (youtubeProgressScrubbing)
+        {
+            var seekDeltaSeconds = youtubeProgressDraftSeconds - positionSeconds;
+            if (Math.Abs(seekDeltaSeconds) >= 0.25f)
+            {
+                renderer.TrySeekDynamicSourceBy(seekDeltaSeconds);
+                changed = true;
+            }
+
+            youtubeProgressDraftSeconds = -1.0f;
+            youtubeProgressScrubbing = false;
+        }
+
+        var displaySeconds = youtubeProgressScrubbing
+            ? Math.Clamp(youtubeProgressDraftSeconds, 0.0f, durationSeconds)
+            : positionSeconds;
+        var progressFraction = Math.Clamp(displaySeconds / durationSeconds, 0.0f, 1.0f);
+        var lineHeight = active || hovered ? 5.0f : 3.0f;
+        var lineY = start.Y + (height * 0.5f);
+        var fillX = start.X + (width * progressFraction);
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(
+            new Vector2(start.X, lineY - (lineHeight * 0.5f)),
+            new Vector2(start.X + width, lineY + (lineHeight * 0.5f)),
+            ImGui.GetColorU32(new Vector4(0.30f, 0.30f, 0.30f, 1.0f)),
+            lineHeight * 0.5f);
+        drawList.AddRectFilled(
+            new Vector2(start.X, lineY - (lineHeight * 0.5f)),
+            new Vector2(fillX, lineY + (lineHeight * 0.5f)),
+            ImGui.GetColorU32(new Vector4(1.0f, 0.0f, 0.0f, 1.0f)),
+            lineHeight * 0.5f);
+        drawList.AddCircleFilled(
+            new Vector2(fillX, lineY),
+            active || hovered ? 6.0f : 4.0f,
+            ImGui.GetColorU32(new Vector4(1.0f, 0.0f, 0.0f, 1.0f)));
         return changed;
     }
 

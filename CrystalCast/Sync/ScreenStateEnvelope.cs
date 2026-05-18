@@ -37,6 +37,7 @@ public sealed class ScreenPlaybackStateDto
     public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Playing;
 
     public long PositionMs { get; set; }
+    public long DurationMs { get; set; }
     public float Rate { get; set; } = 1.0f;
     public long HostTimestampUnixMs { get; set; }
 }

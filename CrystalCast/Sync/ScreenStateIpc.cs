@@ -167,6 +167,7 @@ public sealed class ScreenStateIpc : IDisposable
             {
                 State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : telemetry.State,
                 PositionMs = telemetry.PositionMs,
+                DurationMs = telemetry.DurationMs,
                 Rate = telemetry.Rate,
                 HostTimestampUnixMs = telemetry.HostTimestampUnixMs,
             };

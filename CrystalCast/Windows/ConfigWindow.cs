@@ -22,10 +22,10 @@ public sealed class ConfigWindow : Window, IDisposable
         [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture];
 
     private readonly Plugin plugin;
-    private readonly WorldScreenRenderer renderer;
+    private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
 
-    public ConfigWindow(Plugin plugin, WorldScreenRenderer renderer, ScreenStateIpc ipc)
+    public ConfigWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast Settings###CrystalCastConfig")
     {
         this.plugin = plugin;
@@ -65,15 +65,18 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextUnformatted(label);
     }
 
-    private static bool DrawRendering(Configuration config)
+    private bool DrawRendering(Configuration config)
     {
         var changed = false;
+        var activeBrowserScreen = config.GetActiveBrowserScreen();
+        var browserVisual = config.SourceKind == ScreenSourceKind.YouTubeBrowser;
+        var placement = activeBrowserScreen.Placement;
         var showMarker = config.ShowDebugMarker;
-        var occludedAlpha = config.OccludedAlpha;
-        var tolerance = config.OcclusionTolerance;
-        var distanceFade = config.EnableDistanceFade;
-        var fadeStart = config.FadeStartMeters;
-        var fadeStop = config.FadeStopMeters;
+        var occludedAlpha = browserVisual ? placement.OccludedAlpha : config.OccludedAlpha;
+        var tolerance = browserVisual ? placement.OcclusionTolerance : config.OcclusionTolerance;
+        var distanceFade = browserVisual ? placement.EnableDistanceFade : config.EnableDistanceFade;
+        var fadeStart = browserVisual ? placement.FadeStartMeters : config.FadeStartMeters;
+        var fadeStop = browserVisual ? placement.FadeStopMeters : config.FadeStopMeters;
         var outputMode = GetOutputModeIndex(config.OutputMode);
 
         if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
@@ -107,48 +110,73 @@ public sealed class ConfigWindow : Window, IDisposable
             changed = true;
         }
 
+        ImGui.TextDisabled(browserVisual
+            ? $"Visual settings: {activeBrowserScreen.Name}"
+            : "Visual settings: Local video");
+
         if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
         {
-            config.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
+            if (browserVisual)
+                placement.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
+            else
+                config.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
             changed = true;
         }
 
         if (ImGui.InputFloat("Occlusion tolerance", ref tolerance, 0.01f, 0.1f))
         {
-            config.OcclusionTolerance = Math.Max(0.0f, tolerance);
+            if (browserVisual)
+                placement.OcclusionTolerance = Math.Max(0.0f, tolerance);
+            else
+                config.OcclusionTolerance = Math.Max(0.0f, tolerance);
             changed = true;
         }
 
         if (ImGui.Button("Make fully visible"))
         {
-            config.OccludedAlpha = 1.0f;
+            if (browserVisual)
+                placement.OccludedAlpha = 1.0f;
+            else
+                config.OccludedAlpha = 1.0f;
             changed = true;
         }
 
         ImGui.SameLine();
         if (ImGui.Button("Depth occlusion"))
         {
-            config.OccludedAlpha = 0.0f;
+            if (browserVisual)
+                placement.OccludedAlpha = 0.0f;
+            else
+                config.OccludedAlpha = 0.0f;
             changed = true;
         }
 
         if (ImGui.Checkbox("Distance fade", ref distanceFade))
         {
-            config.EnableDistanceFade = distanceFade;
+            if (browserVisual)
+                placement.EnableDistanceFade = distanceFade;
+            else
+                config.EnableDistanceFade = distanceFade;
             changed = true;
         }
 
-        if (config.EnableDistanceFade)
+        if (distanceFade)
         {
             if (ImGui.InputFloat("Fade start", ref fadeStart, 1.0f, 5.0f))
             {
-                config.FadeStartMeters = Math.Max(0.0f, fadeStart);
+                if (browserVisual)
+                    placement.FadeStartMeters = Math.Max(0.0f, fadeStart);
+                else
+                    config.FadeStartMeters = Math.Max(0.0f, fadeStart);
                 changed = true;
             }
 
             if (ImGui.InputFloat("Fade stop", ref fadeStop, 1.0f, 5.0f))
             {
-                config.FadeStopMeters = Math.Max(config.FadeStartMeters + 0.01f, fadeStop);
+                if (browserVisual)
+                    placement.FadeStopMeters = Math.Max(placement.FadeStartMeters + 0.01f, fadeStop);
+                else
+                    config.FadeStopMeters = Math.Max(config.FadeStartMeters + 0.01f, fadeStop);
                 changed = true;
             }
         }
@@ -211,6 +239,7 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextUnformatted($"Source: {renderer.SourceName}");
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
         ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
+        ImGui.TextUnformatted($"Browser runtimes: {renderer.ActiveBrowserRuntimeCount}");
         ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
@@ -222,7 +251,9 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawIpc(Configuration config)
     {
-        ImGui.TextUnformatted($"Screen ID: {config.ScreenId}");
+        var activeBrowserScreen = config.GetActiveBrowserScreen();
+        var screenId = config.SourceKind == ScreenSourceKind.YouTubeBrowser ? activeBrowserScreen.ScreenId : config.ScreenId;
+        ImGui.TextUnformatted($"Active screen ID: {screenId}");
         ImGui.TextUnformatted($"Remote screens in IPC store: {ipc.RemoteScreens.Count}");
 
         if (ImGui.Button("Save"))

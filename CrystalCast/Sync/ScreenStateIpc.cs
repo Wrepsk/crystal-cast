@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
+using CrystalCast.Rendering;
 using CrystalCast.Video;
 using Dalamud.Plugin.Ipc;
 
@@ -19,7 +20,7 @@ public sealed class ScreenStateIpc : IDisposable
     };
 
     private readonly Configuration configuration;
-    private readonly Func<MediaPlaybackTelemetry?> playbackTelemetryProvider;
+    private readonly WorldScreenManager renderer;
     private readonly ICallGateProvider<int> apiVersionProvider;
     private readonly ICallGateProvider<string> snapshotProvider;
     private readonly ICallGateProvider<string, bool> applyStateProvider;
@@ -27,10 +28,10 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, object> localStateChangedProvider;
     private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
 
-    public ScreenStateIpc(Configuration configuration, Func<MediaPlaybackTelemetry?>? playbackTelemetryProvider = null)
+    public ScreenStateIpc(Configuration configuration, WorldScreenManager renderer)
     {
         this.configuration = configuration;
-        this.playbackTelemetryProvider = playbackTelemetryProvider ?? (() => null);
+        this.renderer = renderer;
 
         apiVersionProvider = Plugin.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
         snapshotProvider = Plugin.PluginInterface.GetIpcProvider<string>("CrystalCast.Screen.GetSnapshot");
@@ -48,17 +49,68 @@ public sealed class ScreenStateIpc : IDisposable
 
     public string PublishLocalState()
     {
-        configuration.LocalSequence++;
-        configuration.Save();
+        configuration.Normalize();
+        ScreenStateEnvelope[] states;
+        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
+        {
+            var screensToPublish = configuration.BrowserScreens
+                .Take(Configuration.MaxBrowserScreens)
+                .Where(screen => screen.Enabled)
+                .ToArray();
+            if (screensToPublish.Length == 0)
+                screensToPublish = [configuration.GetActiveBrowserScreen()];
 
-        var json = JsonSerializer.Serialize(BuildLocalState(), JsonOptions);
-        localStateChangedProvider.SendMessage(json);
-        return json;
+            foreach (var screen in screensToPublish)
+                screen.LocalSequence++;
+
+            configuration.Save();
+            states = screensToPublish.Select(BuildBrowserScreenState).ToArray();
+        }
+        else
+        {
+            configuration.LocalSequence++;
+            configuration.Save();
+            states = [BuildLocalVideoState()];
+        }
+
+        string? firstJson = null;
+        foreach (var state in states)
+        {
+            var json = JsonSerializer.Serialize(state, JsonOptions);
+            firstJson ??= json;
+            localStateChangedProvider.SendMessage(json);
+        }
+
+        return firstJson ?? string.Empty;
     }
 
     public ScreenStateEnvelope BuildLocalState()
     {
-        var source = BuildSourceState();
+        return BuildLocalStates().First();
+    }
+
+    public IEnumerable<ScreenStateEnvelope> BuildLocalStates()
+    {
+        configuration.Normalize();
+        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
+        {
+            var enabledScreens = configuration.BrowserScreens
+                .Take(Configuration.MaxBrowserScreens)
+                .Where(screen => screen.Enabled)
+                .ToArray();
+
+            if (enabledScreens.Length == 0)
+                enabledScreens = [configuration.GetActiveBrowserScreen()];
+
+            return enabledScreens.Select(BuildBrowserScreenState).ToArray();
+        }
+
+        return [BuildLocalVideoState()];
+    }
+
+    private ScreenStateEnvelope BuildLocalVideoState()
+    {
+        var source = BuildLocalVideoSourceState();
         var rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(
             configuration.YawRadians,
             configuration.PitchRadians,
@@ -74,7 +126,7 @@ public sealed class ScreenStateIpc : IDisposable
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
             SizeMeters = new Vector2Dto(configuration.WidthMeters, configuration.HeightMeters),
             Source = source,
-            Playback = BuildPlaybackState(),
+            Playback = BuildLocalPlaybackState(),
             Visual = new ScreenVisualState
             {
                 OccludedAlpha = configuration.OccludedAlpha,
@@ -89,6 +141,39 @@ public sealed class ScreenStateIpc : IDisposable
         };
     }
 
+    private ScreenStateEnvelope BuildBrowserScreenState(BrowserScreenProfile screen)
+    {
+        var placement = screen.Placement;
+        var rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(
+            placement.YawRadians,
+            placement.PitchRadians,
+            placement.RollRadians);
+
+        return new ScreenStateEnvelope
+        {
+            SchemaVersion = 1,
+            ScreenId = screen.ScreenId,
+            OwnerSessionId = configuration.OwnerSessionId,
+            TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
+            Position = new Vector3Dto(placement.PositionX, placement.PositionY, placement.PositionZ),
+            Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
+            SizeMeters = new Vector2Dto(placement.WidthMeters, placement.HeightMeters),
+            Source = BuildBrowserSourceState(screen),
+            Playback = BuildBrowserPlaybackState(screen),
+            Visual = new ScreenVisualState
+            {
+                OccludedAlpha = placement.OccludedAlpha,
+                OcclusionTolerance = placement.OcclusionTolerance,
+                ScreenCurveAmountMeters = placement.ScreenCurveAmountMeters,
+                DistanceFadeEnabled = placement.EnableDistanceFade,
+                FadeStartMeters = placement.FadeStartMeters,
+                FadeStopMeters = placement.FadeStopMeters,
+            },
+            TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Sequence = screen.LocalSequence,
+        };
+    }
+
     public void Dispose()
     {
         apiVersionProvider.UnregisterFunc();
@@ -100,11 +185,13 @@ public sealed class ScreenStateIpc : IDisposable
 
     private string GetSnapshotJson()
     {
+        var localStates = BuildLocalStates().ToArray();
         var snapshot = new
         {
             schemaVersion = 1,
             apiVersion = ApiVersion,
-            local = BuildLocalState(),
+            local = localStates.FirstOrDefault(),
+            localScreens = localStates,
             remote = remoteScreens.Values.OrderBy(screen => screen.ScreenId).ToArray(),
         };
         return JsonSerializer.Serialize(snapshot, JsonOptions);
@@ -142,30 +229,25 @@ public sealed class ScreenStateIpc : IDisposable
         return remoteScreens.Remove(screenId);
     }
 
-    private ScreenSourceState BuildSourceState()
+    private ScreenPlaybackStateDto BuildLocalPlaybackState()
     {
-        return configuration.SourceKind switch
+        return new ScreenPlaybackStateDto
         {
-            ScreenSourceKind.LocalVideo => BuildLocalVideoSourceState(),
-            ScreenSourceKind.YouTubeBrowser => BuildYouTubeSourceState(),
-            _ => new ScreenSourceState
-            {
-                Kind = configuration.SourceKind,
-                Identity = configuration.SourceKind.ToString(),
-                Title = $"{configuration.SourceKind} source",
-                Hash = string.Empty,
-            },
+            State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
+            PositionMs = 0,
+            Rate = 1.0f,
+            HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }
 
-    private ScreenPlaybackStateDto BuildPlaybackState()
+    private ScreenPlaybackStateDto BuildBrowserPlaybackState(BrowserScreenProfile screen)
     {
-        var telemetry = playbackTelemetryProvider();
-        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser && telemetry != null)
+        var telemetry = renderer.GetPlaybackTelemetry(screen);
+        if (telemetry != null)
         {
             return new ScreenPlaybackStateDto
             {
-                State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : telemetry.State,
+                State = screen.PlaybackPaused ? ScreenPlaybackState.Paused : telemetry.State,
                 PositionMs = telemetry.PositionMs,
                 DurationMs = telemetry.DurationMs,
                 Rate = telemetry.Rate,
@@ -175,9 +257,9 @@ public sealed class ScreenStateIpc : IDisposable
 
         return new ScreenPlaybackStateDto
         {
-            State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
+            State = screen.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
             PositionMs = 0,
-            Rate = 1.0f,
+            Rate = screen.YouTubePlaybackRate,
             HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }
@@ -202,14 +284,30 @@ public sealed class ScreenStateIpc : IDisposable
         return source;
     }
 
-    private ScreenSourceState BuildYouTubeSourceState()
+    private ScreenSourceState BuildBrowserSourceState(BrowserScreenProfile screen)
     {
-        var telemetry = playbackTelemetryProvider();
-        if (!YouTubeVideoId.TryParse(configuration.YouTubeUrl, out var videoId))
+        return screen.ProviderKind switch
+        {
+            BrowserSourceProviderKind.YouTube => BuildYouTubeSourceState(screen),
+            _ => new ScreenSourceState
+            {
+                Kind = ScreenSourceKind.YouTubeBrowser,
+                Provider = screen.ProviderKind.ToString(),
+                Identity = $"browser:{screen.ProviderKind}",
+                Title = $"{screen.ProviderKind} source",
+            },
+        };
+    }
+
+    private ScreenSourceState BuildYouTubeSourceState(BrowserScreenProfile screen)
+    {
+        var telemetry = renderer.GetPlaybackTelemetry(screen);
+        if (!YouTubeVideoId.TryParse(screen.YouTubeUrl, out var videoId))
         {
             return new ScreenSourceState
             {
                 Kind = ScreenSourceKind.YouTubeBrowser,
+                Provider = BrowserSourceProviderKind.YouTube.ToString(),
                 Identity = "youtube:invalid",
                 Title = "Invalid YouTube source",
             };
@@ -219,6 +317,7 @@ public sealed class ScreenStateIpc : IDisposable
         return new ScreenSourceState
         {
             Kind = ScreenSourceKind.YouTubeBrowser,
+            Provider = BrowserSourceProviderKind.YouTube.ToString(),
             Identity = $"youtube:{videoId}",
             Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "YouTube video" : telemetry.Title,
             Hash = string.Empty,

@@ -25,20 +25,17 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem windowSystem = new("CrystalCast");
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
-    private readonly WorldScreenRenderer renderer;
+    private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
 
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        if (Configuration.SourceKind is not (ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser))
-        {
-            Configuration.SourceKind = ScreenSourceKind.LocalVideo;
+        if (Configuration.Normalize())
             Configuration.Save();
-        }
 
-        renderer = new WorldScreenRenderer(Configuration);
-        ipc = new ScreenStateIpc(Configuration, () => renderer.PlaybackTelemetry);
+        renderer = new WorldScreenManager(Configuration);
+        ipc = new ScreenStateIpc(Configuration, renderer);
         mainWindow = new MainWindow(this, renderer, ipc);
         configWindow = new ConfigWindow(this, renderer, ipc);
         windowSystem.AddWindow(mainWindow);

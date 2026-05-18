@@ -24,6 +24,7 @@ public sealed class ScreenSourceState
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ScreenSourceKind Kind { get; set; }
 
+    public string Provider { get; set; } = string.Empty;
     public string Identity { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Hash { get; set; } = string.Empty;

@@ -9,6 +9,7 @@ public class Configuration : IPluginConfiguration
     public const int OutputModeImGuiOverlay = 0;
     public const int OutputModeNativeOverlay = 1;
     public const int OutputModeSceneComposite = 2;
+    public const int MaxBrowserScreens = 8;
 
     public int Version { get; set; } = 1;
 
@@ -64,12 +65,338 @@ public class Configuration : IPluginConfiguration
 
     public bool PlaybackPaused { get; set; }
 
+    public List<BrowserScreenProfile> BrowserScreens { get; set; } = [];
+    public string ActiveBrowserScreenId { get; set; } = string.Empty;
+
     public static int DefaultOutputMode => OperatingSystem.IsWindows()
         ? OutputModeSceneComposite
         : OutputModeNativeOverlay;
 
+    public bool Normalize()
+    {
+        var changed = false;
+
+        if (string.IsNullOrWhiteSpace(ScreenId))
+        {
+            ScreenId = Guid.NewGuid().ToString("N");
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(OwnerSessionId))
+        {
+            OwnerSessionId = Guid.NewGuid().ToString("N");
+            changed = true;
+        }
+
+        if (SourceKind is not (ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser))
+        {
+            SourceKind = ScreenSourceKind.LocalVideo;
+            changed = true;
+        }
+
+        if (BrowserScreens == null)
+        {
+            BrowserScreens = [];
+            changed = true;
+        }
+        if (BrowserScreens.Count == 0)
+        {
+            BrowserScreens.Add(CreateBrowserScreenFromLegacy("YouTube screen 1"));
+            changed = true;
+        }
+
+        var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < BrowserScreens.Count; i++)
+            changed |= BrowserScreens[i].Normalize($"YouTube screen {i + 1}", usedScreenIds);
+
+        if (string.IsNullOrWhiteSpace(ActiveBrowserScreenId) || BrowserScreens.All(screen => screen.ScreenId != ActiveBrowserScreenId))
+        {
+            ActiveBrowserScreenId = BrowserScreens[0].ScreenId;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    public BrowserScreenProfile GetActiveBrowserScreen()
+    {
+        Normalize();
+        return BrowserScreens.FirstOrDefault(screen => screen.ScreenId == ActiveBrowserScreenId) ?? BrowserScreens[0];
+    }
+
+    public BrowserScreenProfile CreateDefaultBrowserScreen(string name)
+    {
+        var screen = new BrowserScreenProfile
+        {
+            Name = name,
+            Placement = new ScreenPlacementSettings(),
+        };
+        screen.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
+        return screen;
+    }
+
+    private BrowserScreenProfile CreateBrowserScreenFromLegacy(string name)
+    {
+        var screen = new BrowserScreenProfile
+        {
+            ScreenId = ScreenId,
+            Name = name,
+            Enabled = Enabled,
+            LocalSequence = LocalSequence,
+            PlaybackPaused = PlaybackPaused,
+            ProviderKind = BrowserSourceProviderKind.YouTube,
+            Placement = new ScreenPlacementSettings
+            {
+                PositionX = PositionX,
+                PositionY = PositionY,
+                PositionZ = PositionZ,
+                YawRadians = YawRadians,
+                PitchRadians = PitchRadians,
+                RollRadians = RollRadians,
+                WidthMeters = WidthMeters,
+                HeightMeters = HeightMeters,
+                ScreenCurveAmountMeters = ScreenCurveAmountMeters,
+                OccludedAlpha = OccludedAlpha,
+                OcclusionTolerance = OcclusionTolerance,
+                EnableDistanceFade = EnableDistanceFade,
+                FadeStartMeters = FadeStartMeters,
+                FadeStopMeters = FadeStopMeters,
+            },
+            YouTubeUrl = YouTubeUrl,
+            YouTubeBrowserWidth = YouTubeBrowserWidth,
+            YouTubeBrowserHeight = YouTubeBrowserHeight,
+            YouTubeCaptureFps = YouTubeCaptureFps,
+            YouTubeAutoplay = YouTubeAutoplay,
+            LoopYouTube = LoopYouTube,
+            YouTubeAudioEnabled = YouTubeAudioEnabled,
+            YouTubeVolume = YouTubeVolume,
+            YouTubePlaybackRate = YouTubePlaybackRate,
+            SpatialAudioEnabled = SpatialAudioEnabled,
+            SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
+            SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,
+        };
+        screen.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
+        return screen;
+    }
+
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);
+    }
+}
+
+public enum BrowserSourceProviderKind
+{
+    YouTube = 1,
+}
+
+[Serializable]
+public sealed class BrowserScreenProfile
+{
+    public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "YouTube screen";
+    public bool Enabled { get; set; } = true;
+    public long LocalSequence { get; set; }
+    public ScreenPlacementSettings Placement { get; set; } = new();
+    public bool PlaybackPaused { get; set; }
+    public BrowserSourceProviderKind ProviderKind { get; set; } = BrowserSourceProviderKind.YouTube;
+
+    public string YouTubeUrl { get; set; } = string.Empty;
+    public int YouTubeBrowserWidth { get; set; } = 1280;
+    public int YouTubeBrowserHeight { get; set; } = 720;
+    public float YouTubeCaptureFps { get; set; } = 15.0f;
+    public bool YouTubeAutoplay { get; set; } = true;
+    public bool LoopYouTube { get; set; }
+    public bool YouTubeAudioEnabled { get; set; }
+    public float YouTubeVolume { get; set; } = 0.7f;
+    public float YouTubePlaybackRate { get; set; } = 1.0f;
+
+    public bool SpatialAudioEnabled { get; set; } = true;
+    public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
+    public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
+
+    public bool Normalize(string defaultName, ISet<string> usedScreenIds)
+    {
+        var changed = false;
+        if (string.IsNullOrWhiteSpace(ScreenId) || !usedScreenIds.Add(ScreenId))
+        {
+            ScreenId = Guid.NewGuid().ToString("N");
+            usedScreenIds.Add(ScreenId);
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(Name))
+        {
+            Name = defaultName;
+            changed = true;
+        }
+
+        if (Placement == null)
+        {
+            Placement = new ScreenPlacementSettings();
+            changed = true;
+        }
+
+        if (ProviderKind != BrowserSourceProviderKind.YouTube)
+        {
+            ProviderKind = BrowserSourceProviderKind.YouTube;
+            changed = true;
+        }
+
+        if (YouTubeBrowserWidth <= 0)
+        {
+            YouTubeBrowserWidth = 1280;
+            changed = true;
+        }
+
+        if (YouTubeBrowserHeight <= 0)
+        {
+            YouTubeBrowserHeight = 720;
+            changed = true;
+        }
+
+        var captureFps = Math.Clamp(YouTubeCaptureFps, 1.0f, 60.0f);
+        if (Math.Abs(YouTubeCaptureFps - captureFps) > 0.0001f)
+        {
+            YouTubeCaptureFps = captureFps;
+            changed = true;
+        }
+
+        var volume = Math.Clamp(YouTubeVolume, 0.0f, 1.0f);
+        if (Math.Abs(YouTubeVolume - volume) > 0.0001f)
+        {
+            YouTubeVolume = volume;
+            changed = true;
+        }
+
+        var playbackRate = Math.Clamp(YouTubePlaybackRate, 0.25f, 2.0f);
+        if (Math.Abs(YouTubePlaybackRate - playbackRate) > 0.0001f)
+        {
+            YouTubePlaybackRate = playbackRate;
+            changed = true;
+        }
+        if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
+        {
+            SpatialAudioSilentRadiusMeters = SpatialAudioFullVolumeRadiusMeters + 0.1f;
+            changed = true;
+        }
+
+        changed |= Placement.Normalize();
+        return changed;
+    }
+
+    public BrowserScreenProfile CloneAsNew(string name)
+    {
+        return new BrowserScreenProfile
+        {
+            ScreenId = Guid.NewGuid().ToString("N"),
+            Name = name,
+            Enabled = Enabled,
+            LocalSequence = 0,
+            Placement = Placement.Clone(),
+            PlaybackPaused = PlaybackPaused,
+            ProviderKind = ProviderKind,
+            YouTubeUrl = YouTubeUrl,
+            YouTubeBrowserWidth = YouTubeBrowserWidth,
+            YouTubeBrowserHeight = YouTubeBrowserHeight,
+            YouTubeCaptureFps = YouTubeCaptureFps,
+            YouTubeAutoplay = YouTubeAutoplay,
+            LoopYouTube = LoopYouTube,
+            YouTubeAudioEnabled = YouTubeAudioEnabled,
+            YouTubeVolume = YouTubeVolume,
+            YouTubePlaybackRate = YouTubePlaybackRate,
+            SpatialAudioEnabled = SpatialAudioEnabled,
+            SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
+            SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,
+        };
+    }
+}
+
+[Serializable]
+public sealed class ScreenPlacementSettings
+{
+    public float PositionX { get; set; }
+    public float PositionY { get; set; } = 1.6f;
+    public float PositionZ { get; set; } = 3.0f;
+    public float YawRadians { get; set; }
+    public float PitchRadians { get; set; }
+    public float RollRadians { get; set; }
+    public float WidthMeters { get; set; } = 3.0f;
+    public float HeightMeters { get; set; } = 1.6875f;
+    public float ScreenCurveAmountMeters { get; set; }
+    public float OccludedAlpha { get; set; } = 0.0f;
+    public float OcclusionTolerance { get; set; } = 0.02f;
+    public bool EnableDistanceFade { get; set; }
+    public float FadeStartMeters { get; set; } = 35.0f;
+    public float FadeStopMeters { get; set; } = 60.0f;
+
+    public bool Normalize()
+    {
+        var changed = false;
+        if (WidthMeters < 0.1f)
+        {
+            WidthMeters = 0.1f;
+            changed = true;
+        }
+
+        if (HeightMeters < 0.1f)
+        {
+            HeightMeters = 0.1f;
+            changed = true;
+        }
+
+        var occludedAlpha = Math.Clamp(OccludedAlpha, 0.0f, 1.0f);
+        if (Math.Abs(OccludedAlpha - occludedAlpha) > 0.0001f)
+        {
+            OccludedAlpha = occludedAlpha;
+            changed = true;
+        }
+
+        var occlusionTolerance = Math.Max(0.0f, OcclusionTolerance);
+        if (Math.Abs(OcclusionTolerance - occlusionTolerance) > 0.0001f)
+        {
+            OcclusionTolerance = occlusionTolerance;
+            changed = true;
+        }
+        if (FadeStopMeters <= FadeStartMeters)
+        {
+            FadeStopMeters = FadeStartMeters + 0.01f;
+            changed = true;
+        }
+
+        var maxCurveAmount = Math.Max(0.0f, WidthMeters / MathF.PI);
+        if (ScreenCurveAmountMeters > maxCurveAmount)
+        {
+            ScreenCurveAmountMeters = maxCurveAmount;
+            changed = true;
+        }
+        else if (ScreenCurveAmountMeters < 0.0f)
+        {
+            ScreenCurveAmountMeters = 0.0f;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    public ScreenPlacementSettings Clone()
+    {
+        return new ScreenPlacementSettings
+        {
+            PositionX = PositionX,
+            PositionY = PositionY,
+            PositionZ = PositionZ,
+            YawRadians = YawRadians,
+            PitchRadians = PitchRadians,
+            RollRadians = RollRadians,
+            WidthMeters = WidthMeters,
+            HeightMeters = HeightMeters,
+            ScreenCurveAmountMeters = ScreenCurveAmountMeters,
+            OccludedAlpha = OccludedAlpha,
+            OcclusionTolerance = OcclusionTolerance,
+            EnableDistanceFade = EnableDistanceFade,
+            FadeStartMeters = FadeStartMeters,
+            FadeStopMeters = FadeStopMeters,
+        };
     }
 }

@@ -26,21 +26,20 @@ public sealed class MainWindow : Window, IDisposable
         [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
 
     private readonly Plugin plugin;
-    private readonly WorldScreenRenderer renderer;
+    private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
-    private string youtubeUrlDraft = string.Empty;
-    private string youtubeUrlDraftSource = string.Empty;
-    private float youtubeProgressDraftSeconds = -1.0f;
-    private bool youtubeProgressScrubbing;
+    private readonly Dictionary<string, YouTubeUiState> youtubeUiStates = new(StringComparer.Ordinal);
+    private string renamingScreenId = string.Empty;
+    private string renameDraft = string.Empty;
 
-    public MainWindow(Plugin plugin, WorldScreenRenderer renderer, ScreenStateIpc ipc)
+    public MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast###CrystalCastMain")
     {
         this.plugin = plugin;
         this.renderer = renderer;
         this.ipc = ipc;
 
-        Size = new Vector2(520, 520);
+        Size = new Vector2(520, 560);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -52,13 +51,19 @@ public sealed class MainWindow : Window, IDisposable
     {
         var changed = false;
         var config = plugin.Configuration;
+        config.Normalize();
+        var activeBrowserScreen = config.GetActiveBrowserScreen();
 
         DrawHeader();
-        changed |= DrawPlaybackShell(config);
+        changed |= DrawTopControls(config, activeBrowserScreen);
+        activeBrowserScreen = config.GetActiveBrowserScreen();
+        changed |= DrawPlaybackShell(config, activeBrowserScreen);
         DrawSectionTitle("Source");
-        changed |= DrawSource(config);
+        changed |= DrawSource(config, activeBrowserScreen);
         DrawSectionTitle("Placement");
-        changed |= DrawPlacement(config);
+        changed |= config.SourceKind == ScreenSourceKind.YouTubeBrowser
+            ? DrawPlacement(activeBrowserScreen.Placement)
+            : DrawPlacement(config);
 
         if (changed)
             SaveAndPublish();
@@ -72,11 +77,158 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Separator();
     }
 
-    private bool DrawPlaybackShell(Configuration config)
+    private bool DrawTopControls(Configuration config, BrowserScreenProfile activeScreen)
+    {
+        var changed = DrawSourceCombo(config);
+        if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
+        {
+            ImGui.Spacing();
+            changed |= DrawBrowserScreenControls(config, activeScreen);
+        }
+
+        return changed;
+    }
+
+    private static bool DrawSourceCombo(Configuration config)
+    {
+        var changed = false;
+        var current = FindSourceIndex(config.SourceKind);
+
+        if (ImGui.BeginCombo("Source", SourceNames[current]))
+        {
+            for (var i = 0; i < SourceNames.Length; i++)
+            {
+                var selected = i == current;
+                if (ImGui.Selectable(SourceNames[i], selected))
+                {
+                    config.SourceKind = SourceKinds[i];
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+
+        return changed;
+    }
+
+    private bool DrawBrowserScreenControls(Configuration config, BrowserScreenProfile activeScreen)
+    {
+        var changed = false;
+        var activeIndex = Math.Max(0, config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId));
+
+        if (ImGui.BeginCombo("Screen", activeScreen.Name))
+        {
+            for (var i = 0; i < config.BrowserScreens.Count; i++)
+            {
+                var screen = config.BrowserScreens[i];
+                var selected = i == activeIndex;
+                if (ImGui.Selectable($"{screen.Name}##Screen{screen.ScreenId}", selected))
+                {
+                    config.ActiveBrowserScreenId = screen.ScreenId;
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+
+        if (ImGui.Button("Add YouTube"))
+        {
+            if (config.BrowserScreens.Count < Configuration.MaxBrowserScreens)
+            {
+                var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
+                config.BrowserScreens.Add(screen);
+                config.ActiveBrowserScreenId = screen.ScreenId;
+                renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
+                changed = true;
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Duplicate"))
+        {
+            if (config.BrowserScreens.Count < Configuration.MaxBrowserScreens)
+            {
+                var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
+                OffsetDuplicatePlacement(copy.Placement);
+                config.BrowserScreens.Add(copy);
+                config.ActiveBrowserScreenId = copy.ScreenId;
+                changed = true;
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Rename"))
+        {
+            renamingScreenId = activeScreen.ScreenId;
+            renameDraft = activeScreen.Name;
+        }
+
+        ImGui.SameLine();
+        var canDelete = config.BrowserScreens.Count > 1;
+        if (!canDelete)
+            ImGui.BeginDisabled();
+        if (ImGui.Button("Delete") && canDelete)
+        {
+            var removedId = activeScreen.ScreenId;
+            config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
+            youtubeUiStates.Remove(removedId);
+            if (renamingScreenId == removedId)
+                renamingScreenId = string.Empty;
+            config.ActiveBrowserScreenId = config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
+            changed = true;
+        }
+        if (!canDelete)
+            ImGui.EndDisabled();
+
+        if (config.BrowserScreens.Count >= Configuration.MaxBrowserScreens)
+            ImGui.TextDisabled($"Screen limit: {Configuration.MaxBrowserScreens}");
+
+        if (renamingScreenId == activeScreen.ScreenId)
+        {
+            var draft = renameDraft;
+            var pressedEnter = ImGui.InputText("Screen name", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+            renameDraft = draft;
+            ImGui.SameLine();
+            if (ImGui.Button("Save name") || pressedEnter)
+            {
+                var trimmed = renameDraft.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmed))
+                {
+                    activeScreen.Name = trimmed;
+                    changed = true;
+                }
+
+                renamingScreenId = string.Empty;
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel"))
+                renamingScreenId = string.Empty;
+        }
+
+        var enabled = activeScreen.Enabled;
+        if (ImGui.Checkbox("Screen enabled", ref enabled))
+        {
+            activeScreen.Enabled = enabled;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool DrawPlaybackShell(Configuration config, BrowserScreenProfile activeScreen)
     {
         var changed = false;
         var enabled = config.Enabled;
-        if (ImGui.Checkbox("Enabled", ref enabled))
+        if (ImGui.Checkbox("Plugin enabled", ref enabled))
         {
             config.Enabled = enabled;
             changed = true;
@@ -92,12 +244,12 @@ public sealed class MainWindow : Window, IDisposable
             var position = telemetry == null
                 ? "0:00"
                 : FormatPlaybackPosition(telemetry.PositionMs);
-            var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
+            var state = telemetry?.State.ToString() ?? (activeScreen.PlaybackPaused ? "Paused" : "Playing");
             var duration = telemetry is { DurationMs: > 0 }
                 ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
                 : string.Empty;
             ImGui.TextUnformatted($"{state} @ {position}{duration}");
-            changed |= DrawYouTubeProgressBar(telemetry);
+            changed |= DrawYouTubeProgressBar(activeScreen, telemetry);
         }
         else
         {
@@ -113,13 +265,14 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private bool DrawYouTubeProgressBar(MediaPlaybackTelemetry? telemetry)
+    private bool DrawYouTubeProgressBar(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)
     {
+        var uiState = GetYouTubeUiState(screen);
         var durationMs = telemetry?.DurationMs ?? 0;
         if (durationMs <= 0)
         {
-            youtubeProgressDraftSeconds = -1.0f;
-            youtubeProgressScrubbing = false;
+            uiState.ProgressDraftSeconds = -1.0f;
+            uiState.ProgressScrubbing = false;
             ImGui.ProgressBar(0.0f, new Vector2(-1.0f, 0.0f), "0:00");
             return false;
         }
@@ -127,38 +280,38 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
         var durationSeconds = Math.Max(0.001f, durationMs / 1000.0f);
         var positionSeconds = Math.Clamp((telemetry?.PositionMs ?? 0) / 1000.0f, 0.0f, durationSeconds);
-        if (youtubeProgressDraftSeconds < 0.0f)
-            youtubeProgressDraftSeconds = positionSeconds;
+        if (uiState.ProgressDraftSeconds < 0.0f)
+            uiState.ProgressDraftSeconds = positionSeconds;
 
         var start = ImGui.GetCursorScreenPos();
         var width = Math.Max(1.0f, ImGui.GetContentRegionAvail().X);
         var height = Math.Max(16.0f, ImGui.GetFrameHeight());
         var size = new Vector2(width, height);
-        ImGui.InvisibleButton("##YouTubeProgress", size);
+        ImGui.InvisibleButton($"##YouTubeProgress{screen.ScreenId}", size);
 
         var active = ImGui.IsItemActive();
         var hovered = ImGui.IsItemHovered();
         if (active)
         {
             var mouseX = ImGui.GetIO().MousePos.X;
-            youtubeProgressDraftSeconds = Math.Clamp((mouseX - start.X) / width * durationSeconds, 0.0f, durationSeconds);
-            youtubeProgressScrubbing = true;
+            uiState.ProgressDraftSeconds = Math.Clamp((mouseX - start.X) / width * durationSeconds, 0.0f, durationSeconds);
+            uiState.ProgressScrubbing = true;
         }
-        else if (youtubeProgressScrubbing)
+        else if (uiState.ProgressScrubbing)
         {
-            var seekDeltaSeconds = youtubeProgressDraftSeconds - positionSeconds;
+            var seekDeltaSeconds = uiState.ProgressDraftSeconds - positionSeconds;
             if (Math.Abs(seekDeltaSeconds) >= 0.25f)
             {
                 renderer.TrySeekDynamicSourceBy(seekDeltaSeconds);
                 changed = true;
             }
 
-            youtubeProgressDraftSeconds = -1.0f;
-            youtubeProgressScrubbing = false;
+            uiState.ProgressDraftSeconds = -1.0f;
+            uiState.ProgressScrubbing = false;
         }
 
-        var displaySeconds = youtubeProgressScrubbing
-            ? Math.Clamp(youtubeProgressDraftSeconds, 0.0f, durationSeconds)
+        var displaySeconds = uiState.ProgressScrubbing
+            ? Math.Clamp(uiState.ProgressDraftSeconds, 0.0f, durationSeconds)
             : positionSeconds;
         var progressFraction = Math.Clamp(displaySeconds / durationSeconds, 0.0f, 1.0f);
         var lineHeight = active || hovered ? 5.0f : 3.0f;
@@ -194,9 +347,7 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
 
         if (ImGui.Button("Place in front of player"))
-        {
             changed |= renderer.PlaceInFrontOfPlayer();
-        }
 
         var position = new Vector3(config.PositionX, config.PositionY, config.PositionZ);
         if (ImGui.InputFloat3("Position", ref position))
@@ -216,6 +367,42 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
+        changed |= DrawPlacementSizeAndCurve(config);
+        return changed;
+    }
+
+    private bool DrawPlacement(ScreenPlacementSettings placement)
+    {
+        var changed = false;
+
+        if (ImGui.Button("Place in front of player"))
+            changed |= renderer.PlaceInFrontOfPlayer();
+
+        var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
+        if (ImGui.InputFloat3("Position", ref position))
+        {
+            placement.PositionX = position.X;
+            placement.PositionY = position.Y;
+            placement.PositionZ = position.Z;
+            changed = true;
+        }
+
+        var rotation = new Vector3(placement.YawRadians, placement.PitchRadians, placement.RollRadians);
+        if (ImGui.InputFloat3("Yaw / Pitch / Roll", ref rotation))
+        {
+            placement.YawRadians = rotation.X;
+            placement.PitchRadians = rotation.Y;
+            placement.RollRadians = rotation.Z;
+            changed = true;
+        }
+
+        changed |= DrawPlacementSizeAndCurve(placement);
+        return changed;
+    }
+
+    private bool DrawPlacementSizeAndCurve(Configuration config)
+    {
+        var changed = false;
         var width = config.WidthMeters;
         if (ImGui.InputFloat("Width meters", ref width, 0.1f, 0.5f))
         {
@@ -244,40 +431,52 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private bool DrawSource(Configuration config)
+    private bool DrawPlacementSizeAndCurve(ScreenPlacementSettings placement)
     {
         var changed = false;
-        var current = FindSourceIndex(config.SourceKind);
-
-        if (ImGui.BeginCombo("Source", SourceNames[current]))
+        var width = placement.WidthMeters;
+        if (ImGui.InputFloat("Width meters", ref width, 0.1f, 0.5f))
         {
-            for (var i = 0; i < SourceNames.Length; i++)
-            {
-                var selected = i == current;
-                if (ImGui.Selectable(SourceNames[i], selected))
-                {
-                    config.SourceKind = SourceKinds[i];
-                    changed = true;
-                }
-
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
+            placement.WidthMeters = Math.Max(0.1f, width);
+            changed = true;
         }
 
+        ImGui.TextDisabled(renderer.TextureWidth > 0 && renderer.TextureHeight > 0
+            ? $"Auto height: {placement.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m"
+            : "Auto height: waiting for texture");
+
+        var maxCurveAmount = Math.Max(0.001f, placement.WidthMeters / MathF.PI);
+        var curveAmount = Math.Clamp(placement.ScreenCurveAmountMeters, 0.0f, maxCurveAmount);
+        if (Math.Abs(placement.ScreenCurveAmountMeters - curveAmount) > 0.0001f)
+        {
+            placement.ScreenCurveAmountMeters = curveAmount;
+            changed = true;
+        }
+
+        if (ImGui.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
+        {
+            placement.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool DrawSource(Configuration config, BrowserScreenProfile activeScreen)
+    {
+        var changed = false;
         switch (config.SourceKind)
         {
             case ScreenSourceKind.LocalVideo:
                 changed |= DrawLocalVideoSource(config);
+                changed |= DrawSpatialAudio(config);
                 break;
             case ScreenSourceKind.YouTubeBrowser:
-                changed |= DrawYouTubeSource(config);
+                changed |= DrawYouTubeSource(activeScreen);
+                changed |= DrawSpatialAudio(activeScreen);
                 break;
         }
 
-        changed |= DrawSpatialAudio(config);
         return changed;
     }
 
@@ -292,98 +491,98 @@ public sealed class MainWindow : Window, IDisposable
         return 0;
     }
 
-    private bool DrawYouTubeSource(Configuration config)
+    private bool DrawYouTubeSource(BrowserScreenProfile screen)
     {
         var changed = false;
-        var fps = config.YouTubeCaptureFps;
-        var autoplay = config.YouTubeAutoplay;
-        var loop = config.LoopYouTube;
-        var audioEnabled = config.YouTubeAudioEnabled;
-        var volume = config.YouTubeVolume;
-        var rate = config.YouTubePlaybackRate;
+        var uiState = GetYouTubeUiState(screen);
+        var fps = screen.YouTubeCaptureFps;
+        var autoplay = screen.YouTubeAutoplay;
+        var loop = screen.LoopYouTube;
+        var audioEnabled = screen.YouTubeAudioEnabled;
+        var volume = screen.YouTubeVolume;
+        var rate = screen.YouTubePlaybackRate;
 
-        if (!string.Equals(youtubeUrlDraftSource, config.YouTubeUrl, StringComparison.Ordinal))
+        if (!string.Equals(uiState.UrlDraftSource, screen.YouTubeUrl, StringComparison.Ordinal))
         {
-            youtubeUrlDraft = config.YouTubeUrl;
-            youtubeUrlDraftSource = config.YouTubeUrl;
+            uiState.UrlDraft = screen.YouTubeUrl;
+            uiState.UrlDraftSource = screen.YouTubeUrl;
         }
 
-        var committedVideoIdValid = YouTubeVideoId.TryParse(config.YouTubeUrl, out var committedVideoId);
-        var draft = youtubeUrlDraft;
+        var committedVideoIdValid = YouTubeVideoId.TryParse(screen.YouTubeUrl, out var committedVideoId);
+        var draft = uiState.UrlDraft;
         var pressedEnter = ImGui.InputText("YouTube URL / ID", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
-        youtubeUrlDraft = draft;
-        var draftVideoIdValid = YouTubeVideoId.TryParse(youtubeUrlDraft, out var draftVideoId);
+        uiState.UrlDraft = draft;
+        var draftVideoIdValid = YouTubeVideoId.TryParse(uiState.UrlDraft, out var draftVideoId);
 
         ImGui.SameLine();
         if (ImGui.Button("Load") || pressedEnter)
         {
             if (draftVideoIdValid)
             {
-                config.YouTubeUrl = youtubeUrlDraft.Trim();
-                youtubeUrlDraftSource = config.YouTubeUrl;
-                config.PlaybackPaused = false;
+                screen.YouTubeUrl = uiState.UrlDraft.Trim();
+                uiState.UrlDraftSource = screen.YouTubeUrl;
+                screen.PlaybackPaused = false;
                 changed = true;
             }
         }
 
         if (draftVideoIdValid)
             ImGui.TextDisabled($"Video ID: {draftVideoId}");
-        else if (!string.IsNullOrWhiteSpace(youtubeUrlDraft))
+        else if (!string.IsNullOrWhiteSpace(uiState.UrlDraft))
             ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Video ID: invalid");
         else if (committedVideoIdValid)
             ImGui.TextDisabled($"Current video ID: {committedVideoId}");
         else
             ImGui.TextDisabled("Video ID: empty");
 
-        changed |= DrawYouTubePlaybackControls(config);
-
-        changed |= DrawYouTubeResolutionPreset(config);
+        changed |= DrawYouTubePlaybackControls(screen);
+        changed |= DrawYouTubeResolutionPreset(screen);
 
         if (ImGui.InputFloat("Capture FPS", ref fps, 1.0f, 5.0f))
         {
-            config.YouTubeCaptureFps = Math.Clamp(fps, 1.0f, 60.0f);
+            screen.YouTubeCaptureFps = Math.Clamp(fps, 1.0f, 60.0f);
             changed = true;
         }
 
         if (ImGui.Checkbox("Autoplay on load", ref autoplay))
         {
-            config.YouTubeAutoplay = autoplay;
+            screen.YouTubeAutoplay = autoplay;
             changed = true;
         }
 
         if (ImGui.Checkbox("Loop YouTube video", ref loop))
         {
-            config.LoopYouTube = loop;
+            screen.LoopYouTube = loop;
             changed = true;
         }
 
         if (ImGui.Checkbox("Browser audio", ref audioEnabled))
         {
-            config.YouTubeAudioEnabled = audioEnabled;
+            screen.YouTubeAudioEnabled = audioEnabled;
             changed = true;
         }
 
-        if (config.YouTubeAudioEnabled && ImGui.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
+        if (screen.YouTubeAudioEnabled && ImGui.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
         {
-            config.YouTubeVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            screen.YouTubeVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
         }
 
         if (ImGui.SliderFloat("Playback rate", ref rate, 0.25f, 2.0f))
         {
-            config.YouTubePlaybackRate = Math.Clamp(rate, 0.25f, 2.0f);
+            screen.YouTubePlaybackRate = Math.Clamp(rate, 0.25f, 2.0f);
             changed = true;
         }
 
         return changed;
     }
 
-    private static bool DrawYouTubeResolutionPreset(Configuration config)
+    private static bool DrawYouTubeResolutionPreset(BrowserScreenProfile screen)
     {
-        var current = FindYouTubeResolutionPreset(config.YouTubeBrowserWidth, config.YouTubeBrowserHeight);
+        var current = FindYouTubeResolutionPreset(screen.YouTubeBrowserWidth, screen.YouTubeBrowserHeight);
         var currentLabel = current >= 0
             ? YouTubeResolutionPresets[current].Name
-            : $"Custom ({config.YouTubeBrowserWidth} x {config.YouTubeBrowserHeight})";
+            : $"Custom ({screen.YouTubeBrowserWidth} x {screen.YouTubeBrowserHeight})";
 
         if (!ImGui.BeginCombo("Browser resolution", currentLabel))
             return false;
@@ -395,8 +594,8 @@ public sealed class MainWindow : Window, IDisposable
             var selected = i == current;
             if (ImGui.Selectable(preset.Name, selected))
             {
-                config.YouTubeBrowserWidth = preset.Width;
-                config.YouTubeBrowserHeight = preset.Height;
+                screen.YouTubeBrowserWidth = preset.Width;
+                screen.YouTubeBrowserHeight = preset.Height;
                 changed = true;
             }
 
@@ -420,20 +619,20 @@ public sealed class MainWindow : Window, IDisposable
         return -1;
     }
 
-    private bool DrawYouTubePlaybackControls(Configuration config)
+    private bool DrawYouTubePlaybackControls(BrowserScreenProfile screen)
     {
         var changed = false;
         var telemetry = renderer.PlaybackTelemetry;
         var position = telemetry == null
             ? "0:00"
             : FormatPlaybackPosition(telemetry.PositionMs);
-        var state = telemetry?.State.ToString() ?? (config.PlaybackPaused ? "Paused" : "Playing");
+        var state = telemetry?.State.ToString() ?? (screen.PlaybackPaused ? "Paused" : "Playing");
 
         ImGui.TextDisabled($"Playback: {state} @ {position}");
 
         if (ImGui.Button("Play"))
         {
-            config.PlaybackPaused = false;
+            screen.PlaybackPaused = false;
             renderer.TryPlayDynamicSource();
             changed = true;
         }
@@ -441,7 +640,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Pause"))
         {
-            config.PlaybackPaused = true;
+            screen.PlaybackPaused = true;
             renderer.TryPauseDynamicSource();
             changed = true;
         }
@@ -449,7 +648,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Restart"))
         {
-            config.PlaybackPaused = false;
+            screen.PlaybackPaused = false;
             renderer.TryRestartDynamicSource();
             changed = true;
         }
@@ -589,6 +788,96 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
+    private bool DrawSpatialAudio(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var enabled = screen.SpatialAudioEnabled;
+        var fullRadius = screen.SpatialAudioFullVolumeRadiusMeters;
+        var silentRadius = screen.SpatialAudioSilentRadiusMeters;
+
+        DrawSectionTitle("Audio falloff");
+        if (ImGui.Checkbox("Spatial audio", ref enabled))
+        {
+            screen.SpatialAudioEnabled = enabled;
+            changed = true;
+        }
+
+        if (screen.SpatialAudioEnabled)
+        {
+            if (ImGui.InputFloat("Full volume radius", ref fullRadius, 0.5f, 2.0f))
+            {
+                screen.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
+                if (screen.SpatialAudioSilentRadiusMeters <= screen.SpatialAudioFullVolumeRadiusMeters)
+                    screen.SpatialAudioSilentRadiusMeters = screen.SpatialAudioFullVolumeRadiusMeters + 0.1f;
+                changed = true;
+            }
+
+            if (ImGui.InputFloat("Silent radius", ref silentRadius, 0.5f, 2.0f))
+            {
+                screen.SpatialAudioSilentRadiusMeters = Math.Max(screen.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
+                changed = true;
+            }
+
+            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {FormatPercent(renderer.SpatialAudioAttenuation)}");
+            ImGui.TextDisabled($"Applied volume: {FormatPercent(renderer.EffectiveAudioVolume)}");
+        }
+        else
+        {
+            ImGui.TextDisabled("Distance falloff disabled");
+        }
+
+        return changed;
+    }
+
+    private YouTubeUiState GetYouTubeUiState(BrowserScreenProfile screen)
+    {
+        if (youtubeUiStates.TryGetValue(screen.ScreenId, out var state))
+            return state;
+
+        state = new YouTubeUiState
+        {
+            UrlDraft = screen.YouTubeUrl,
+            UrlDraftSource = screen.YouTubeUrl,
+        };
+        youtubeUiStates[screen.ScreenId] = state;
+        return state;
+    }
+
+    private static string GetNextScreenName(Configuration config)
+    {
+        for (var i = 1; i <= Configuration.MaxBrowserScreens; i++)
+        {
+            var name = $"YouTube screen {i}";
+            if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return name;
+        }
+
+        return $"YouTube screen {config.BrowserScreens.Count + 1}";
+    }
+
+    private static string GetDuplicateScreenName(Configuration config, string sourceName)
+    {
+        var baseName = string.IsNullOrWhiteSpace(sourceName) ? "YouTube screen" : $"{sourceName} copy";
+        if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, baseName, StringComparison.OrdinalIgnoreCase)))
+            return baseName;
+
+        for (var i = 2; i <= Configuration.MaxBrowserScreens; i++)
+        {
+            var name = $"{baseName} {i}";
+            if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return name;
+        }
+
+        return $"{baseName} {config.BrowserScreens.Count + 1}";
+    }
+
+    private static void OffsetDuplicatePlacement(ScreenPlacementSettings placement)
+    {
+        var right = new Vector3(MathF.Cos(placement.YawRadians), 0.0f, -MathF.Sin(placement.YawRadians));
+        placement.PositionX += right.X * 0.35f;
+        placement.PositionZ += right.Z * 0.35f;
+    }
+
     private static string ShortStatus(string status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -614,5 +903,13 @@ public sealed class MainWindow : Window, IDisposable
     private void SaveAndPublish()
     {
         ipc.PublishLocalState();
+    }
+
+    private sealed class YouTubeUiState
+    {
+        public string UrlDraft { get; set; } = string.Empty;
+        public string UrlDraftSource { get; set; } = string.Empty;
+        public float ProgressDraftSeconds { get; set; } = -1.0f;
+        public bool ProgressScrubbing { get; set; }
     }
 }

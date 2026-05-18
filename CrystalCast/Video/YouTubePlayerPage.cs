@@ -39,11 +39,21 @@ internal static class YouTubePlayerPage
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <style>
-    html, body, #player {
+    html, body {
       background: #000;
       height: 100%;
       margin: 0;
       overflow: hidden;
+      width: 100%;
+    }
+
+    body {
+      position: relative;
+    }
+
+    #player {
+      background: #000;
+      height: 100%;
       width: 100%;
     }
 
@@ -52,10 +62,79 @@ internal static class YouTubePlayerPage
       height: 100%;
       width: 100%;
     }
+
+    #loadingOverlay {
+      align-items: center;
+      background: #050506;
+      display: flex;
+      inset: 0;
+      justify-content: center;
+      opacity: 1;
+      pointer-events: none;
+      position: absolute;
+      transition: opacity 180ms ease;
+      z-index: 10;
+    }
+
+    #loadingOverlay.hidden {
+      opacity: 0;
+    }
+
+    .loadingWrap {
+      align-items: center;
+      display: flex;
+      height: 96px;
+      justify-content: center;
+      position: relative;
+      width: 96px;
+    }
+
+    .loadingRing {
+      animation: crystalCastSpin 900ms linear infinite;
+      border: 6px solid rgba(255, 255, 255, 0.14);
+      border-radius: 50%;
+      border-top-color: rgba(132, 213, 255, 0.95);
+      box-sizing: border-box;
+      height: 76px;
+      width: 76px;
+    }
+
+    .loadingCore {
+      animation: crystalCastPulse 1200ms ease-in-out infinite;
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 50%;
+      height: 12px;
+      position: absolute;
+      width: 12px;
+    }
+
+    @keyframes crystalCastSpin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes crystalCastPulse {
+      0%, 100% {
+        opacity: 0.38;
+        transform: scale(0.85);
+      }
+
+      50% {
+        opacity: 0.95;
+        transform: scale(1.2);
+      }
+    }
   </style>
 </head>
 <body>
   <div id="player"></div>
+  <div id="loadingOverlay" aria-hidden="true">
+    <div class="loadingWrap">
+      <div class="loadingRing"></div>
+      <div class="loadingCore"></div>
+    </div>
+  </div>
   <script>
     const crystalCastConfig = {{configJson}};
     let player = null;
@@ -68,6 +147,13 @@ internal static class YouTubePlayerPage
         window.chrome.webview.postMessage(payload);
       } else if (window.CefSharp && window.CefSharp.PostMessage) {
         window.CefSharp.PostMessage(JSON.stringify(payload));
+      }
+    }
+
+    function setLoadingVisible(visible) {
+      const overlay = document.getElementById("loadingOverlay");
+      if (overlay) {
+        overlay.classList.toggle("hidden", !visible);
       }
     }
 
@@ -230,6 +316,7 @@ internal static class YouTubePlayerPage
         events: {
           onReady: function () {
             playerReady = true;
+            setLoadingVisible(false);
             applySettings();
             debug("YouTube player ready");
             post("ready", { videoId: crystalCastConfig.videoId });
@@ -250,6 +337,7 @@ internal static class YouTubePlayerPage
             postStatus();
           },
           onError: function (event) {
+            setLoadingVisible(false);
             debug("YouTube player error " + (event && event.data ? event.data : 0));
             post("error", { code: event && event.data ? event.data : 0 });
           }
@@ -261,6 +349,7 @@ internal static class YouTubePlayerPage
     const tag = document.createElement("script");
     tag.src = "https://www.youtube.com/iframe_api";
     tag.onerror = function () {
+      setLoadingVisible(false);
       debug("failed to load YouTube IFrame API");
       post("error", { code: -1, message: "failed to load YouTube IFrame API" });
     };

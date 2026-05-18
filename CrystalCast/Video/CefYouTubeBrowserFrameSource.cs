@@ -7,6 +7,11 @@ namespace CrystalCast.Video;
 
 public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController
 {
+    private static long globalPlayerPageSequence;
+    private const long PlayerReadyReloadDelayMs = 8000;
+    private const long LoadingFrameIntervalMs = 66;
+    private const int MaxPlayerReadyReloads = 2;
+
     private readonly string input;
     private readonly string videoId;
     private readonly string canonicalUrl;
@@ -16,6 +21,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     private readonly Dictionary<string, Delegate> browserEventHandlers = new(StringComparer.Ordinal);
     private object? browser;
     private VideoFrame? latestFrame;
+    private VideoFrame? latestLoadingFrame;
     private MediaPlaybackTelemetry telemetry = new();
     private bool loop;
     private bool audioEnabled;
@@ -27,9 +33,15 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     private long sequence;
     private long lastFrameUnixMs;
     private long captureWindowStartUnixMs;
+    private long lastPlayerLoadUnixMs;
+    private long playerReadyUnixMs;
+    private long lastLoadingFrameUnixMs;
     private int captureWindowFrames;
+    private int playerLoadAttempt;
     private double measuredCaptureFps;
     private double lastPaintMilliseconds;
+    private bool playerReady;
+    private bool playerFailed;
 
     public CefYouTubeBrowserFrameSource(
         string input,
@@ -93,6 +105,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             return;
 
         captureEnabled = true;
+        MaybeReloadPlayerIfNotReady();
         if (!wasCaptureEnabled)
             Play();
     }
@@ -162,6 +175,12 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
 
     public bool TryGetLatestFrame(out VideoFrame frame)
     {
+        if (ShouldShowLoadingFrame())
+        {
+            frame = GetLoadingFrame();
+            return true;
+        }
+
         frame = latestFrame!;
         return frame != null;
     }
@@ -181,6 +200,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         captureEnabled = false;
         if (browser != null)
         {
+            CloseBrowserHost(browser);
             RemoveBrowserEventHandlers(browser);
             if (browser is IDisposable disposable)
                 disposable.Dispose();
@@ -219,15 +239,158 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             AddBrowserEventHandler(browser, "StatusMessage", nameof(OnStatusMessage));
             AddBrowserEventHandler(browser, "TitleChanged", nameof(OnTitleChanged));
 
-            var html = YouTubePlayerPage.BuildHtml(videoId, autoplay, loop, audioEnabled, volume, playbackRate);
-            InvokeWebBrowserExtension("LoadHtml", browser, html, $"{YouTubePlayerPage.PlayerOrigin}/player.html");
-            browserStatus = "CEF loading YouTube player";
+            LoadPlayerHtml("new video");
         }
         catch (Exception ex)
         {
             browserStatus = $"CEF browser failed: {ex.Message}";
             Plugin.Log.Warning(ex, "Failed to create CEF YouTube browser.");
         }
+    }
+
+    private void LoadPlayerHtml(string reason)
+    {
+        var currentBrowser = browser;
+        if (currentBrowser == null || GetInstanceProperty<bool>(currentBrowser, "IsDisposed"))
+            return;
+
+        playerReady = false;
+        playerFailed = false;
+        playerReadyUnixMs = 0;
+        latestLoadingFrame = null;
+        lastLoadingFrameUnixMs = 0;
+        playerStatus = "player not ready";
+        var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
+        var pageUrl = $"{YouTubePlayerPage.PlayerOrigin}/player.html?video={Uri.EscapeDataString(videoId)}&attempt={playerLoadAttempt}&seq={sequence}";
+        var html = YouTubePlayerPage.BuildHtml(videoId, autoplay, loop, audioEnabled, volume, playbackRate);
+        InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
+        lastPlayerLoadUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        browserStatus = $"CEF loading YouTube player ({reason})";
+    }
+
+    private void MaybeReloadPlayerIfNotReady()
+    {
+        if (browser == null || playerReady || playerFailed || playerLoadAttempt >= MaxPlayerReadyReloads || lastPlayerLoadUnixMs == 0)
+            return;
+
+        var elapsedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastPlayerLoadUnixMs;
+        if (elapsedMs < PlayerReadyReloadDelayMs)
+            return;
+
+        try
+        {
+            playerLoadAttempt++;
+            LoadPlayerHtml($"retry {playerLoadAttempt}");
+        }
+        catch (Exception ex)
+        {
+            playerFailed = true;
+            browserStatus = $"CEF player reload failed: {ex.Message}";
+            Plugin.Log.Debug(ex, "Failed to reload CEF YouTube player after ready timeout.");
+        }
+    }
+
+    private bool ShouldShowLoadingFrame()
+    {
+        if (!captureEnabled || browser == null || playerFailed)
+            return false;
+
+        return !playerReady || lastFrameUnixMs < playerReadyUnixMs;
+    }
+
+    private VideoFrame GetLoadingFrame()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (latestLoadingFrame != null && now - lastLoadingFrameUnixMs < LoadingFrameIntervalMs)
+            return latestLoadingFrame;
+
+        var elapsedMs = Math.Max(0, now - (lastPlayerLoadUnixMs == 0 ? now : lastPlayerLoadUnixMs));
+        var pixels = RenderLoadingFrame(Width, Height, elapsedMs);
+        latestLoadingFrame = new VideoFrame(pixels, Width, Height, Interlocked.Increment(ref sequence), now);
+        lastLoadingFrameUnixMs = now;
+        return latestLoadingFrame;
+    }
+
+    private static byte[] RenderLoadingFrame(int width, int height, long elapsedMs)
+    {
+        var pixels = new byte[width * height * 4];
+        FillBackground(pixels);
+        DrawLoadingRing(pixels, width, height, elapsedMs);
+        return pixels;
+    }
+
+    private static void FillBackground(byte[] pixels)
+    {
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 0x06;
+            pixels[i + 1] = 0x05;
+            pixels[i + 2] = 0x05;
+            pixels[i + 3] = 0xFF;
+        }
+    }
+
+    private static void DrawLoadingRing(byte[] pixels, int width, int height, long elapsedMs)
+    {
+        var shortest = Math.Max(1, Math.Min(width, height));
+        var centerX = width * 0.5f;
+        var centerY = height * 0.5f;
+        var radius = Math.Clamp(shortest * 0.06f, 22.0f, 76.0f);
+        var thickness = Math.Clamp(radius * 0.16f, 4.0f, 10.0f);
+        var coreRadius = Math.Clamp(radius * (0.14f + (0.04f * MathF.Sin(elapsedMs / 190.0f))), 4.0f, 13.0f);
+        var spin = (elapsedMs % 900) / 900.0f * MathF.Tau;
+        var minX = Math.Max(0, (int)MathF.Floor(centerX - radius - thickness - 2.0f));
+        var maxX = Math.Min(width - 1, (int)MathF.Ceiling(centerX + radius + thickness + 2.0f));
+        var minY = Math.Max(0, (int)MathF.Floor(centerY - radius - thickness - 2.0f));
+        var maxY = Math.Min(height - 1, (int)MathF.Ceiling(centerY + radius + thickness + 2.0f));
+
+        for (var y = minY; y <= maxY; y++)
+        {
+            var dy = y + 0.5f - centerY;
+            for (var x = minX; x <= maxX; x++)
+            {
+                var dx = x + 0.5f - centerX;
+                var distance = MathF.Sqrt((dx * dx) + (dy * dy));
+                var ringDistance = MathF.Abs(distance - radius);
+                var index = ((y * width) + x) * 4;
+
+                if (distance <= coreRadius)
+                {
+                    BlendPixel(pixels, index, 255, 255, 255, 0.86f);
+                    continue;
+                }
+
+                if (ringDistance > thickness)
+                    continue;
+
+                var angle = MathF.Atan2(dy, dx) - spin;
+                while (angle < 0.0f)
+                    angle += MathF.Tau;
+                while (angle >= MathF.Tau)
+                    angle -= MathF.Tau;
+
+                var arc = angle / MathF.Tau;
+                var sweep = 1.0f - MathF.Min(1.0f, arc * 1.55f);
+                var baseAlpha = 0.12f + (0.8f * sweep);
+                var edge = 1.0f - Math.Clamp(ringDistance / thickness, 0.0f, 1.0f);
+                var alpha = Math.Clamp(baseAlpha * edge, 0.0f, 0.96f);
+                BlendPixel(pixels, index, 132, 213, 255, alpha);
+            }
+        }
+    }
+
+    private static void BlendPixel(byte[] pixels, int index, byte red, byte green, byte blue, float alpha)
+    {
+        alpha = Math.Clamp(alpha, 0.0f, 1.0f);
+        pixels[index] = BlendChannel(pixels[index], blue, alpha);
+        pixels[index + 1] = BlendChannel(pixels[index + 1], green, alpha);
+        pixels[index + 2] = BlendChannel(pixels[index + 2], red, alpha);
+        pixels[index + 3] = 0xFF;
+    }
+
+    private static byte BlendChannel(byte background, byte foreground, float alpha)
+    {
+        return (byte)Math.Clamp(MathF.Round(background + ((foreground - background) * alpha)), 0, 255);
     }
 
     private void ExecutePlayerScript(string functionName, object? argument = null)
@@ -276,6 +439,20 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         {
             browserStatus = $"CEF activation click failed: {ex.Message}";
             Plugin.Log.Debug(ex, "Failed to send CEF activation click.");
+        }
+    }
+
+    private static void CloseBrowserHost(object currentBrowser)
+    {
+        try
+        {
+            var host = InvokeWebBrowserExtension("GetBrowserHost", currentBrowser);
+            if (host != null)
+                TryInvokeInstanceMethod(host, "CloseBrowser", true);
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Debug(ex, "Failed to close CEF browser host before disposal.");
         }
     }
 
@@ -572,12 +749,16 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         switch (type)
         {
             case "ready":
+                playerReady = true;
+                playerFailed = false;
+                playerReadyUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 playerStatus = $"player ready: {videoId}";
                 break;
             case "status":
                 UpdateFromStatusMessage(root);
                 break;
             case "error":
+                playerFailed = true;
                 playerStatus = DescribeYouTubeError(root);
                 break;
             case "script-error":

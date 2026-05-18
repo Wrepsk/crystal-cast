@@ -28,6 +28,8 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
     private readonly WorldScreenRenderer renderer;
     private readonly ScreenStateIpc ipc;
+    private string youtubeUrlDraft = string.Empty;
+    private string youtubeUrlDraftSource = string.Empty;
 
     public MainWindow(Plugin plugin, WorldScreenRenderer renderer, ScreenStateIpc ipc)
         : base("CrystalCast###CrystalCastMain")
@@ -204,7 +206,6 @@ public sealed class MainWindow : Window, IDisposable
     private bool DrawYouTubeSource(Configuration config)
     {
         var changed = false;
-        var youtubeUrl = config.YouTubeUrl;
         var fps = config.YouTubeCaptureFps;
         var autoplay = config.YouTubeAutoplay;
         var loop = config.LoopYouTube;
@@ -212,16 +213,38 @@ public sealed class MainWindow : Window, IDisposable
         var volume = config.YouTubeVolume;
         var rate = config.YouTubePlaybackRate;
 
-        if (ImGui.InputText("YouTube URL / ID", ref youtubeUrl, 1024))
+        if (!string.Equals(youtubeUrlDraftSource, config.YouTubeUrl, StringComparison.Ordinal))
         {
-            config.YouTubeUrl = youtubeUrl;
-            changed = true;
+            youtubeUrlDraft = config.YouTubeUrl;
+            youtubeUrlDraftSource = config.YouTubeUrl;
         }
 
-        if (YouTubeVideoId.TryParse(config.YouTubeUrl, out var parsedVideoId))
-            ImGui.TextDisabled($"Video ID: {parsedVideoId}");
+        var committedVideoIdValid = YouTubeVideoId.TryParse(config.YouTubeUrl, out var committedVideoId);
+        var draft = youtubeUrlDraft;
+        var pressedEnter = ImGui.InputText("YouTube URL / ID", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
+        youtubeUrlDraft = draft;
+        var draftVideoIdValid = YouTubeVideoId.TryParse(youtubeUrlDraft, out var draftVideoId);
+
+        ImGui.SameLine();
+        if (ImGui.Button("Load") || pressedEnter)
+        {
+            if (draftVideoIdValid)
+            {
+                config.YouTubeUrl = youtubeUrlDraft.Trim();
+                youtubeUrlDraftSource = config.YouTubeUrl;
+                config.PlaybackPaused = false;
+                changed = true;
+            }
+        }
+
+        if (draftVideoIdValid)
+            ImGui.TextDisabled($"Video ID: {draftVideoId}");
+        else if (!string.IsNullOrWhiteSpace(youtubeUrlDraft))
+            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Video ID: invalid");
+        else if (committedVideoIdValid)
+            ImGui.TextDisabled($"Current video ID: {committedVideoId}");
         else
-            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Video ID: invalid or empty");
+            ImGui.TextDisabled("Video ID: empty");
 
         changed |= DrawYouTubePlaybackControls(config);
 

@@ -54,6 +54,7 @@ public class Configuration : IPluginConfiguration
     public int YouTubeBrowserWidth { get; set; } = 1280;
     public int YouTubeBrowserHeight { get; set; } = 720;
     public float YouTubeCaptureFps { get; set; } = 15.0f;
+    public BrowserMediaEngine YouTubeBrowserEngine { get; set; } = BrowserMediaEngine.Auto;
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
     public bool YouTubeAudioEnabled { get; set; }

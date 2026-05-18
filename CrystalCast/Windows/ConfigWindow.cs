@@ -15,6 +15,12 @@ public sealed class ConfigWindow : Window, IDisposable
         "Scene composite (Windows only)",
     ];
 
+    private static readonly string[] BrowserEngineNames =
+        ["Auto (CEF, then WebView2)", "CEF offscreen", "WebView2 capture"];
+
+    private static readonly BrowserMediaEngine[] BrowserEngines =
+        [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture];
+
     private readonly Plugin plugin;
     private readonly WorldScreenRenderer renderer;
     private readonly ScreenStateIpc ipc;
@@ -41,6 +47,8 @@ public sealed class ConfigWindow : Window, IDisposable
 
         DrawSectionTitle("Rendering");
         changed |= DrawRendering(config);
+        DrawSectionTitle("Browser media");
+        changed |= DrawBrowserMedia(config);
         DrawSectionTitle("Diagnostics");
         DrawDiagnostics();
         DrawSectionTitle("IPC");
@@ -156,6 +164,44 @@ public sealed class ConfigWindow : Window, IDisposable
             Configuration.OutputModeSceneComposite or 3 => 2,
             _ => 0,
         };
+    }
+
+    private static bool DrawBrowserMedia(Configuration config)
+    {
+        var changed = false;
+        var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
+
+        if (ImGui.BeginCombo("YouTube backend", BrowserEngineNames[current]))
+        {
+            for (var i = 0; i < BrowserEngineNames.Length; i++)
+            {
+                var selected = i == current;
+                if (ImGui.Selectable(BrowserEngineNames[i], selected))
+                {
+                    config.YouTubeBrowserEngine = BrowserEngines[i];
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled("Auto prefers CEF offscreen and falls back to WebView2 capture.");
+        return changed;
+    }
+
+    private static int FindBrowserEngineIndex(BrowserMediaEngine engine)
+    {
+        for (var i = 0; i < BrowserEngines.Length; i++)
+        {
+            if (BrowserEngines[i] == engine)
+                return i;
+        }
+
+        return 0;
     }
 
     private void DrawDiagnostics()

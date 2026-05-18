@@ -12,6 +12,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <CefSharpBuildAction>Default</CefSharpBuildAction>
+    <CefSharpRuntimeIdentifierOverride>win-x64</CefSharpRuntimeIdentifierOverride>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" ExcludeAssets="build;buildTransitive;compile;runtime" GeneratePathProperty="true" />
+    <PackageReference Include="CefSharp.OffScreen.NETCore" Version="147.0.100" ExcludeAssets="compile" GeneratePathProperty="true" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>

@@ -239,6 +239,7 @@ public sealed class WorldScreenRenderer : IDisposable
                     configuration.YouTubeBrowserWidth,
                     configuration.YouTubeBrowserHeight,
                     configuration.YouTubeCaptureFps,
+                    configuration.YouTubeBrowserEngine,
                     configuration.YouTubeAutoplay,
                     configuration.LoopYouTube,
                     configuration.YouTubeAudioEnabled,
@@ -268,7 +269,8 @@ public sealed class WorldScreenRenderer : IDisposable
                 configuration.YouTubeUrl,
                 configuration.YouTubeBrowserWidth,
                 configuration.YouTubeBrowserHeight,
-                configuration.YouTubeCaptureFps),
+                configuration.YouTubeCaptureFps,
+                configuration.YouTubeBrowserEngine),
             _ => configuration.SourceKind.ToString(),
         };
     }

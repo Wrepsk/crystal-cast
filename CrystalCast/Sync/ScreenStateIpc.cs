@@ -50,7 +50,7 @@ public sealed class ScreenStateIpc : IDisposable
     public string PublishLocalState()
     {
         configuration.Normalize();
-        ScreenStateEnvelope[] states;
+        var states = new List<ScreenStateEnvelope>();
         if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
             var screensToPublish = configuration.BrowserScreens
@@ -61,18 +61,25 @@ public sealed class ScreenStateIpc : IDisposable
                 screensToPublish = [configuration.GetActiveBrowserScreen()];
 
             foreach (var screen in screensToPublish)
-                screen.LocalSequence++;
+            {
+                if (!TryResolveForIpc(screen.Placement, out var resolved))
+                    continue;
 
-            configuration.Save();
-            states = screensToPublish.Select(BuildBrowserScreenState).ToArray();
+                screen.LocalSequence++;
+                states.Add(BuildBrowserScreenState(screen, resolved));
+            }
         }
         else
         {
-            configuration.LocalSequence++;
-            configuration.Save();
-            states = [BuildLocalVideoState()];
+            var placement = configuration.GetLocalVideoPlacement();
+            if (TryResolveForIpc(placement, out var resolved))
+            {
+                configuration.LocalSequence++;
+                states.Add(BuildLocalVideoState(placement, resolved));
+            }
         }
 
+        configuration.Save();
         string? firstJson = null;
         foreach (var state in states)
         {
@@ -86,7 +93,11 @@ public sealed class ScreenStateIpc : IDisposable
 
     public ScreenStateEnvelope BuildLocalState()
     {
-        return BuildLocalStates().First();
+        return BuildLocalStates().FirstOrDefault() ?? new ScreenStateEnvelope
+        {
+            OwnerSessionId = configuration.OwnerSessionId,
+            TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
+        };
     }
 
     public IEnumerable<ScreenStateEnvelope> BuildLocalStates()
@@ -102,19 +113,39 @@ public sealed class ScreenStateIpc : IDisposable
             if (enabledScreens.Length == 0)
                 enabledScreens = [configuration.GetActiveBrowserScreen()];
 
-            return enabledScreens.Select(BuildBrowserScreenState).ToArray();
+            var states = new List<ScreenStateEnvelope>();
+            foreach (var screen in enabledScreens)
+            {
+                if (TryBuildBrowserScreenState(screen, out var state))
+                    states.Add(state);
+            }
+
+            return states;
         }
 
-        return [BuildLocalVideoState()];
+        return TryBuildLocalVideoState(out var localState) ? [localState] : [];
     }
 
-    private ScreenStateEnvelope BuildLocalVideoState()
+    private bool TryBuildLocalVideoState(out ScreenStateEnvelope state)
+    {
+        var placement = configuration.GetLocalVideoPlacement();
+        if (!TryResolveForIpc(placement, out var resolved))
+        {
+            state = null!;
+            return false;
+        }
+
+        state = BuildLocalVideoState(placement, resolved);
+        return true;
+    }
+
+    private ScreenStateEnvelope BuildLocalVideoState(ScreenPlacementSettings placement, ResolvedScreenPlacement resolved)
     {
         var source = BuildLocalVideoSourceState();
         var rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(
-            configuration.YawRadians,
-            configuration.PitchRadians,
-            configuration.RollRadians);
+            resolved.YawRadians,
+            resolved.PitchRadians,
+            resolved.RollRadians);
 
         return new ScreenStateEnvelope
         {
@@ -122,32 +153,44 @@ public sealed class ScreenStateIpc : IDisposable
             ScreenId = configuration.ScreenId,
             OwnerSessionId = configuration.OwnerSessionId,
             TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
-            Position = new Vector3Dto(configuration.PositionX, configuration.PositionY, configuration.PositionZ),
+            Position = Vector3Dto.FromVector3(resolved.Position),
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
-            SizeMeters = new Vector2Dto(configuration.WidthMeters, configuration.HeightMeters),
+            SizeMeters = new Vector2Dto(placement.WidthMeters, placement.HeightMeters),
             Source = source,
             Playback = BuildLocalPlaybackState(),
             Visual = new ScreenVisualState
             {
-                OccludedAlpha = configuration.OccludedAlpha,
-                OcclusionTolerance = configuration.OcclusionTolerance,
-                ScreenCurveAmountMeters = configuration.ScreenCurveAmountMeters,
-                DistanceFadeEnabled = configuration.EnableDistanceFade,
-                FadeStartMeters = configuration.FadeStartMeters,
-                FadeStopMeters = configuration.FadeStopMeters,
+                OccludedAlpha = placement.OccludedAlpha,
+                OcclusionTolerance = placement.OcclusionTolerance,
+                ScreenCurveAmountMeters = placement.ScreenCurveAmountMeters,
+                DistanceFadeEnabled = placement.EnableDistanceFade,
+                FadeStartMeters = placement.FadeStartMeters,
+                FadeStopMeters = placement.FadeStopMeters,
             },
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Sequence = configuration.LocalSequence,
         };
     }
 
-    private ScreenStateEnvelope BuildBrowserScreenState(BrowserScreenProfile screen)
+    private bool TryBuildBrowserScreenState(BrowserScreenProfile screen, out ScreenStateEnvelope state)
+    {
+        if (!TryResolveForIpc(screen.Placement, out var resolved))
+        {
+            state = null!;
+            return false;
+        }
+
+        state = BuildBrowserScreenState(screen, resolved);
+        return true;
+    }
+
+    private ScreenStateEnvelope BuildBrowserScreenState(BrowserScreenProfile screen, ResolvedScreenPlacement resolved)
     {
         var placement = screen.Placement;
         var rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(
-            placement.YawRadians,
-            placement.PitchRadians,
-            placement.RollRadians);
+            resolved.YawRadians,
+            resolved.PitchRadians,
+            resolved.RollRadians);
 
         return new ScreenStateEnvelope
         {
@@ -155,7 +198,7 @@ public sealed class ScreenStateIpc : IDisposable
             ScreenId = screen.ScreenId,
             OwnerSessionId = configuration.OwnerSessionId,
             TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
-            Position = new Vector3Dto(placement.PositionX, placement.PositionY, placement.PositionZ),
+            Position = Vector3Dto.FromVector3(resolved.Position),
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
             SizeMeters = new Vector2Dto(placement.WidthMeters, placement.HeightMeters),
             Source = BuildBrowserSourceState(screen),
@@ -172,6 +215,15 @@ public sealed class ScreenStateIpc : IDisposable
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Sequence = screen.LocalSequence,
         };
+    }
+
+    private static bool TryResolveForIpc(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
+    {
+        if (ScreenPlacementResolver.TryResolve(placement, out resolved))
+            return true;
+
+        resolved = default;
+        return false;
     }
 
     public void Dispose()

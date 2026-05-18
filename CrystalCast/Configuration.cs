@@ -20,6 +20,7 @@ public class Configuration : IPluginConfiguration
     public string OwnerSessionId { get; set; } = Guid.NewGuid().ToString("N");
     public long LocalSequence { get; set; }
 
+    public ScreenPlacementMode LocalVideoPlacementMode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }
     public float PositionY { get; set; } = 1.6f;
     public float PositionZ { get; set; } = 3.0f;
@@ -93,6 +94,12 @@ public class Configuration : IPluginConfiguration
         if (SourceKind is not (ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser))
         {
             SourceKind = ScreenSourceKind.LocalVideo;
+            changed = true;
+        }
+
+        if (LocalVideoPlacementMode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer))
+        {
+            LocalVideoPlacementMode = ScreenPlacementMode.World;
             changed = true;
         }
 
@@ -182,6 +189,7 @@ public class Configuration : IPluginConfiguration
     {
         var placement = new ScreenPlacementSettings
         {
+            Mode = LocalVideoPlacementMode,
             PositionX = PositionX,
             PositionY = PositionY,
             PositionZ = PositionZ,
@@ -205,6 +213,7 @@ public class Configuration : IPluginConfiguration
     {
         var copy = placement.Clone();
         copy.Normalize();
+        LocalVideoPlacementMode = copy.Mode;
         PositionX = copy.PositionX;
         PositionY = copy.PositionY;
         PositionZ = copy.PositionZ;
@@ -233,6 +242,7 @@ public class Configuration : IPluginConfiguration
             ProviderKind = BrowserSourceProviderKind.YouTube,
             Placement = new ScreenPlacementSettings
             {
+                Mode = LocalVideoPlacementMode,
                 PositionX = PositionX,
                 PositionY = PositionY,
                 PositionZ = PositionZ,
@@ -274,6 +284,12 @@ public class Configuration : IPluginConfiguration
 public enum BrowserSourceProviderKind
 {
     YouTube = 1,
+}
+
+public enum ScreenPlacementMode
+{
+    World = 0,
+    FollowPlayer = 1,
 }
 
 [Serializable]
@@ -435,6 +451,7 @@ public sealed class BrowserScreenProfile
 [Serializable]
 public sealed class ScreenPlacementSettings
 {
+    public ScreenPlacementMode Mode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }
     public float PositionY { get; set; } = 1.6f;
     public float PositionZ { get; set; } = 3.0f;
@@ -453,6 +470,12 @@ public sealed class ScreenPlacementSettings
     public bool Normalize()
     {
         var changed = false;
+        if (Mode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer))
+        {
+            Mode = ScreenPlacementMode.World;
+            changed = true;
+        }
+
         if (WidthMeters < 0.1f)
         {
             WidthMeters = 0.1f;
@@ -501,22 +524,28 @@ public sealed class ScreenPlacementSettings
 
     public ScreenPlacementSettings Clone()
     {
-        return new ScreenPlacementSettings
-        {
-            PositionX = PositionX,
-            PositionY = PositionY,
-            PositionZ = PositionZ,
-            YawRadians = YawRadians,
-            PitchRadians = PitchRadians,
-            RollRadians = RollRadians,
-            WidthMeters = WidthMeters,
-            HeightMeters = HeightMeters,
-            ScreenCurveAmountMeters = ScreenCurveAmountMeters,
-            OccludedAlpha = OccludedAlpha,
-            OcclusionTolerance = OcclusionTolerance,
-            EnableDistanceFade = EnableDistanceFade,
-            FadeStartMeters = FadeStartMeters,
-            FadeStopMeters = FadeStopMeters,
-        };
+        var clone = new ScreenPlacementSettings();
+        clone.CopyFrom(this);
+        return clone;
+    }
+
+    public void CopyFrom(ScreenPlacementSettings source)
+    {
+        Mode = source.Mode;
+        PositionX = source.PositionX;
+        PositionY = source.PositionY;
+        PositionZ = source.PositionZ;
+        YawRadians = source.YawRadians;
+        PitchRadians = source.PitchRadians;
+        RollRadians = source.RollRadians;
+        WidthMeters = source.WidthMeters;
+        HeightMeters = source.HeightMeters;
+        ScreenCurveAmountMeters = source.ScreenCurveAmountMeters;
+        OccludedAlpha = source.OccludedAlpha;
+        OcclusionTolerance = source.OcclusionTolerance;
+        EnableDistanceFade = source.EnableDistanceFade;
+        FadeStartMeters = source.FadeStartMeters;
+        FadeStopMeters = source.FadeStopMeters;
+        Normalize();
     }
 }

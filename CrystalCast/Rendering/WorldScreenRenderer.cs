@@ -168,8 +168,9 @@ public sealed class WorldScreenManager : IDisposable
 
     private void DrawScreens(IEnumerable<WorldScreenInstance> screens)
     {
+        var screenList = screens.ToList();
         var prepared = new List<(WorldScreenInstance Instance, IDalamudTextureWrap Texture)>();
-        foreach (var screen in screens)
+        foreach (var screen in screenList)
         {
             if (screen.TryPrepareFrame(out var texture) && texture != null)
                 prepared.Add((screen, texture));
@@ -177,7 +178,12 @@ public sealed class WorldScreenManager : IDisposable
 
         if (prepared.Count == 0)
         {
-            LastDrawStatus = "no texture available yet";
+            LastDrawStatus = screenList.Count switch
+            {
+                0 => "no enabled screens",
+                1 => screenList[0].LastDrawStatus,
+                _ => $"no screens ready; {screenList.Count(screen => screen.LastDrawStatus == "waiting for local player")} waiting for local player",
+            };
             return;
         }
 
@@ -281,6 +287,8 @@ public sealed class WorldScreenManager : IDisposable
         private long lastFrameUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
         private float smoothedEffectiveAudioVolume;
+        private ResolvedScreenPlacement resolvedPlacement;
+        private bool hasResolvedPlacement;
 
         public WorldScreenInstance(Configuration configuration, BrowserScreenProfile? browserScreen = null)
         {
@@ -305,8 +313,6 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool TryPrepareFrame(out IDalamudTextureWrap? texture)
         {
-            UpdateSpatialAudioMetrics();
-
             if (!IsEnabled())
             {
                 LastDrawStatus = "disabled";
@@ -314,6 +320,18 @@ public sealed class WorldScreenManager : IDisposable
                 texture = null;
                 return false;
             }
+
+            if (!TryResolvePlacement(out resolvedPlacement))
+            {
+                hasResolvedPlacement = false;
+                LastDrawStatus = "waiting for local player";
+                Stop();
+                texture = null;
+                return false;
+            }
+
+            hasResolvedPlacement = true;
+            UpdateSpatialAudioMetrics();
 
             texture = ResolveTexture();
             if (texture == null)
@@ -351,47 +369,30 @@ public sealed class WorldScreenManager : IDisposable
         public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
         {
             if (browserScreen != null)
-                return PlacePlacementInFrontOfPlayer(browserScreen.Placement, distanceMeters);
+                return ScreenPlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
 
-            var player = Plugin.ObjectTable.LocalPlayer;
-            if (player == null)
+            var placement = configuration.GetLocalVideoPlacement();
+            if (!ScreenPlacementResolver.PlaceInFrontOfPlayer(placement, distanceMeters))
                 return false;
 
-            var yaw = player.Rotation;
-            var forward = new Vector3(MathF.Sin(yaw), 0.0f, MathF.Cos(yaw));
-            var center = player.Position + (forward * distanceMeters) + (Vector3.UnitY * 1.4f);
-
-            configuration.PositionX = center.X;
-            configuration.PositionY = center.Y;
-            configuration.PositionZ = center.Z;
-            configuration.YawRadians = yaw + MathF.PI;
-            configuration.PitchRadians = 0.0f;
-            configuration.RollRadians = 0.0f;
+            configuration.ApplyLocalVideoPlacement(placement);
             return true;
         }
 
         public static bool PlacePlacementInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
         {
-            var player = Plugin.ObjectTable.LocalPlayer;
-            if (player == null)
-                return false;
-
-            var yaw = player.Rotation;
-            var forward = new Vector3(MathF.Sin(yaw), 0.0f, MathF.Cos(yaw));
-            var center = player.Position + (forward * distanceMeters) + (Vector3.UnitY * 1.4f);
-
-            placement.PositionX = center.X;
-            placement.PositionY = center.Y;
-            placement.PositionZ = center.Z;
-            placement.YawRadians = yaw + MathF.PI;
-            placement.PitchRadians = 0.0f;
-            placement.RollRadians = 0.0f;
-            return true;
+            return ScreenPlacementResolver.PlaceInFrontOfPlayer(placement, distanceMeters);
         }
 
         public bool TryProjectCenter(out Vector2 screenPosition)
         {
-            return Plugin.GameGui.WorldToScreen(GetCenter(), out screenPosition);
+            if (!TryGetResolvedPlacement(out var placement))
+            {
+                screenPosition = default;
+                return false;
+            }
+
+            return Plugin.GameGui.WorldToScreen(placement.Position, out screenPosition);
         }
 
         public bool TryPlayDynamicSource()
@@ -439,6 +440,7 @@ public sealed class WorldScreenManager : IDisposable
             StopAudio();
             ResetEffectiveAudioVolume();
             PlaybackTelemetry = null;
+            hasResolvedPlacement = false;
         }
 
         public void Dispose()
@@ -882,25 +884,35 @@ public sealed class WorldScreenManager : IDisposable
         private float GetHeightMeters() => browserScreen?.Placement.HeightMeters ?? configuration.HeightMeters;
         private float GetScreenCurveAmountMeters() => browserScreen?.Placement.ScreenCurveAmountMeters ?? configuration.ScreenCurveAmountMeters;
 
+        private ScreenPlacementSettings GetPlacementSettings()
+        {
+            return browserScreen?.Placement ?? configuration.GetLocalVideoPlacement();
+        }
+
+        private bool TryResolvePlacement(out ResolvedScreenPlacement placement)
+        {
+            return ScreenPlacementResolver.TryResolve(GetPlacementSettings(), out placement);
+        }
+
+        private bool TryGetResolvedPlacement(out ResolvedScreenPlacement placement)
+        {
+            if (hasResolvedPlacement)
+            {
+                placement = resolvedPlacement;
+                return true;
+            }
+
+            return TryResolvePlacement(out placement);
+        }
+
         private Vector3 GetCenter()
         {
-            return browserScreen == null
-                ? new Vector3(configuration.PositionX, configuration.PositionY, configuration.PositionZ)
-                : new Vector3(browserScreen.Placement.PositionX, browserScreen.Placement.PositionY, browserScreen.Placement.PositionZ);
+            return TryGetResolvedPlacement(out var placement) ? placement.Position : Vector3.Zero;
         }
 
         private Quaternion GetRotation()
         {
-            var rotation = browserScreen == null
-                ? Quaternion.CreateFromYawPitchRoll(
-                    configuration.YawRadians,
-                    configuration.PitchRadians,
-                    configuration.RollRadians)
-                : Quaternion.CreateFromYawPitchRoll(
-                    browserScreen.Placement.YawRadians,
-                    browserScreen.Placement.PitchRadians,
-                    browserScreen.Placement.RollRadians);
-            return Quaternion.Normalize(rotation);
+            return TryGetResolvedPlacement(out var placement) ? placement.Rotation : Quaternion.Identity;
         }
     }
 }

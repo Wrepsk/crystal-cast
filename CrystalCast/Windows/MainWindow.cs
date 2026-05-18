@@ -25,6 +25,12 @@ public sealed class MainWindow : Window, IDisposable
     private static readonly ScreenSourceKind[] SourceKinds =
         [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
 
+    private static readonly string[] PlacementModeNames =
+        ["World", "Follow player"];
+
+    private static readonly ScreenPlacementMode[] PlacementModes =
+        [ScreenPlacementMode.World, ScreenPlacementMode.FollowPlayer];
+
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
@@ -346,51 +352,43 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool DrawPlacement(Configuration config)
     {
-        var changed = false;
+        var placement = config.GetLocalVideoPlacement();
+        var changed = DrawPlacementSettings(placement);
+        if (changed)
+            config.ApplyLocalVideoPlacement(placement);
 
-        if (ImGui.Button("Place in front of player"))
-            changed |= renderer.PlaceInFrontOfPlayer();
-
-        changed |= DrawPlacementPresets(
-            () => config.GetLocalVideoPlacement(),
-            config.ApplyLocalVideoPlacement);
-
-        var position = new Vector3(config.PositionX, config.PositionY, config.PositionZ);
-        if (ImGui.InputFloat3("Position", ref position))
-        {
-            config.PositionX = position.X;
-            config.PositionY = position.Y;
-            config.PositionZ = position.Z;
-            changed = true;
-        }
-
-        var rotation = new Vector3(config.YawRadians, config.PitchRadians, config.RollRadians);
-        if (ImGui.InputFloat3("Yaw / Pitch / Roll", ref rotation))
-        {
-            config.YawRadians = rotation.X;
-            config.PitchRadians = rotation.Y;
-            config.RollRadians = rotation.Z;
-            changed = true;
-        }
-
-        changed |= DrawPlacementSizeAndCurve(config);
         return changed;
     }
 
     private bool DrawPlacement(BrowserScreenProfile screen)
     {
+        return DrawPlacementSettings(screen.Placement);
+    }
+
+    private bool DrawPlacementSettings(ScreenPlacementSettings placement)
+    {
         var changed = false;
 
+        changed |= DrawPlacementMode(placement);
+
         if (ImGui.Button("Place in front of player"))
-            changed |= renderer.PlaceInFrontOfPlayer();
+        {
+            if (ScreenPlacementResolver.PlaceInFrontOfPlayer(placement))
+                changed = true;
+            else
+                ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Waiting for local player");
+        }
 
         changed |= DrawPlacementPresets(
-            () => screen.Placement,
-            placement => screen.Placement = placement.Clone());
+            () => placement,
+            placement.CopyFrom);
 
-        var placement = screen.Placement;
+        var followMode = placement.Mode == ScreenPlacementMode.FollowPlayer;
+        var positionLabel = followMode
+            ? "Local position (right / up / forward)"
+            : "Position";
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
-        if (ImGui.InputFloat3("Position", ref position))
+        if (ImGui.InputFloat3(positionLabel, ref position))
         {
             placement.PositionX = position.X;
             placement.PositionY = position.Y;
@@ -398,8 +396,11 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
+        var rotationLabel = followMode
+            ? "Local yaw / pitch / roll"
+            : "Yaw / Pitch / Roll";
         var rotation = new Vector3(placement.YawRadians, placement.PitchRadians, placement.RollRadians);
-        if (ImGui.InputFloat3("Yaw / Pitch / Roll", ref rotation))
+        if (ImGui.InputFloat3(rotationLabel, ref rotation))
         {
             placement.YawRadians = rotation.X;
             placement.PitchRadians = rotation.Y;
@@ -527,33 +528,28 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private bool DrawPlacementSizeAndCurve(Configuration config)
+    private static bool DrawPlacementMode(ScreenPlacementSettings placement)
     {
         var changed = false;
-        var width = config.WidthMeters;
-        if (ImGui.InputFloat("Width meters", ref width, 0.1f, 0.5f))
+        var current = FindPlacementModeIndex(placement.Mode);
+        if (ImGui.BeginCombo("Placement mode", PlacementModeNames[current]))
         {
-            config.WidthMeters = Math.Max(0.1f, width);
-            changed = true;
+            for (var i = 0; i < PlacementModes.Length; i++)
+            {
+                var mode = PlacementModes[i];
+                var selected = i == current;
+                if (ImGui.Selectable(PlacementModeNames[i], selected) && mode != placement.Mode)
+                    changed |= ScreenPlacementResolver.TryConvertModePreservingWorld(placement, mode);
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled(renderer.TextureWidth > 0 && renderer.TextureHeight > 0
-            ? $"Auto height: {config.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m"
-            : "Auto height: waiting for texture");
-
-        var maxCurveAmount = Math.Max(0.001f, config.WidthMeters / MathF.PI);
-        var curveAmount = Math.Clamp(config.ScreenCurveAmountMeters, 0.0f, maxCurveAmount);
-        if (Math.Abs(config.ScreenCurveAmountMeters - curveAmount) > 0.0001f)
-        {
-            config.ScreenCurveAmountMeters = curveAmount;
-            changed = true;
-        }
-
-        if (ImGui.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
-        {
-            config.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
-            changed = true;
-        }
+        if (placement.Mode == ScreenPlacementMode.FollowPlayer)
+            ImGui.TextDisabled("Coordinates are relative to the local player.");
 
         return changed;
     }
@@ -612,6 +608,17 @@ public sealed class MainWindow : Window, IDisposable
         for (var i = 0; i < SourceKinds.Length; i++)
         {
             if (SourceKinds[i] == sourceKind)
+                return i;
+        }
+
+        return 0;
+    }
+
+    private static int FindPlacementModeIndex(ScreenPlacementMode mode)
+    {
+        for (var i = 0; i < PlacementModes.Length; i++)
+        {
+            if (PlacementModes[i] == mode)
                 return i;
         }
 

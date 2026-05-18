@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Loader;
 
@@ -10,6 +11,11 @@ internal static class CefRuntimeManager
     private static bool failed;
     private static string status = "CEF not initialized";
     private static Dictionary<string, Assembly>? cefAssemblies;
+    // Avast's hook library crashed in CEF's Windows capability access path in crash dumps.
+    private static readonly string[] UnsafeHookModuleNames =
+    [
+        "aswhook.dll",
+    ];
 
     public static string Status
     {
@@ -46,6 +52,15 @@ internal static class CefRuntimeManager
 
             try
             {
+                if (TryDescribeUnsafeHostHook(out var unsafeHookStatus))
+                {
+                    failed = true;
+                    status = unsafeHookStatus;
+                    currentStatus = status;
+                    Plugin.Log.Warning("Skipping CEF initialization for CrystalCast: {Status}", status);
+                    return false;
+                }
+
                 var paths = ResolveCefRuntimePaths();
                 ValidateCefFiles(paths);
                 var assemblies = PreloadCefSharpAssemblies(paths.ManagedDir, paths.CefDir);
@@ -101,6 +116,31 @@ internal static class CefRuntimeManager
                 return false;
             }
         }
+    }
+
+    private static bool TryDescribeUnsafeHostHook(out string unsafeHookStatus)
+    {
+        unsafeHookStatus = string.Empty;
+
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            foreach (ProcessModule module in process.Modules)
+            {
+                var moduleName = module.ModuleName;
+                if (!UnsafeHookModuleNames.Contains(moduleName, StringComparer.OrdinalIgnoreCase))
+                    continue;
+
+                unsafeHookStatus = $"CEF disabled: {moduleName} is loaded in the game process and has crashed CEF offscreen; use WebView2 capture";
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Debug(ex, "Could not inspect process modules before CEF initialization.");
+        }
+
+        return false;
     }
 
     private static CefRuntimePaths ResolveCefRuntimePaths()

@@ -291,8 +291,7 @@ public sealed class WorldScreenRenderer : IDisposable
         return configuration.OutputMode switch
         {
             1 => AutoDraw.NativeOverlay,
-            2 => AutoDraw.NamePlateOverlay,
-            3 => AutoDraw.SceneComposite,
+            2 or 3 => AutoDraw.SceneComposite,
             _ => AutoDraw.ImGuiOverlay,
         };
     }

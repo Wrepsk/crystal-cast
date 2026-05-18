@@ -12,7 +12,6 @@ public sealed class MainWindow : Window, IDisposable
     [
         "ImGui overlay",
         "Native overlay",
-        "NamePlate native overlay",
         "Scene composite (experimental)",
     ];
 

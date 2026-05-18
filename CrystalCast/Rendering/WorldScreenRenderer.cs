@@ -422,7 +422,15 @@ public sealed class WorldScreenRenderer : IDisposable
 
     private static UIMask GetUiMask() => UIMask.None;
 
-    private static AutoDraw GetAutoDraw() => AutoDraw.SceneComposite;
+    private AutoDraw GetAutoDraw()
+    {
+        return configuration.OutputMode switch
+        {
+            Configuration.OutputModeNativeOverlay => AutoDraw.NativeOverlay,
+            Configuration.OutputModeSceneComposite or 3 => AutoDraw.SceneComposite,
+            _ => AutoDraw.ImGuiOverlay,
+        };
+    }
 
     private Vector2 GetPanelSize(IDalamudTextureWrap texture)
     {

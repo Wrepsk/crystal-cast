@@ -13,6 +13,7 @@ public sealed class FfmpegAudioPlayer : IDisposable
     private Task? readTask;
     private BufferedWaveProvider? buffer;
     private WaveOutEvent? output;
+    private bool startFailed;
 
     public FfmpegAudioPlayer(string ffmpegPath, string videoPath, bool loop, float volume)
     {
@@ -28,8 +29,11 @@ public sealed class FfmpegAudioPlayer : IDisposable
 
     public void Start()
     {
-        if (IsRunning)
+        if (IsRunning || startFailed)
             return;
+
+        if (process != null || output != null || buffer != null || cancellation != null)
+            Stop();
 
         if (string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath))
         {
@@ -44,79 +48,78 @@ public sealed class FfmpegAudioPlayer : IDisposable
             return;
         }
 
-        cancellation = new CancellationTokenSource();
-
-        var waveFormat = new WaveFormat(48000, 16, 2);
-        buffer = new BufferedWaveProvider(waveFormat)
-        {
-            BufferDuration = TimeSpan.FromSeconds(2),
-            DiscardOnBufferOverflow = true,
-        };
-
-        output = new WaveOutEvent
-        {
-            DesiredLatency = 180,
-            Volume = 1.0f,
-        };
-        output.Init(buffer);
-        output.Play();
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = resolvedFfmpegPath,
-            WorkingDirectory = FfmpegLocator.ResolveWorkingDirectory(videoPath),
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-
-        psi.ArgumentList.Add("-hide_banner");
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        if (loop)
-        {
-            psi.ArgumentList.Add("-stream_loop");
-            psi.ArgumentList.Add("-1");
-        }
-
-        psi.ArgumentList.Add("-re");
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add(videoPath);
-        psi.ArgumentList.Add("-vn");
-        psi.ArgumentList.Add("-sn");
-        psi.ArgumentList.Add("-f");
-        psi.ArgumentList.Add("s16le");
-        psi.ArgumentList.Add("-ac");
-        psi.ArgumentList.Add("2");
-        psi.ArgumentList.Add("-ar");
-        psi.ArgumentList.Add("48000");
-        psi.ArgumentList.Add("pipe:1");
-
         try
         {
+            cancellation = new CancellationTokenSource();
+
+            var waveFormat = new WaveFormat(48000, 16, 2);
+            buffer = new BufferedWaveProvider(waveFormat)
+            {
+                BufferDuration = TimeSpan.FromSeconds(2),
+                DiscardOnBufferOverflow = true,
+            };
+
+            output = new WaveOutEvent
+            {
+                DesiredLatency = 180,
+            };
+            output.Init(buffer);
+            output.Play();
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = resolvedFfmpegPath,
+                WorkingDirectory = FfmpegLocator.ResolveWorkingDirectory(videoPath),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+
+            psi.ArgumentList.Add("-hide_banner");
+            psi.ArgumentList.Add("-loglevel");
+            psi.ArgumentList.Add("error");
+            if (loop)
+            {
+                psi.ArgumentList.Add("-stream_loop");
+                psi.ArgumentList.Add("-1");
+            }
+
+            psi.ArgumentList.Add("-re");
+            psi.ArgumentList.Add("-i");
+            psi.ArgumentList.Add(videoPath);
+            psi.ArgumentList.Add("-vn");
+            psi.ArgumentList.Add("-sn");
+            psi.ArgumentList.Add("-f");
+            psi.ArgumentList.Add("s16le");
+            psi.ArgumentList.Add("-ac");
+            psi.ArgumentList.Add("2");
+            psi.ArgumentList.Add("-ar");
+            psi.ArgumentList.Add("48000");
+            psi.ArgumentList.Add("pipe:1");
+
             process = Process.Start(psi);
             if (process == null)
             {
-                Status = "failed to start audio ffmpeg";
-                Stop();
+                FailStart("failed to start audio ffmpeg");
                 return;
             }
 
+            var currentProcess = process;
+            var token = cancellation.Token;
             _ = Task.Run(async () =>
             {
-                var error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                var error = await currentProcess.StandardError.ReadToEndAsync().ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(error))
                     Status = error.Trim();
             });
 
-            readTask = Task.Run(() => ReadLoop(cancellation.Token));
+            readTask = Task.Run(() => ReadLoop(token));
             Status = $"audio running: {resolvedFfmpegPath}";
         }
         catch (Exception ex)
         {
-            Status = ex.Message;
-            Stop();
+            FailStart($"audio failed: {ex.Message}");
         }
     }
 
@@ -145,14 +148,37 @@ public sealed class FfmpegAudioPlayer : IDisposable
         process = null;
         readTask = null;
 
-        output?.Stop();
-        output?.Dispose();
+        try
+        {
+            output?.Stop();
+        }
+        catch
+        {
+            // Best-effort device cleanup; a failed waveOut handle can also fail while stopping.
+        }
+
+        try
+        {
+            output?.Dispose();
+        }
+        catch
+        {
+            // Best-effort device cleanup during plugin unload/source changes.
+        }
+
         output = null;
         buffer = null;
         Status = "stopped";
     }
 
     public void Dispose() => Stop();
+
+    private void FailStart(string status)
+    {
+        startFailed = true;
+        Stop();
+        Status = status;
+    }
 
     private async Task ReadLoop(CancellationToken token)
     {

@@ -64,7 +64,7 @@ public sealed class MainWindow : Window, IDisposable
     {
         ImGui.TextUnformatted("CrystalCast");
         ImGui.SameLine();
-        ImGui.TextDisabled("Scene composite world screen");
+        ImGui.TextDisabled("World screen controls");
         ImGui.Separator();
     }
 

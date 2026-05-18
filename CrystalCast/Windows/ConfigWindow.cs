@@ -8,6 +8,13 @@ namespace CrystalCast.Windows;
 
 public sealed class ConfigWindow : Window, IDisposable
 {
+    private static readonly string[] OutputModeNames =
+    [
+        "ImGui overlay",
+        "Native overlay",
+        "Scene composite (Windows only)",
+    ];
+
     private readonly Plugin plugin;
     private readonly WorldScreenRenderer renderer;
     private readonly ScreenStateIpc ipc;
@@ -59,8 +66,31 @@ public sealed class ConfigWindow : Window, IDisposable
         var distanceFade = config.EnableDistanceFade;
         var fadeStart = config.FadeStartMeters;
         var fadeStop = config.FadeStopMeters;
+        var outputMode = GetOutputModeIndex(config.OutputMode);
 
-        ImGui.TextDisabled("Output layer: Scene composite");
+        if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
+        {
+            for (var i = 0; i < OutputModeNames.Length; i++)
+            {
+                var selected = i == outputMode;
+                if (ImGui.Selectable(OutputModeNames[i], selected))
+                {
+                    config.OutputMode = i switch
+                    {
+                        1 => Configuration.OutputModeNativeOverlay,
+                        2 => Configuration.OutputModeSceneComposite,
+                        _ => Configuration.OutputModeImGuiOverlay,
+                    };
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+
         ImGui.TextDisabled("UI mask: disabled");
 
         if (ImGui.Checkbox("Debug marker", ref showMarker))
@@ -116,6 +146,16 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         return changed;
+    }
+
+    private static int GetOutputModeIndex(int outputMode)
+    {
+        return outputMode switch
+        {
+            Configuration.OutputModeNativeOverlay => 1,
+            Configuration.OutputModeSceneComposite or 3 => 2,
+            _ => 0,
+        };
     }
 
     private void DrawDiagnostics()

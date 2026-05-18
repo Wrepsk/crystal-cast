@@ -131,7 +131,6 @@ internal static class FfmpegLocator
         }
 
         yield return AppContext.BaseDirectory;
-        yield return @"C:\ffmpeg\bin";
         yield return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "chocolatey",

@@ -186,6 +186,7 @@ public sealed class MainWindow : Window, IDisposable
                 break;
         }
 
+        changed |= DrawSpatialAudio(config);
         return changed;
     }
 
@@ -430,6 +431,47 @@ public sealed class MainWindow : Window, IDisposable
         {
             config.AudioVolume = Math.Clamp(audioVolume, 0.0f, 1.0f);
             changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool DrawSpatialAudio(Configuration config)
+    {
+        var changed = false;
+        var enabled = config.SpatialAudioEnabled;
+        var fullRadius = config.SpatialAudioFullVolumeRadiusMeters;
+        var silentRadius = config.SpatialAudioSilentRadiusMeters;
+
+        DrawSectionTitle("Audio falloff");
+        if (ImGui.Checkbox("Spatial audio", ref enabled))
+        {
+            config.SpatialAudioEnabled = enabled;
+            changed = true;
+        }
+
+        if (config.SpatialAudioEnabled)
+        {
+            if (ImGui.InputFloat("Full volume radius", ref fullRadius, 0.5f, 2.0f))
+            {
+                config.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
+                if (config.SpatialAudioSilentRadiusMeters <= config.SpatialAudioFullVolumeRadiusMeters)
+                    config.SpatialAudioSilentRadiusMeters = config.SpatialAudioFullVolumeRadiusMeters + 0.1f;
+                changed = true;
+            }
+
+            if (ImGui.InputFloat("Silent radius", ref silentRadius, 0.5f, 2.0f))
+            {
+                config.SpatialAudioSilentRadiusMeters = Math.Max(config.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
+                changed = true;
+            }
+
+            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {renderer.SpatialAudioAttenuation * 100.0f:0}%");
+            ImGui.TextDisabled($"Applied volume: {renderer.EffectiveAudioVolume * 100.0f:0}%");
+        }
+        else
+        {
+            ImGui.TextDisabled("Distance falloff disabled");
         }
 
         return changed;

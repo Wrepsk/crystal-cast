@@ -50,12 +50,18 @@ public sealed class WorldScreenRenderer : IDisposable
     public long FrameAgeMilliseconds => lastFrameUnixMs == 0 ? 0 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs;
     public string LastDrawStatus { get; private set; } = "not drawn yet";
     public MediaPlaybackTelemetry? PlaybackTelemetry { get; private set; }
+    public float AudioDistanceMeters { get; private set; }
+    public float SpatialAudioAttenuation { get; private set; } = 1.0f;
+    public float EffectiveAudioVolume { get; private set; }
 
     public void DrawWorld()
     {
+        UpdateSpatialAudioMetrics();
+
         if (!configuration.Enabled || pictomancyContext == null)
         {
             LastDrawStatus = configuration.Enabled ? "Pictomancy is not initialized" : "disabled";
+            StopActiveSources();
             return;
         }
 
@@ -188,6 +194,7 @@ public sealed class WorldScreenRenderer : IDisposable
         {
             frameSource.Stop();
             StopAudio();
+            CalculateEffectiveAudioVolume(0.0f);
             UpdatePlaybackTelemetry();
             return dynamicTexture.TextureWrap;
         }
@@ -268,12 +275,20 @@ public sealed class WorldScreenRenderer : IDisposable
 
     private void UpdateAudio()
     {
-        if (configuration.SourceKind != ScreenSourceKind.LocalVideo || !configuration.AudioEnabled)
+        if (configuration.SourceKind != ScreenSourceKind.LocalVideo)
         {
             StopAudio();
             return;
         }
 
+        if (!configuration.AudioEnabled)
+        {
+            CalculateEffectiveAudioVolume(0.0f);
+            StopAudio();
+            return;
+        }
+
+        var effectiveVolume = CalculateEffectiveAudioVolume(configuration.AudioVolume);
         var signature = string.Join('|',
             configuration.FfmpegPath,
             configuration.LocalVideoPath,
@@ -287,10 +302,10 @@ public sealed class WorldScreenRenderer : IDisposable
                 configuration.FfmpegPath,
                 configuration.LocalVideoPath,
                 configuration.LoopLocalVideo,
-                configuration.AudioVolume);
+                effectiveVolume);
         }
 
-        audioPlayer.SetVolume(configuration.AudioVolume);
+        audioPlayer.SetVolume(effectiveVolume);
         audioPlayer.Start();
     }
 
@@ -304,12 +319,82 @@ public sealed class WorldScreenRenderer : IDisposable
     {
         if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser && frameSource is IMediaPlaybackController controller)
         {
+            var effectiveVolume = configuration.YouTubeAudioEnabled
+                ? CalculateEffectiveAudioVolume(configuration.YouTubeVolume)
+                : CalculateEffectiveAudioVolume(0.0f);
             controller.ApplyPlaybackSettings(
                 configuration.YouTubeAudioEnabled,
-                configuration.YouTubeVolume,
+                effectiveVolume,
                 configuration.YouTubePlaybackRate,
                 configuration.LoopYouTube);
         }
+    }
+
+    private void StopActiveSources()
+    {
+        frameSource?.Stop();
+        StopAudio();
+        EffectiveAudioVolume = 0.0f;
+    }
+
+    private void UpdateSpatialAudioMetrics()
+    {
+        SpatialAudioAttenuation = CalculateSpatialAudioAttenuation();
+    }
+
+    private float CalculateEffectiveAudioVolume(float baseVolume)
+    {
+        EffectiveAudioVolume = Math.Clamp(baseVolume, 0.0f, 1.0f) * SpatialAudioAttenuation;
+        return EffectiveAudioVolume;
+    }
+
+    private float CalculateSpatialAudioAttenuation()
+    {
+        if (!configuration.SpatialAudioEnabled)
+        {
+            AudioDistanceMeters = 0.0f;
+            return 1.0f;
+        }
+
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (player == null)
+        {
+            AudioDistanceMeters = 0.0f;
+            return 1.0f;
+        }
+
+        AudioDistanceMeters = DistanceToScreen(player.Position);
+        var fullRadius = Math.Max(0.0f, configuration.SpatialAudioFullVolumeRadiusMeters);
+        var silentRadius = Math.Max(fullRadius + 0.1f, configuration.SpatialAudioSilentRadiusMeters);
+
+        if (AudioDistanceMeters <= fullRadius)
+            return 1.0f;
+
+        if (AudioDistanceMeters >= silentRadius)
+            return 0.0f;
+
+        var t = (AudioDistanceMeters - fullRadius) / (silentRadius - fullRadius);
+        var smooth = t * t * (3.0f - (2.0f * t));
+        return Math.Clamp(1.0f - smooth, 0.0f, 1.0f);
+    }
+
+    private float DistanceToScreen(Vector3 position)
+    {
+        var rotation = GetRotation();
+        var right = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, rotation));
+        var down = Vector3.Normalize(Vector3.Transform(-Vector3.UnitY, rotation));
+        var normal = Vector3.Normalize(Vector3.Cross(right, down));
+        var panelSize = GetPanelSizeForSource();
+        var halfWidth = panelSize.X * 0.5f;
+        var halfHeight = panelSize.Y * 0.5f;
+        var offset = position - GetCenter();
+        var localX = Vector3.Dot(offset, right);
+        var localY = Vector3.Dot(offset, down);
+        var localZ = Vector3.Dot(offset, normal);
+        var outsideX = MathF.Max(MathF.Abs(localX) - halfWidth, 0.0f);
+        var outsideY = MathF.Max(MathF.Abs(localY) - halfHeight, 0.0f);
+
+        return MathF.Sqrt((outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ));
     }
 
     private void UpdatePlaybackTelemetry()
@@ -345,6 +430,16 @@ public sealed class WorldScreenRenderer : IDisposable
         var height = Math.Max(0.01f, configuration.HeightMeters);
         if (configuration.SourceKind is ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser && texture.Width > 0 && texture.Height > 0)
             height = width * texture.Height / texture.Width;
+
+        return new Vector2(width, height);
+    }
+
+    private Vector2 GetPanelSizeForSource()
+    {
+        var width = Math.Max(0.01f, configuration.WidthMeters);
+        var height = Math.Max(0.01f, configuration.HeightMeters);
+        if (frameSource is { Width: > 0, Height: > 0 })
+            height = width * frameSource.Height / frameSource.Width;
 
         return new Vector2(width, height);
     }

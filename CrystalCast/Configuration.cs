@@ -42,6 +42,9 @@ public class Configuration : IPluginConfiguration
     public bool LoopLocalVideo { get; set; } = true;
     public bool AudioEnabled { get; set; } = true;
     public float AudioVolume { get; set; } = 0.7f;
+    public bool SpatialAudioEnabled { get; set; } = true;
+    public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
+    public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
 
     public string YouTubeUrl { get; set; } = string.Empty;
     public int YouTubeBrowserWidth { get; set; } = 1280;

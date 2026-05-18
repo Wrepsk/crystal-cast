@@ -124,7 +124,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
     public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
     {
-        volume = ClampVolume(volume);
+        volume = QuantizeVolume(volume);
         playbackRate = ClampPlaybackRate(playbackRate);
 
         if (this.audioEnabled == audioEnabled
@@ -265,8 +265,9 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
       }
 
       try {
-        player.setVolume(crystalCastConfig.audioEnabled ? crystalCastConfig.volume : 0);
-        if (crystalCastConfig.audioEnabled) {
+        const effectiveVolume = crystalCastConfig.audioEnabled ? crystalCastConfig.volume : 0;
+        player.setVolume(effectiveVolume);
+        if (effectiveVolume > 0) {
           player.unMute();
         } else {
           player.mute();
@@ -576,6 +577,11 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
             return 0.0f;
 
         return Math.Clamp(volume, 0.0f, 1.0f);
+    }
+
+    private static float QuantizeVolume(float volume)
+    {
+        return MathF.Round(ClampVolume(volume) * 100.0f) / 100.0f;
     }
 
     private static string TryGetString(JsonElement root, string propertyName, string fallback)

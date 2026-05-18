@@ -129,6 +129,9 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
         ImGui.TextUnformatted($"Frame age: {renderer.FrameAgeMilliseconds} ms");
+        ImGui.TextUnformatted($"Audio distance: {renderer.AudioDistanceMeters:0.00} m");
+        ImGui.TextUnformatted($"Audio falloff: {renderer.SpatialAudioAttenuation * 100.0f:0}%");
+        ImGui.TextUnformatted($"Effective audio volume: {renderer.EffectiveAudioVolume * 100.0f:0}%");
     }
 
     private void DrawIpc(Configuration config)

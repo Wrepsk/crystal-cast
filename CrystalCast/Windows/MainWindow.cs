@@ -26,10 +26,10 @@ public sealed class MainWindow : Window, IDisposable
         [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
 
     private static readonly string[] PlacementModeNames =
-        ["World", "Follow player"];
+        ["World", "Follow player", "Follow camera"];
 
     private static readonly ScreenPlacementMode[] PlacementModes =
-        [ScreenPlacementMode.World, ScreenPlacementMode.FollowPlayer];
+        [ScreenPlacementMode.World, ScreenPlacementMode.FollowPlayer, ScreenPlacementMode.FollowCamera];
 
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
@@ -371,19 +371,26 @@ public sealed class MainWindow : Window, IDisposable
 
         changed |= DrawPlacementMode(placement);
 
-        if (ImGui.Button("Place in front of player"))
+        var placeButtonLabel = placement.Mode == ScreenPlacementMode.FollowCamera
+            ? "Place in front of camera"
+            : "Place in front of player";
+        if (ImGui.Button(placeButtonLabel))
         {
             if (ScreenPlacementResolver.PlaceInFrontOfPlayer(placement))
                 changed = true;
             else
-                ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Waiting for local player");
+                ImGui.TextColored(
+                    new Vector4(1.0f, 0.45f, 0.35f, 1.0f),
+                    placement.Mode == ScreenPlacementMode.FollowCamera
+                        ? "Waiting for local player/camera"
+                        : "Waiting for local player");
         }
 
         changed |= DrawPlacementPresets(
             () => placement,
             placement.CopyFrom);
 
-        var followMode = placement.Mode == ScreenPlacementMode.FollowPlayer;
+        var followMode = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera;
         var positionLabel = followMode
             ? "Local position (right / up / forward)"
             : "Position";
@@ -550,6 +557,8 @@ public sealed class MainWindow : Window, IDisposable
 
         if (placement.Mode == ScreenPlacementMode.FollowPlayer)
             ImGui.TextDisabled("Coordinates are relative to the local player.");
+        else if (placement.Mode == ScreenPlacementMode.FollowCamera)
+            ImGui.TextDisabled("Coordinates are relative to the camera heading around the local player.");
 
         return changed;
     }

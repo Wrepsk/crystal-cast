@@ -97,7 +97,7 @@ public class Configuration : IPluginConfiguration
             changed = true;
         }
 
-        if (LocalVideoPlacementMode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer))
+        if (LocalVideoPlacementMode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
         {
             LocalVideoPlacementMode = ScreenPlacementMode.World;
             changed = true;
@@ -290,6 +290,7 @@ public enum ScreenPlacementMode
 {
     World = 0,
     FollowPlayer = 1,
+    FollowCamera = 2,
 }
 
 [Serializable]
@@ -470,7 +471,7 @@ public sealed class ScreenPlacementSettings
     public bool Normalize()
     {
         var changed = false;
-        if (Mode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer))
+        if (Mode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
         {
             Mode = ScreenPlacementMode.World;
             changed = true;

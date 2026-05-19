@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Numerics;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using GameObjectStruct = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
 namespace CrystalCast.Rendering;
 
@@ -14,7 +16,21 @@ public readonly record struct ResolvedScreenPlacement(
 
 public static class ScreenPlacementResolver
 {
+    private const float MinPredictionSampleSeconds = 0.002f;
+    private const float MaxPredictionSampleSeconds = 0.25f;
+    private const float MaxPredictionLeadSeconds = 0.05f;
+    private const float MaxPredictionStepMeters = 20.0f;
+    private const float VelocityBlend = 0.65f;
+
+    private static FramePredictionState playerPrediction;
+    private static FramePredictionState cameraPrediction;
+
     public static bool TryResolve(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
+    {
+        return TryResolve(placement, 0.0f, out resolved);
+    }
+
+    public static bool TryResolve(ScreenPlacementSettings placement, float predictionFrames, out ResolvedScreenPlacement resolved)
     {
         if (placement.Mode != ScreenPlacementMode.World)
         {
@@ -24,6 +40,8 @@ public static class ScreenPlacementResolver
                 return false;
             }
 
+            ApplyFramePrediction(placement.Mode, ref framePosition, ref frameYaw, predictionFrames);
+            BuildHorizontalAxes(frameYaw, out forward, out right);
             resolved = new ResolvedScreenPlacement(
                 framePosition
                     + (right * placement.PositionX)
@@ -130,7 +148,12 @@ public static class ScreenPlacementResolver
             return ClearFrame(out position, out yaw, out forward, out right);
 
         position = player.Position;
-        yaw = player.Rotation;
+        if (TryGetRenderedObjectPosition(player.Address, out var renderedPosition))
+            position = renderedPosition;
+
+        yaw = TryGetRenderedObjectYaw(player.Address, out var renderedYaw)
+            ? renderedYaw
+            : player.Rotation;
         BuildHorizontalAxes(yaw, out forward, out right);
         return true;
     }
@@ -146,10 +169,15 @@ public static class ScreenPlacementResolver
             return ClearFrame(out position, out yaw, out forward, out right);
 
         position = player.Position;
+        if (TryGetRenderedObjectPosition(player.Address, out var renderedPosition))
+            position = renderedPosition;
+
         var renderCamera = camera->SceneCamera.RenderCamera;
         if (renderCamera != null)
         {
-            var cameraOrigin = (Vector3)renderCamera->Origin;
+            var cameraOrigin = TryGetCurrentCameraOrigin(Control.Instance()->ViewProjectionMatrix, renderCamera->ProjectionMatrix, out var currentCameraOrigin)
+                ? currentCameraOrigin
+                : (Vector3)renderCamera->Origin;
             var cameraToPlayer = position - cameraOrigin;
             cameraToPlayer.Y = 0.0f;
             if (cameraToPlayer.LengthSquared() > 0.0001f)
@@ -175,6 +203,132 @@ public static class ScreenPlacementResolver
         right = new Vector3(MathF.Cos(yaw), 0.0f, -MathF.Sin(yaw));
     }
 
+    private static void ApplyFramePrediction(ScreenPlacementMode mode, ref Vector3 position, ref float yaw, float predictionFrames)
+    {
+        if (mode is not (ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
+            return;
+
+        ref var state = ref GetPredictionState(mode);
+        var now = Stopwatch.GetTimestamp();
+        if (!state.HasSample)
+        {
+            state = FramePredictionState.Create(now, position, yaw);
+            return;
+        }
+
+        var elapsedSeconds = (float)((now - state.LastTimestamp) / (double)Stopwatch.Frequency);
+        if (elapsedSeconds >= MinPredictionSampleSeconds)
+        {
+            var step = position - state.LastPosition;
+            if (elapsedSeconds > MaxPredictionSampleSeconds
+                || !IsFinite(position)
+                || !float.IsFinite(yaw)
+                || step.LengthSquared() > MaxPredictionStepMeters * MaxPredictionStepMeters)
+            {
+                state = FramePredictionState.Create(now, position, yaw);
+                return;
+            }
+
+            var sampleVelocity = step / elapsedSeconds;
+            var sampleYawVelocity = NormalizeRadians(yaw - state.LastYaw) / elapsedSeconds;
+            state.Velocity = Vector3.Lerp(state.Velocity, sampleVelocity, VelocityBlend);
+            state.YawVelocity += (sampleYawVelocity - state.YawVelocity) * VelocityBlend;
+            state.LastDeltaSeconds = elapsedSeconds;
+            state.LastTimestamp = now;
+            state.LastPosition = position;
+            state.LastYaw = yaw;
+        }
+
+        var predictionSeconds = Math.Clamp(predictionFrames, 0.0f, 3.0f) * state.LastDeltaSeconds;
+        predictionSeconds = Math.Clamp(predictionSeconds, 0.0f, MaxPredictionLeadSeconds);
+        position += state.Velocity * predictionSeconds;
+        yaw = NormalizeRadians(yaw + (state.YawVelocity * predictionSeconds));
+    }
+
+    private static ref FramePredictionState GetPredictionState(ScreenPlacementMode mode)
+    {
+        if (mode == ScreenPlacementMode.FollowCamera)
+            return ref cameraPrediction;
+
+        return ref playerPrediction;
+    }
+
+    private static unsafe bool TryGetRenderedObjectPosition(nint objectAddress, out Vector3 position)
+    {
+        if (objectAddress == nint.Zero)
+        {
+            position = default;
+            return false;
+        }
+
+        var gameObject = (GameObjectStruct*)objectAddress;
+        var drawObject = gameObject->DrawObject;
+        if (drawObject == null)
+        {
+            position = default;
+            return false;
+        }
+
+        position = (Vector3)drawObject->Position;
+        return IsFinite(position);
+    }
+
+    private static unsafe bool TryGetRenderedObjectYaw(nint objectAddress, out float yaw)
+    {
+        if (objectAddress == nint.Zero)
+        {
+            yaw = 0.0f;
+            return false;
+        }
+
+        var gameObject = (GameObjectStruct*)objectAddress;
+        var drawObject = gameObject->DrawObject;
+        if (drawObject == null)
+        {
+            yaw = 0.0f;
+            return false;
+        }
+
+        var rotation = Quaternion.Normalize((Quaternion)drawObject->Rotation);
+        var forward = Vector3.Transform(Vector3.UnitZ, rotation);
+        forward.Y = 0.0f;
+        if (forward.LengthSquared() <= 0.0001f)
+        {
+            yaw = 0.0f;
+            return false;
+        }
+
+        forward = Vector3.Normalize(forward);
+        yaw = MathF.Atan2(forward.X, forward.Z);
+        return float.IsFinite(yaw);
+    }
+
+    private static bool TryGetCurrentCameraOrigin(Matrix4x4 viewProjection, Matrix4x4 projection, out Vector3 origin)
+    {
+        if (!Matrix4x4.Invert(projection, out var inverseProjection))
+        {
+            origin = default;
+            return false;
+        }
+
+        var view = viewProjection * inverseProjection;
+        if (!Matrix4x4.Invert(view, out var inverseView))
+        {
+            origin = default;
+            return false;
+        }
+
+        origin = new Vector3(inverseView.M41, inverseView.M42, inverseView.M43);
+        return IsFinite(origin);
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return float.IsFinite(value.X)
+            && float.IsFinite(value.Y)
+            && float.IsFinite(value.Z);
+    }
+
     private static bool ClearFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
     {
         position = default;
@@ -191,5 +345,28 @@ public static class ScreenPlacementResolver
         while (value > MathF.PI)
             value -= MathF.Tau;
         return value;
+    }
+
+    private struct FramePredictionState
+    {
+        public bool HasSample;
+        public long LastTimestamp;
+        public float LastDeltaSeconds;
+        public Vector3 LastPosition;
+        public float LastYaw;
+        public Vector3 Velocity;
+        public float YawVelocity;
+
+        public static FramePredictionState Create(long timestamp, Vector3 position, float yaw)
+        {
+            return new FramePredictionState
+            {
+                HasSample = true,
+                LastTimestamp = timestamp,
+                LastDeltaSeconds = 1.0f / 60.0f,
+                LastPosition = position,
+                LastYaw = yaw,
+            };
+        }
     }
 }

@@ -40,6 +40,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     private int captureWindowFrames;
     private double measuredCaptureFps;
     private double lastCaptureMilliseconds;
+    private float detectedVideoFps;
 
     public WebView2YouTubeBrowserFrameSource(
         string input,
@@ -57,7 +58,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         canonicalUrl = YouTubeVideoId.BuildCanonicalWatchUrl(videoId);
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
-        FramesPerSecond = Math.Clamp(captureFps, 1.0f, 60.0f);
+        FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
         this.autoplay = autoplay;
         this.loop = loop;
         this.audioEnabled = audioEnabled;
@@ -73,7 +74,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     public string Name => "YouTube browser (WebView2 capture)";
     public int Width { get; }
     public int Height { get; }
-    public float FramesPerSecond { get; }
+    public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
 
     public string Status
@@ -234,6 +235,9 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             case "status":
                 UpdateFromStatusMessage(root);
                 break;
+            case "video-fps":
+                UpdateDetectedVideoFps(root);
+                break;
             case "error":
                 playerStatus = DescribeYouTubeError(root);
                 break;
@@ -279,6 +283,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
                 VideoId = videoId,
                 CanonicalUrl = canonicalUrl,
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                DetectedVideoFps = detectedVideoFps,
             };
         }
     }
@@ -304,6 +309,25 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         lock (telemetryLock)
         {
             return telemetry.DurationMs;
+        }
+    }
+
+    public void UpdateCaptureFps(float fps)
+    {
+        var clamped = Math.Clamp(fps, 1.0f, 120.0f);
+        if (Math.Abs(FramesPerSecond - clamped) < 0.01f)
+            return;
+
+        FramesPerSecond = clamped;
+    }
+
+    private void UpdateDetectedVideoFps(JsonElement root)
+    {
+        var fps = (float)TryGetDouble(root, "fps", 0.0);
+        if (fps >= 1.0f && fps <= 240.0f)
+        {
+            detectedVideoFps = fps;
+            playerStatus = $"detected video fps: {fps:0.#}";
         }
     }
 

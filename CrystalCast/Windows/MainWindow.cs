@@ -681,10 +681,26 @@ public sealed class MainWindow : Window, IDisposable
         changed |= DrawYouTubePlaybackControls(screen);
         changed |= DrawYouTubeResolutionPreset(screen);
 
-        if (ImGui.InputFloat("Capture FPS", ref fps, 1.0f, 5.0f))
+        var manualFps = screen.YouTubeCaptureFpsManual;
+        if (ImGui.Checkbox("Set capture FPS manually", ref manualFps))
         {
-            screen.YouTubeCaptureFps = Math.Clamp(fps, 1.0f, 60.0f);
+            screen.YouTubeCaptureFpsManual = manualFps;
             changed = true;
+        }
+
+        if (screen.YouTubeCaptureFpsManual)
+        {
+            if (ImGui.InputFloat("Capture FPS", ref fps, 1.0f, 5.0f))
+            {
+                screen.YouTubeCaptureFps = Math.Clamp(fps, 1.0f, 120.0f);
+                changed = true;
+            }
+        }
+        else
+        {
+            var detectedFps = renderer.GetDetectedVideoFps(screen);
+            var autoFps = detectedFps > 0.0f ? detectedFps : 60.0f;
+            ImGui.TextDisabled($"Capture FPS: {autoFps:0.#} ({(detectedFps > 0.0f ? "auto-detected" : "default")})");
         }
 
         if (ImGui.Checkbox("Autoplay on load", ref autoplay))

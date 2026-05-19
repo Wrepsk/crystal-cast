@@ -146,6 +146,14 @@ public sealed class WorldScreenManager : IDisposable
             : "browser source not started";
     }
 
+    public float GetDetectedVideoFps(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            ? instance.DetectedVideoFps
+            : 0.0f;
+    }
+
     public void Dispose()
     {
         localScreen.Dispose();
@@ -310,6 +318,7 @@ public sealed class WorldScreenManager : IDisposable
         public float AudioDistanceMeters { get; private set; }
         public float SpatialAudioAttenuation { get; private set; } = 1.0f;
         public float EffectiveAudioVolume { get; private set; }
+        public float DetectedVideoFps => frameSource is YouTubeBrowserFrameSource ytSource ? ytSource.DetectedVideoFps : 0.0f;
 
         public bool TryPrepareFrame(out IDalamudTextureWrap? texture)
         {
@@ -539,7 +548,6 @@ public sealed class WorldScreenManager : IDisposable
                     browserScreen.YouTubeUrl,
                     browserScreen.YouTubeBrowserWidth,
                     browserScreen.YouTubeBrowserHeight,
-                    browserScreen.YouTubeCaptureFps,
                     configuration.YouTubeBrowserEngine),
                 _ => GetSourceKind().ToString(),
             };
@@ -600,6 +608,20 @@ public sealed class WorldScreenManager : IDisposable
                 effectiveVolume,
                 browserScreen.YouTubePlaybackRate,
                 browserScreen.LoopYouTube);
+
+            if (frameSource is YouTubeBrowserFrameSource ytSource)
+            {
+                if (browserScreen.YouTubeCaptureFpsManual)
+                {
+                    ytSource.UpdateCaptureFps(browserScreen.YouTubeCaptureFps);
+                }
+                else
+                {
+                    var detected = ytSource.DetectedVideoFps;
+                    if (detected > 0.0f)
+                        ytSource.UpdateCaptureFps(detected);
+                }
+            }
         }
 
         private void UpdateSpatialAudioMetrics()

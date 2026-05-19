@@ -364,6 +364,94 @@ internal static class YouTubePlayerPage
     };
     document.head.appendChild(tag);
     window.setInterval(postStatus, 500);
+
+    var crystalCastFpsDetected = false;
+
+    function snapToStandardFps(fps) {
+      var standards = [24, 25, 30, 50, 60];
+      for (var i = 0; i < standards.length; i++) {
+        if (Math.abs(fps - standards[i]) / standards[i] <= 0.1) {
+          return standards[i];
+        }
+      }
+
+      return Math.round(fps);
+    }
+
+    function tryDetectVideoFps() {
+      if (crystalCastFpsDetected || !playerReady || !player) {
+        return;
+      }
+
+      try {
+        var iframe = document.querySelector("#player iframe");
+        if (!iframe || !iframe.contentDocument) {
+          return;
+        }
+
+        var video = iframe.contentDocument.querySelector("video");
+        if (!video) {
+          return;
+        }
+
+        if (typeof video.requestVideoFrameCallback === "function") {
+          var samples = [];
+          function onFrame(now, metadata) {
+            if (crystalCastFpsDetected) {
+              return;
+            }
+
+            samples.push(metadata.mediaTime);
+            if (samples.length >= 15) {
+              var intervals = [];
+              for (var i = 1; i < samples.length; i++) {
+                intervals.push(samples[i] - samples[i - 1]);
+              }
+
+              intervals.sort(function (a, b) { return a - b; });
+              var median = intervals[Math.floor(intervals.length / 2)];
+              if (median > 0) {
+                var fps = snapToStandardFps(1.0 / median);
+                crystalCastFpsDetected = true;
+                post("video-fps", { fps: fps });
+              }
+
+              return;
+            }
+
+            video.requestVideoFrameCallback(onFrame);
+          }
+
+          video.requestVideoFrameCallback(onFrame);
+          return;
+        }
+
+        if (typeof video.getVideoPlaybackQuality === "function") {
+          var q0 = video.getVideoPlaybackQuality();
+          var t0 = performance.now();
+          setTimeout(function () {
+            if (crystalCastFpsDetected) {
+              return;
+            }
+
+            try {
+              var q1 = video.getVideoPlaybackQuality();
+              var dt = (performance.now() - t0) / 1000.0;
+              var dFrames = q1.totalVideoFrames - q0.totalVideoFrames;
+              if (dt > 0.5 && dFrames > 5) {
+                var fps = snapToStandardFps(dFrames / dt);
+                crystalCastFpsDetected = true;
+                post("video-fps", { fps: fps });
+              }
+            } catch (_) {
+            }
+          }, 1500);
+        }
+      } catch (_) {
+      }
+    }
+
+    window.setInterval(tryDetectVideoFps, 1000);
   </script>
 </body>
 </html>

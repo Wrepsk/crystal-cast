@@ -40,6 +40,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     private int playerLoadAttempt;
     private double measuredCaptureFps;
     private double lastPaintMilliseconds;
+    private float detectedVideoFps;
     private bool playerReady;
     private bool playerFailed;
 
@@ -59,7 +60,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         canonicalUrl = YouTubeVideoId.BuildCanonicalWatchUrl(videoId);
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
-        FramesPerSecond = Math.Clamp(captureFps, 1.0f, 60.0f);
+        FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
         this.autoplay = autoplay;
         this.loop = loop;
         this.audioEnabled = audioEnabled;
@@ -75,7 +76,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     public string Name => "YouTube browser (CEF offscreen)";
     public int Width { get; }
     public int Height { get; }
-    public float FramesPerSecond { get; }
+    public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
 
     public string Status
@@ -757,6 +758,9 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             case "status":
                 UpdateFromStatusMessage(root);
                 break;
+            case "video-fps":
+                UpdateDetectedVideoFps(root);
+                break;
             case "error":
                 playerFailed = true;
                 playerStatus = DescribeYouTubeError(root);
@@ -806,6 +810,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
                 VideoId = videoId,
                 CanonicalUrl = canonicalUrl,
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                DetectedVideoFps = detectedVideoFps,
             };
         }
     }
@@ -839,6 +844,39 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         lock (telemetryLock)
         {
             return telemetry.DurationMs;
+        }
+    }
+
+    public void UpdateCaptureFps(float fps)
+    {
+        var clamped = Math.Clamp(fps, 1.0f, 120.0f);
+        if (Math.Abs(FramesPerSecond - clamped) < 0.01f)
+            return;
+
+        FramesPerSecond = clamped;
+        try
+        {
+            var currentBrowser = browser;
+            if (currentBrowser != null && !GetInstanceProperty<bool>(currentBrowser, "IsDisposed"))
+            {
+                var host = InvokeWebBrowserExtension("GetBrowserHost", currentBrowser);
+                if (host != null)
+                    TryInvokeInstanceMethod(host, "SetWindowlessFrameRate", (int)Math.Clamp(MathF.Round(FramesPerSecond), 1.0f, 120.0f));
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Debug(ex, "Failed to update CEF WindowlessFrameRate.");
+        }
+    }
+
+    private void UpdateDetectedVideoFps(JsonElement root)
+    {
+        var fps = (float)TryGetDouble(root, "fps", 0.0);
+        if (fps >= 1.0f && fps <= 240.0f)
+        {
+            detectedVideoFps = fps;
+            playerStatus = $"detected video fps: {fps:0.#}";
         }
     }
 

@@ -56,7 +56,7 @@ public class Configuration : IPluginConfiguration
     public string YouTubeUrl { get; set; } = string.Empty;
     public int YouTubeBrowserWidth { get; set; } = 1280;
     public int YouTubeBrowserHeight { get; set; } = 720;
-    public float YouTubeCaptureFps { get; set; } = 15.0f;
+    public float YouTubeCaptureFps { get; set; } = 60.0f;
     public BrowserMediaEngine YouTubeBrowserEngine { get; set; } = BrowserMediaEngine.Auto;
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
@@ -262,6 +262,7 @@ public class Configuration : IPluginConfiguration
             YouTubeBrowserWidth = YouTubeBrowserWidth,
             YouTubeBrowserHeight = YouTubeBrowserHeight,
             YouTubeCaptureFps = YouTubeCaptureFps,
+            YouTubeCaptureFpsManual = Math.Abs(YouTubeCaptureFps - 15.0f) > 0.01f,
             YouTubeAutoplay = YouTubeAutoplay,
             LoopYouTube = LoopYouTube,
             YouTubeAudioEnabled = YouTubeAudioEnabled,
@@ -341,7 +342,8 @@ public sealed class BrowserScreenProfile
     public string YouTubeUrl { get; set; } = string.Empty;
     public int YouTubeBrowserWidth { get; set; } = 1280;
     public int YouTubeBrowserHeight { get; set; } = 720;
-    public float YouTubeCaptureFps { get; set; } = 15.0f;
+    public float YouTubeCaptureFps { get; set; } = 60.0f;
+    public bool YouTubeCaptureFpsManual { get; set; }
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
     public bool YouTubeAudioEnabled { get; set; }
@@ -437,6 +439,7 @@ public sealed class BrowserScreenProfile
             YouTubeBrowserWidth = YouTubeBrowserWidth,
             YouTubeBrowserHeight = YouTubeBrowserHeight,
             YouTubeCaptureFps = YouTubeCaptureFps,
+            YouTubeCaptureFpsManual = YouTubeCaptureFpsManual,
             YouTubeAutoplay = YouTubeAutoplay,
             LoopYouTube = LoopYouTube,
             YouTubeAudioEnabled = YouTubeAudioEnabled,

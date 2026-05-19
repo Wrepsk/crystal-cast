@@ -45,7 +45,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     public string Name => activeSource?.Name ?? $"YouTube browser ({DescribePreference(enginePreference)})";
     public int Width => activeSource?.Width ?? Math.Clamp(width, 320, 3840);
     public int Height => activeSource?.Height ?? Math.Clamp(height, 180, 2160);
-    public float FramesPerSecond => activeSource?.FramesPerSecond ?? Math.Clamp(captureFps, 1.0f, 60.0f);
+    public float FramesPerSecond => activeSource?.FramesPerSecond ?? Math.Clamp(captureFps, 1.0f, 120.0f);
     public bool IsRunning => activeSource?.IsRunning ?? false;
     public string Status => string.IsNullOrWhiteSpace(fallbackStatus)
         ? activeSource?.Status ?? "browser source not started"
@@ -123,6 +123,25 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     {
         activeSource?.Dispose();
         activeSource = null;
+    }
+
+    public float DetectedVideoFps
+    {
+        get
+        {
+            if (activeSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var t))
+                return t.DetectedVideoFps;
+
+            return 0.0f;
+        }
+    }
+
+    public void UpdateCaptureFps(float fps)
+    {
+        if (activeSource is CefYouTubeBrowserFrameSource cef)
+            cef.UpdateCaptureFps(fps);
+        else if (activeSource is WebView2YouTubeBrowserFrameSource webView2)
+            webView2.UpdateCaptureFps(fps);
     }
 
     private void EnsureSource()

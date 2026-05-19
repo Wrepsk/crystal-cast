@@ -10,6 +10,7 @@ public sealed class MediaPlaybackTelemetry
     public string VideoId { get; init; } = string.Empty;
     public string CanonicalUrl { get; init; } = string.Empty;
     public long HostTimestampUnixMs { get; init; }
+    public float DetectedVideoFps { get; init; }
 }
 
 public interface IMediaPlaybackTelemetrySource

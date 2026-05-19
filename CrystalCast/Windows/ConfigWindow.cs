@@ -44,25 +44,43 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         var changed = false;
         var config = plugin.Configuration;
+        changed |= config.Normalize();
 
-        DrawSectionTitle("Rendering");
-        changed |= DrawRendering(config);
-        DrawSectionTitle("Browser media");
-        changed |= DrawBrowserMedia(config);
-        DrawSectionTitle("Diagnostics");
-        DrawDiagnostics();
-        DrawSectionTitle("IPC");
-        DrawIpc(config);
+        if (ImGui.BeginTabBar("CrystalCastSettingsTabs"))
+        {
+            if (ImGui.BeginTabItem("Rendering"))
+            {
+                ImGui.Spacing();
+                changed |= DrawRendering(config);
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Browser"))
+            {
+                ImGui.Spacing();
+                changed |= DrawBrowserMedia(config);
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Diagnostics"))
+            {
+                ImGui.Spacing();
+                DrawDiagnostics();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("IPC"))
+            {
+                ImGui.Spacing();
+                DrawIpc(config);
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
+        }
 
         if (changed)
             config.Save();
-    }
-
-    private static void DrawSectionTitle(string label)
-    {
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted(label);
     }
 
     private bool DrawRendering(Configuration config)

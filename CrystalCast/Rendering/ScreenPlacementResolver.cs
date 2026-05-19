@@ -91,6 +91,51 @@ public static class ScreenPlacementResolver
         return true;
     }
 
+    public static bool TryApplyWorldPositionPreservingMode(ScreenPlacementSettings placement, Vector3 worldPosition)
+    {
+        if (!IsFinite(worldPosition))
+            return false;
+
+        if (placement.Mode == ScreenPlacementMode.World)
+        {
+            placement.PositionX = worldPosition.X;
+            placement.PositionY = worldPosition.Y;
+            placement.PositionZ = worldPosition.Z;
+            placement.Normalize();
+            return true;
+        }
+
+        if (!TryGetPlacementFrame(placement.Mode, out var framePosition, out _, out var forward, out var right))
+            return false;
+
+        var offset = worldPosition - framePosition;
+        placement.PositionX = Vector3.Dot(offset, right);
+        placement.PositionY = offset.Y;
+        placement.PositionZ = Vector3.Dot(offset, forward);
+        placement.Normalize();
+        return true;
+    }
+
+    public static bool TryApplyWorldRotationPreservingMode(ScreenPlacementSettings placement, Quaternion worldRotation)
+    {
+        if (!TryGetYawPitchRoll(worldRotation, out var yawRadians, out var pitchRadians, out var rollRadians))
+            return false;
+
+        if (placement.Mode != ScreenPlacementMode.World)
+        {
+            if (!TryGetPlacementFrame(placement.Mode, out _, out var frameYaw, out _, out _))
+                return false;
+
+            yawRadians = NormalizeRadians(yawRadians - frameYaw);
+        }
+
+        placement.YawRadians = NormalizeRadians(yawRadians);
+        placement.PitchRadians = NormalizeRadians(pitchRadians);
+        placement.RollRadians = NormalizeRadians(rollRadians);
+        placement.Normalize();
+        return true;
+    }
+
     public static bool PlaceInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
     {
         if (placement.Mode != ScreenPlacementMode.World)
@@ -327,6 +372,38 @@ public static class ScreenPlacementResolver
         return float.IsFinite(value.X)
             && float.IsFinite(value.Y)
             && float.IsFinite(value.Z);
+    }
+
+    private static bool IsFinite(Quaternion value)
+    {
+        return float.IsFinite(value.X)
+            && float.IsFinite(value.Y)
+            && float.IsFinite(value.Z)
+            && float.IsFinite(value.W);
+    }
+
+    private static bool TryGetYawPitchRoll(Quaternion rotation, out float yawRadians, out float pitchRadians, out float rollRadians)
+    {
+        if (!IsFinite(rotation) || rotation.LengthSquared() <= 0.000001f)
+        {
+            yawRadians = 0.0f;
+            pitchRadians = 0.0f;
+            rollRadians = 0.0f;
+            return false;
+        }
+
+        rotation = Quaternion.Normalize(rotation);
+        yawRadians = MathF.Atan2(
+            2.0f * ((rotation.W * rotation.Y) + (rotation.Z * rotation.X)),
+            1.0f - (2.0f * ((rotation.X * rotation.X) + (rotation.Y * rotation.Y))));
+        pitchRadians = MathF.Asin(Math.Clamp(
+            2.0f * ((rotation.W * rotation.X) - (rotation.Y * rotation.Z)),
+            -1.0f,
+            1.0f));
+        rollRadians = MathF.Atan2(
+            2.0f * ((rotation.W * rotation.Z) + (rotation.X * rotation.Y)),
+            1.0f - (2.0f * ((rotation.X * rotation.X) + (rotation.Z * rotation.Z))));
+        return float.IsFinite(yawRadians) && float.IsFinite(pitchRadians) && float.IsFinite(rollRadians);
     }
 
     private static bool ClearFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)

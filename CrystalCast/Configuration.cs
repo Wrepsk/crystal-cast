@@ -39,6 +39,8 @@ public class Configuration : IPluginConfiguration
     public int OutputMode { get; set; } = DefaultOutputMode;
     public int UiMaskMode { get; set; }
     public bool ShowDebugMarker { get; set; } = true;
+    public bool PlacementGizmoEnabled { get; set; }
+    public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
 
     public string FfmpegPath { get; set; } = "ffmpeg.exe";
     public string LocalVideoPath { get; set; } = string.Empty;
@@ -100,6 +102,12 @@ public class Configuration : IPluginConfiguration
         if (LocalVideoPlacementMode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
         {
             LocalVideoPlacementMode = ScreenPlacementMode.World;
+            changed = true;
+        }
+
+        if (PlacementGizmoOperation is not (ScreenPlacementGizmoOperation.Translate or ScreenPlacementGizmoOperation.Rotate))
+        {
+            PlacementGizmoOperation = ScreenPlacementGizmoOperation.Translate;
             changed = true;
         }
 
@@ -292,6 +300,12 @@ public enum ScreenPlacementMode
     World = 0,
     FollowPlayer = 1,
     FollowCamera = 2,
+}
+
+public enum ScreenPlacementGizmoOperation
+{
+    Translate = 0,
+    Rotate = 1,
 }
 
 [Serializable]

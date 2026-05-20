@@ -314,10 +314,23 @@ public sealed class ScreenStateIpc : IDisposable
 
     private bool Remove(string screenId)
     {
+        screenId = NormalizeText(screenId);
         if (string.IsNullOrWhiteSpace(screenId))
             return false;
 
-        return remoteScreens.Remove(screenId);
+        if (remoteScreens.Remove(screenId))
+            return true;
+
+        configuration.Normalize();
+        var screen = FindBrowserScreen(screenId);
+        if (screen is not { CreatedByIpc: true })
+            return false;
+
+        configuration.BrowserScreens.Remove(screen);
+        configuration.Normalize();
+        configuration.Save();
+        localScreenFingerprints.Remove(screenId);
+        return true;
     }
 
     private string CreateScreenJson(string json)
@@ -958,6 +971,7 @@ public sealed class ScreenStateIpc : IDisposable
             State = configuration.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
             PositionMs = 0,
             Rate = 1.0f,
+            Loop = configuration.LoopLocalVideo,
             HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }
@@ -973,6 +987,7 @@ public sealed class ScreenStateIpc : IDisposable
                 PositionMs = telemetry.PositionMs,
                 DurationMs = telemetry.DurationMs,
                 Rate = telemetry.Rate,
+                Loop = screen.LoopYouTube,
                 HostTimestampUnixMs = telemetry.HostTimestampUnixMs,
             };
         }
@@ -982,6 +997,7 @@ public sealed class ScreenStateIpc : IDisposable
             State = screen.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
             PositionMs = 0,
             Rate = screen.YouTubePlaybackRate,
+            Loop = screen.LoopYouTube,
             HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }

@@ -40,6 +40,7 @@ public sealed class ScreenPlaybackStateDto
     public long PositionMs { get; set; }
     public long DurationMs { get; set; }
     public float Rate { get; set; } = 1.0f;
+    public bool Loop { get; set; }
     public long HostTimestampUnixMs { get; set; }
 }
 

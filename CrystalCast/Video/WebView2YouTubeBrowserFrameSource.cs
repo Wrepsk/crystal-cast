@@ -474,7 +474,10 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             Post(async () =>
             {
                 if (webView != null)
+                {
+                    ApplyBrowserMute(audioEnabled, volume);
                     await webView.ExecuteScriptAsync($"window.crystalCastApplySettings && window.crystalCastApplySettings({settingsJson});");
+                }
             });
         }
 
@@ -606,6 +609,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
 
                 webView = controller.CoreWebView2;
                 ConfigureWebView(webView);
+                ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
@@ -630,6 +634,24 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.Settings.IsStatusBarEnabled = false;
             webView.Settings.IsZoomControlEnabled = false;
+        }
+
+        private void ApplyBrowserMute(bool audioEnabled, float volume)
+        {
+            if (webView == null)
+                return;
+
+            try
+            {
+                var muted = !audioEnabled || volume <= 0.001f;
+                var mutedProperty = webView.GetType().GetProperty("IsMuted");
+                if (mutedProperty?.CanWrite == true)
+                    mutedProperty.SetValue(webView, muted);
+            }
+            catch
+            {
+                // Older WebView2 runtimes may not expose IsMuted; the player page still enforces mute via JS.
+            }
         }
 
         private async Task CaptureLoopAsync()

@@ -206,6 +206,14 @@ internal static class YouTubePlayerPage
         postScriptError("setPlaybackRate", error);
       }
 
+      enforceAudioSettings();
+    }
+
+    function enforceAudioSettings() {
+      if (!playerReady || !player) {
+        return;
+      }
+
       try {
         const effectiveVolume = crystalCastConfig.audioEnabled ? crystalCastConfig.volume : 0;
         player.setVolume(effectiveVolume);
@@ -225,7 +233,10 @@ internal static class YouTubePlayerPage
       }
 
       try {
+        enforceAudioSettings();
         player.playVideo();
+        window.setTimeout(enforceAudioSettings, 0);
+        window.setTimeout(enforceAudioSettings, 250);
       } catch (error) {
         postScriptError("playVideo", error);
       }
@@ -309,7 +320,10 @@ internal static class YouTubePlayerPage
 
       try {
         player.seekTo(0, true);
+        enforceAudioSettings();
         player.playVideo();
+        window.setTimeout(enforceAudioSettings, 0);
+        window.setTimeout(enforceAudioSettings, 250);
         postStatus();
       } catch (error) {
         postScriptError("restart", error);

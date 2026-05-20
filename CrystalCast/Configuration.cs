@@ -437,6 +437,7 @@ public sealed class BrowserScreenProfile
             YouTubePlaybackRate = playbackRate;
             changed = true;
         }
+
         if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
         {
             SpatialAudioSilentRadiusMeters = SpatialAudioFullVolumeRadiusMeters + 0.1f;

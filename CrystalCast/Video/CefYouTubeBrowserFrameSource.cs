@@ -138,6 +138,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         this.volume = volume;
         this.playbackRate = playbackRate;
         this.loop = loop;
+        ApplyBrowserMute(audioEnabled, volume);
         ExecutePlayerScript("crystalCastApplySettings", new
         {
             audioEnabled,
@@ -236,6 +237,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
 
             browser = CreateChromiumBrowser(chromiumBrowserType, browserSettings);
             SetInstanceProperty(browser, "Size", new System.Drawing.Size(Width, Height));
+            ApplyBrowserMute(audioEnabled, volume);
             AddBrowserEventHandler(browser, "Paint", nameof(OnPaint));
             AddBrowserEventHandler(browser, "JavascriptMessageReceived", nameof(OnJavascriptMessageReceived));
             AddBrowserEventHandler(browser, "LoadError", nameof(OnLoadError));
@@ -272,6 +274,28 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
         lastPlayerLoadUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         browserStatus = $"CEF loading YouTube player ({reason})";
+    }
+
+    private void ApplyBrowserMute(bool audioEnabled, float volume)
+    {
+        var currentBrowser = browser;
+        if (currentBrowser == null)
+            return;
+
+        try
+        {
+            var muted = !audioEnabled || volume <= 0.001f;
+            var browserType = currentBrowser.GetType();
+            var mutedProperty = browserType.GetProperty("AudioMuted")
+                ?? browserType.GetProperty("IsAudioMuted")
+                ?? browserType.GetProperty("IsMuted");
+            if (mutedProperty?.CanWrite == true)
+                mutedProperty.SetValue(currentBrowser, ConvertValue(muted, mutedProperty.PropertyType));
+        }
+        catch
+        {
+            // CEF API shape varies by build; the player page also enforces mute via JS.
+        }
     }
 
     private void MaybeReloadPlayerIfNotReady()

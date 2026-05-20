@@ -9,6 +9,10 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
+    private const string LocalVideoPlacementUndoKey = "local-video";
+    private const int PlacementUndoHistoryLimit = 32;
+    private const long PlacementUndoCoalesceMilliseconds = 350;
+
     private static readonly (string Name, int Width, int Height)[] YouTubeResolutionPresets =
     [
         ("360p (640 x 360)", 640, 360),
@@ -41,10 +45,12 @@ public sealed class MainWindow : Window, IDisposable
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
     private readonly Dictionary<string, YouTubeUiState> youtubeUiStates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlacementUndoHistory> placementUndoHistories = new(StringComparer.Ordinal);
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
     private string renamingPlacementPresetId = string.Empty;
     private string placementPresetRenameDraft = string.Empty;
+    private string placementUndoAppliedKey = string.Empty;
 
     public MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast###CrystalCastMain")
@@ -65,6 +71,7 @@ public sealed class MainWindow : Window, IDisposable
     {
         var changed = false;
         var config = plugin.Configuration;
+        placementUndoAppliedKey = string.Empty;
         config.Normalize();
         var activeBrowserScreen = config.GetActiveBrowserScreen();
 
@@ -190,6 +197,7 @@ public sealed class MainWindow : Window, IDisposable
             var removedId = activeScreen.ScreenId;
             config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
             youtubeUiStates.Remove(removedId);
+            placementUndoHistories.Remove(removedId);
             if (renamingScreenId == removedId)
                 renamingScreenId = string.Empty;
             config.ActiveBrowserScreenId = config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
@@ -386,21 +394,32 @@ public sealed class MainWindow : Window, IDisposable
     private bool DrawPlacement(Configuration config)
     {
         var placement = config.GetLocalVideoPlacement();
-        var changed = DrawPlacementSettings(placement);
+        var before = placement.Clone();
+        var changed = DrawPlacementSettings(LocalVideoPlacementUndoKey, placement);
         if (changed)
+        {
+            CapturePlacementUndo(LocalVideoPlacementUndoKey, before, placement);
             config.ApplyLocalVideoPlacement(placement);
+        }
 
         return changed;
     }
 
     private bool DrawPlacement(BrowserScreenProfile screen)
     {
-        return DrawPlacementSettings(screen.Placement);
+        var before = screen.Placement.Clone();
+        var changed = DrawPlacementSettings(screen.ScreenId, screen.Placement);
+        if (changed)
+            CapturePlacementUndo(screen.ScreenId, before, screen.Placement);
+
+        return changed;
     }
 
-    private bool DrawPlacementSettings(ScreenPlacementSettings placement)
+    private bool DrawPlacementSettings(string undoKey, ScreenPlacementSettings placement)
     {
         var changed = false;
+        changed |= DrawPlacementUndo(undoKey, placement);
+
         var placementGizmoEnabled = plugin.Configuration.PlacementGizmoEnabled;
         if (ImGui.Checkbox("Placement gizmo", ref placementGizmoEnabled))
         {
@@ -466,20 +485,53 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private static bool DrawPlacementGizmo(Configuration config, BrowserScreenProfile activeScreen)
+    private bool DrawPlacementGizmo(Configuration config, BrowserScreenProfile activeScreen)
     {
         if (!config.PlacementGizmoEnabled)
             return false;
 
         if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
-            return ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation);
+        {
+            var before = activeScreen.Placement.Clone();
+            if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation))
+                return false;
+
+            CapturePlacementUndo(activeScreen.ScreenId, before, activeScreen.Placement);
+            return true;
+        }
 
         var placement = config.GetLocalVideoPlacement();
         if (!ScreenPlacementGizmo.Draw(placement, config.PlacementGizmoOperation))
             return false;
 
+        var beforeLocal = config.GetLocalVideoPlacement();
+        CapturePlacementUndo(LocalVideoPlacementUndoKey, beforeLocal, placement);
         config.ApplyLocalVideoPlacement(placement);
         return true;
+    }
+
+    private bool DrawPlacementUndo(string undoKey, ScreenPlacementSettings placement)
+    {
+        var history = GetPlacementUndoHistory(undoKey);
+        var canUndo = history.Snapshots.Count > 0;
+        if (!canUndo)
+            ImGui.BeginDisabled();
+
+        var changed = false;
+        if (ImGui.Button("Undo placement") && canUndo)
+        {
+            var snapshot = history.Snapshots[^1];
+            placement.CopyFrom(snapshot);
+            history.Snapshots.RemoveAt(history.Snapshots.Count - 1);
+            history.LastChangeUnixMs = 0;
+            placementUndoAppliedKey = undoKey;
+            changed = true;
+        }
+
+        if (!canUndo)
+            ImGui.EndDisabled();
+
+        return changed;
     }
 
     private static bool DrawPlacementGizmoOperation(Configuration config)
@@ -505,6 +557,65 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return changed;
+    }
+
+    private void CapturePlacementUndo(string undoKey, ScreenPlacementSettings before, ScreenPlacementSettings after)
+    {
+        if (placementUndoAppliedKey == undoKey || !PlacementDiffers(before, after))
+            return;
+
+        var history = GetPlacementUndoHistory(undoKey);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var shouldPush = history.Snapshots.Count == 0
+            || history.LastChangeUnixMs == 0
+            || now - history.LastChangeUnixMs > PlacementUndoCoalesceMilliseconds;
+
+        if (shouldPush)
+        {
+            PushPlacementUndo(history, before);
+        }
+
+        history.LastChangeUnixMs = now;
+    }
+
+    private PlacementUndoHistory GetPlacementUndoHistory(string undoKey)
+    {
+        if (placementUndoHistories.TryGetValue(undoKey, out var history))
+            return history;
+
+        history = new PlacementUndoHistory();
+        placementUndoHistories[undoKey] = history;
+        return history;
+    }
+
+    private static void PushPlacementUndo(PlacementUndoHistory history, ScreenPlacementSettings placement)
+    {
+        if (history.Snapshots.Count > 0 && !PlacementDiffers(history.Snapshots[^1], placement))
+            return;
+
+        history.Snapshots.Add(placement.Clone());
+        if (history.Snapshots.Count > PlacementUndoHistoryLimit)
+            history.Snapshots.RemoveRange(0, history.Snapshots.Count - PlacementUndoHistoryLimit);
+    }
+
+    private static bool PlacementDiffers(ScreenPlacementSettings left, ScreenPlacementSettings right)
+    {
+        const float epsilon = 0.0001f;
+        return left.Mode != right.Mode
+            || MathF.Abs(left.PositionX - right.PositionX) > epsilon
+            || MathF.Abs(left.PositionY - right.PositionY) > epsilon
+            || MathF.Abs(left.PositionZ - right.PositionZ) > epsilon
+            || MathF.Abs(left.YawRadians - right.YawRadians) > epsilon
+            || MathF.Abs(left.PitchRadians - right.PitchRadians) > epsilon
+            || MathF.Abs(left.RollRadians - right.RollRadians) > epsilon
+            || MathF.Abs(left.WidthMeters - right.WidthMeters) > epsilon
+            || MathF.Abs(left.HeightMeters - right.HeightMeters) > epsilon
+            || MathF.Abs(left.ScreenCurveAmountMeters - right.ScreenCurveAmountMeters) > epsilon
+            || MathF.Abs(left.OccludedAlpha - right.OccludedAlpha) > epsilon
+            || MathF.Abs(left.OcclusionTolerance - right.OcclusionTolerance) > epsilon
+            || left.EnableDistanceFade != right.EnableDistanceFade
+            || MathF.Abs(left.FadeStartMeters - right.FadeStartMeters) > epsilon
+            || MathF.Abs(left.FadeStopMeters - right.FadeStopMeters) > epsilon;
     }
 
     private bool DrawPlacementPresets(Func<ScreenPlacementSettings> getCurrentPlacement, Action<ScreenPlacementSettings> applyPlacement)
@@ -1229,5 +1340,11 @@ public sealed class MainWindow : Window, IDisposable
         public string UrlDraftSource { get; set; } = string.Empty;
         public float ProgressDraftSeconds { get; set; } = -1.0f;
         public bool ProgressScrubbing { get; set; }
+    }
+
+    private sealed class PlacementUndoHistory
+    {
+        public List<ScreenPlacementSettings> Snapshots { get; } = [];
+        public long LastChangeUnixMs { get; set; }
     }
 }

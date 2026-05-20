@@ -294,9 +294,13 @@ public sealed class WorldScreenManager : IDisposable
         private string audioSignature = string.Empty;
         private long lastFrameUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
+        private long fallbackFrameSequence = -1_000_000_000;
         private float smoothedEffectiveAudioVolume;
         private ResolvedScreenPlacement resolvedPlacement;
         private bool hasResolvedPlacement;
+        private byte[]? fallbackPixels;
+        private int fallbackPixelsWidth;
+        private int fallbackPixelsHeight;
 
         public WorldScreenInstance(Configuration configuration, BrowserScreenProfile? browserScreen = null)
         {
@@ -468,7 +472,7 @@ public sealed class WorldScreenManager : IDisposable
             {
                 StopAudio();
                 PlaybackTelemetry = null;
-                return null;
+                return ResolveFallbackTexture();
             }
 
             ApplyLiveSourceSettings();
@@ -478,7 +482,7 @@ public sealed class WorldScreenManager : IDisposable
                 StopAudio();
                 CalculateEffectiveAudioVolume(0.0f, smooth: false);
                 UpdatePlaybackTelemetry();
-                return dynamicTexture.TextureWrap;
+                return dynamicTexture.TextureWrap ?? ResolveFallbackTexture();
             }
 
             frameSource.Start();
@@ -490,7 +494,39 @@ public sealed class WorldScreenManager : IDisposable
                     lastFrameUnixMs = frame.TimestampUnixMs;
             }
 
+            return dynamicTexture.TextureWrap ?? ResolveFallbackTexture();
+        }
+
+        private IDalamudTextureWrap? ResolveFallbackTexture()
+        {
+            if (browserScreen == null)
+                return null;
+
+            var width = Math.Clamp(browserScreen.YouTubeBrowserWidth, 320, 3840);
+            var height = Math.Clamp(browserScreen.YouTubeBrowserHeight, 180, 2160);
+            if (dynamicTexture.TextureWrap != null && dynamicTexture.Width == width && dynamicTexture.Height == height)
+                return dynamicTexture.TextureWrap;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var frame = new VideoFrame(GetFallbackPixels(width, height), width, height, --fallbackFrameSequence, now);
+            if (dynamicTexture.Upload(frame))
+                lastFrameUnixMs = now;
+
             return dynamicTexture.TextureWrap;
+        }
+
+        private byte[] GetFallbackPixels(int width, int height)
+        {
+            if (fallbackPixels != null && fallbackPixelsWidth == width && fallbackPixelsHeight == height)
+                return fallbackPixels;
+
+            fallbackPixels = new byte[width * height * 4];
+            for (var i = 0; i < fallbackPixels.Length; i += 4)
+                fallbackPixels[i + 3] = 0xFF;
+
+            fallbackPixelsWidth = width;
+            fallbackPixelsHeight = height;
+            return fallbackPixels;
         }
 
         private void EnsureFrameSource()
@@ -502,6 +538,8 @@ public sealed class WorldScreenManager : IDisposable
             frameSource?.Dispose();
             frameSource = null;
             frameSourceSignature = signature;
+            dynamicTexture.Dispose();
+            lastFrameUnixMs = 0;
 
             switch (GetSourceKind())
             {

@@ -24,5 +24,6 @@ public interface IMediaPlaybackController
     void Play();
     void Pause();
     void SeekBy(double seconds);
+    void SeekTo(double seconds);
     void Restart();
 }

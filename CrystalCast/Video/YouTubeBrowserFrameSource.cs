@@ -111,6 +111,12 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
             controller.SeekBy(seconds);
     }
 
+    public void SeekTo(double seconds)
+    {
+        if (activeSource is IMediaPlaybackController controller)
+            controller.SeekTo(seconds);
+    }
+
     public void Restart()
     {
         EnsureSource();

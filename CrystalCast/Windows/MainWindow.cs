@@ -136,6 +136,8 @@ public sealed class MainWindow : Window, IDisposable
     {
         var changed = false;
         var activeIndex = Math.Max(0, config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId));
+        var userScreenCount = CountUserBrowserScreens(config);
+        var canAddUserScreen = userScreenCount < Configuration.MaxBrowserScreens;
 
         if (ImGui.BeginCombo("Screen", activeScreen.Name))
         {
@@ -156,30 +158,32 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
+        if (!canAddUserScreen)
+            ImGui.BeginDisabled();
         if (ImGui.Button("Add YouTube"))
         {
-            if (config.BrowserScreens.Count < Configuration.MaxBrowserScreens)
-            {
-                var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
-                config.BrowserScreens.Add(screen);
-                config.ActiveBrowserScreenId = screen.ScreenId;
-                renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
-                changed = true;
-            }
+            var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
+            config.BrowserScreens.Add(screen);
+            config.ActiveBrowserScreenId = screen.ScreenId;
+            renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
+            changed = true;
         }
+        if (!canAddUserScreen)
+            ImGui.EndDisabled();
 
         ImGui.SameLine();
+        if (!canAddUserScreen)
+            ImGui.BeginDisabled();
         if (ImGui.Button("Duplicate"))
         {
-            if (config.BrowserScreens.Count < Configuration.MaxBrowserScreens)
-            {
-                var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
-                OffsetDuplicatePlacement(copy.Placement);
-                config.BrowserScreens.Add(copy);
-                config.ActiveBrowserScreenId = copy.ScreenId;
-                changed = true;
-            }
+            var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
+            OffsetDuplicatePlacement(copy.Placement);
+            config.BrowserScreens.Add(copy);
+            config.ActiveBrowserScreenId = copy.ScreenId;
+            changed = true;
         }
+        if (!canAddUserScreen)
+            ImGui.EndDisabled();
 
         ImGui.SameLine();
         if (ImGui.Button("Rename"))
@@ -206,7 +210,7 @@ public sealed class MainWindow : Window, IDisposable
         if (!canDelete)
             ImGui.EndDisabled();
 
-        if (config.BrowserScreens.Count >= Configuration.MaxBrowserScreens)
+        if (userScreenCount >= Configuration.MaxBrowserScreens)
             ImGui.TextDisabled($"Screen limit: {Configuration.MaxBrowserScreens}");
 
         if (renamingScreenId == activeScreen.ScreenId)
@@ -282,6 +286,11 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
+    private static int CountUserBrowserScreens(Configuration config)
+    {
+        return config.BrowserScreens.Count(screen => !screen.CreatedByIpc);
+    }
+
     private bool DrawMainTabs(Configuration config, BrowserScreenProfile activeScreen)
     {
         var changed = false;
@@ -318,7 +327,7 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private bool DrawYouTubeProgressBar(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry, float width = -1.0f)
+    private bool DrawYouTubeProgressBar(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry, float width = -1.0f, bool interactive = true)
     {
         var uiState = GetYouTubeUiState(screen);
         var progressWidth = width > 0.0f
@@ -345,8 +354,10 @@ public sealed class MainWindow : Window, IDisposable
         var size = new Vector2(width, height);
         ImGui.InvisibleButton($"##YouTubeProgress{screen.ScreenId}", size);
 
-        var active = ImGui.IsItemActive();
+        var active = interactive && ImGui.IsItemActive();
         var hovered = ImGui.IsItemHovered();
+        if (!interactive)
+            uiState.ProgressScrubbing = false;
         if (active)
         {
             var mouseX = ImGui.GetIO().MousePos.X;
@@ -868,6 +879,7 @@ public sealed class MainWindow : Window, IDisposable
         var autoplay = screen.YouTubeAutoplay;
         var loop = screen.LoopYouTube;
         var rate = screen.YouTubePlaybackRate;
+        var sourceLocked = IsSourceControlsLocked(screen);
 
         if (!string.Equals(uiState.UrlDraftSource, screen.YouTubeUrl, StringComparison.Ordinal))
         {
@@ -877,6 +889,8 @@ public sealed class MainWindow : Window, IDisposable
 
         var committedVideoIdValid = YouTubeVideoId.TryParse(screen.YouTubeUrl, out var committedVideoId);
         var draft = uiState.UrlDraft;
+        if (sourceLocked)
+            ImGui.BeginDisabled();
         var pressedEnter = ImGui.InputText("YouTube URL / ID", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
         uiState.UrlDraft = draft;
         var draftVideoIdValid = YouTubeVideoId.TryParse(uiState.UrlDraft, out var draftVideoId);
@@ -892,6 +906,13 @@ public sealed class MainWindow : Window, IDisposable
                 changed = true;
             }
         }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+
+        if (sourceLocked)
+            ImGui.TextDisabled(string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId)
+                ? "Source controls locked by IPC."
+                : $"Source controls locked by {screen.SourceControlsOwnerId}.");
 
         if (draftVideoIdValid)
             ImGui.TextDisabled($"Video ID: {draftVideoId}");
@@ -927,6 +948,8 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextDisabled($"Capture FPS: {autoFps:0.#} ({(detectedFps > 0.0f ? "auto-detected" : "default")})");
         }
 
+        if (sourceLocked)
+            ImGui.BeginDisabled();
         if (ImGui.Checkbox("Autoplay on load", ref autoplay))
         {
             screen.YouTubeAutoplay = autoplay;
@@ -944,6 +967,8 @@ public sealed class MainWindow : Window, IDisposable
             screen.YouTubePlaybackRate = Math.Clamp(rate, 0.25f, 2.0f);
             changed = true;
         }
+        if (sourceLocked)
+            ImGui.EndDisabled();
 
         return changed;
     }
@@ -1002,6 +1027,7 @@ public sealed class MainWindow : Window, IDisposable
             : string.Empty;
         var state = GetYouTubePlaybackState(screen, telemetry);
         var isPlaying = state == ScreenPlaybackState.Playing;
+        var sourceLocked = IsSourceControlsLocked(screen);
 
         ImGui.TextDisabled($"Playback: {state} @ {position}{duration}");
 
@@ -1009,6 +1035,8 @@ public sealed class MainWindow : Window, IDisposable
         var toggleLabel = isPlaying
             ? "##YouTubePlayPause"
             : "##YouTubePlayPause";
+        if (sourceLocked)
+            ImGui.BeginDisabled();
         if (ImGui.Button(toggleLabel, new Vector2(buttonSize, buttonSize)))
         {
             if (isPlaying)
@@ -1024,25 +1052,36 @@ public sealed class MainWindow : Window, IDisposable
 
             changed = true;
         }
+        if (sourceLocked)
+            ImGui.EndDisabled();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(isPlaying ? "Pause" : "Play");
+            ImGui.SetTooltip(sourceLocked ? "Locked by IPC" : isPlaying ? "Pause" : "Play");
 
         ImGui.SameLine();
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         var progressWidth = Math.Max(48.0f, ImGui.GetContentRegionAvail().X - buttonSize - spacing);
-        changed |= DrawYouTubeProgressBar(screen, telemetry, progressWidth);
+        changed |= DrawYouTubeProgressBar(screen, telemetry, progressWidth, !sourceLocked);
 
         ImGui.SameLine();
+        if (sourceLocked)
+            ImGui.BeginDisabled();
         if (ImGui.Button("##YouTubeRestart", new Vector2(buttonSize, buttonSize)))
         {
             screen.PlaybackPaused = false;
             renderer.TryRestartDynamicSource();
             changed = true;
         }
+        if (sourceLocked)
+            ImGui.EndDisabled();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Restart");
+            ImGui.SetTooltip(sourceLocked ? "Locked by IPC" : "Restart");
 
         return changed;
+    }
+
+    private static bool IsSourceControlsLocked(BrowserScreenProfile screen)
+    {
+        return screen.SourceControlsLocked;
     }
 
     private static ScreenPlaybackState GetYouTubePlaybackState(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)

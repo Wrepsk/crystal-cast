@@ -39,5 +39,19 @@ CrystalCast exposes state-only IPC for a separate sync plugin:
 - `CrystalCast.Screen.ApplyState`
 - `CrystalCast.Screen.Remove`
 - `CrystalCast.Screen.LocalStateChanged`
+- `CrystalCast.Screen.Create`
+- `CrystalCast.Screen.Update`
+- `CrystalCast.Screen.UpdateSource`
+- `CrystalCast.Screen.SetSourceLock`
+- `CrystalCast.Screen.GetSourceState`
+- `CrystalCast.Screen.Changed`
 
 The IPC payload intentionally syncs screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. For YouTube, it includes the video ID/canonical URL and playback position/rate telemetry. It does not sync raw pixels, audio, or absolute local file paths.
+
+`CrystalCast.Screen.Create`, `CrystalCast.Screen.Update`, `CrystalCast.Screen.UpdateSource`, and `CrystalCast.Screen.SetSourceLock` accept camel-case JSON strings and return a JSON result with `success`, `error`, `screenId`, and a screen summary when applicable. IPC-created YouTube screens are marked separately from user-created screens: the normal UI creation limit remains 8 screens, while IPC-created screens can render above that limit up to CrystalCast's render cap.
+
+`Create`/`Update` support `name`, `ownerId`, `enabled`, `activate`, `sourceControlsLocked`, `sourceControlsOwnerId`, `placement`, and `youtube` settings. `UpdateSource` supports `screenId`, `ownerId`, `activate`, `provider`, and `youtube` for source-only updates. Source locks protect owner-controlled source fields such as YouTube URL, play/pause, seek/progress, loop, autoplay, and playback rate from the local UI only; IPC updates remain authoritative. Audio, spatial-audio, browser resolution, and capture FPS remain locally adjustable.
+
+`CrystalCast.Screen.GetSourceState` accepts a screen ID and returns the current provider and source-specific state. For YouTube screens this includes the configured URL, canonical URL, video ID, title, playback state, position, duration, rate, and host timestamp.
+
+`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, or IPC-created-screen changes. The event includes `changes` and the current screen state envelope.

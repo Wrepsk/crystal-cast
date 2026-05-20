@@ -162,6 +162,11 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         browserThread?.SeekBy(seconds);
     }
 
+    public void SeekTo(double seconds)
+    {
+        browserThread?.SeekTo(seconds);
+    }
+
     public void Restart()
     {
         captureEnabled = true;
@@ -480,6 +485,16 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             {
                 if (webView != null)
                     await webView.ExecuteScriptAsync($"window.crystalCastSeekBy && window.crystalCastSeekBy({secondsJson});");
+            });
+        }
+
+        public void SeekTo(double seconds)
+        {
+            var secondsJson = JsonSerializer.Serialize(seconds, JsonOptions);
+            Post(async () =>
+            {
+                if (webView != null)
+                    await webView.ExecuteScriptAsync($"window.crystalCastSeekTo && window.crystalCastSeekTo({secondsJson});");
             });
         }
 

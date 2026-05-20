@@ -10,6 +10,8 @@ public class Configuration : IPluginConfiguration
     public const int OutputModeNativeOverlay = 1;
     public const int OutputModeSceneComposite = 2;
     public const int MaxBrowserScreens = 8;
+    public const int MaxIpcBrowserScreens = 56;
+    public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
 
     public int Version { get; set; } = 1;
 
@@ -348,6 +350,10 @@ public sealed class BrowserScreenProfile
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "YouTube screen";
     public bool Enabled { get; set; } = true;
+    public bool CreatedByIpc { get; set; }
+    public string IpcOwnerId { get; set; } = string.Empty;
+    public bool SourceControlsLocked { get; set; }
+    public string SourceControlsOwnerId { get; set; } = string.Empty;
     public long LocalSequence { get; set; }
     public ScreenPlacementSettings Placement { get; set; } = new();
     public bool PlaybackPaused { get; set; }
@@ -383,6 +389,9 @@ public sealed class BrowserScreenProfile
             Name = defaultName;
             changed = true;
         }
+
+        IpcOwnerId ??= string.Empty;
+        SourceControlsOwnerId ??= string.Empty;
 
         if (Placement == null)
         {
@@ -445,6 +454,10 @@ public sealed class BrowserScreenProfile
             ScreenId = Guid.NewGuid().ToString("N"),
             Name = name,
             Enabled = Enabled,
+            CreatedByIpc = false,
+            IpcOwnerId = string.Empty,
+            SourceControlsLocked = false,
+            SourceControlsOwnerId = string.Empty,
             LocalSequence = 0,
             Placement = Placement.Clone(),
             PlaybackPaused = PlaybackPaused,

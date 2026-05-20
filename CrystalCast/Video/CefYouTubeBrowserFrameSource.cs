@@ -168,6 +168,11 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         ExecutePlayerScript("crystalCastSeekBy", seconds);
     }
 
+    public void SeekTo(double seconds)
+    {
+        ExecutePlayerScript("crystalCastSeekTo", seconds);
+    }
+
     public void Restart()
     {
         captureEnabled = true;

@@ -289,6 +289,19 @@ internal static class YouTubePlayerPage
       }
     };
 
+    window.crystalCastSeekTo = function (seconds) {
+      if (!playerReady || !player) {
+        return;
+      }
+
+      try {
+        player.seekTo(Math.max(0, seconds), true);
+        postStatus();
+      } catch (error) {
+        postScriptError("seekTo", error);
+      }
+    };
+
     window.crystalCastRestart = function () {
       if (!playerReady || !player) {
         return;

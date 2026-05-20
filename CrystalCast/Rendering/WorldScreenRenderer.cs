@@ -25,7 +25,7 @@ public sealed class WorldScreenManager : IDisposable
             {
                 EnableVfxRenderer = false,
                 EnableKtkOutput = true,
-                MaxImages = (Configuration.MaxBrowserScreens * CurvedScreenSegments) + 1,
+                MaxImages = (Configuration.MaxRenderableBrowserScreens * CurvedScreenSegments) + 1,
             });
             Status = "Pictomancy ready";
         }
@@ -115,9 +115,21 @@ public sealed class WorldScreenManager : IDisposable
         return ActiveInstance?.TryPlayDynamicSource() == true;
     }
 
+    public bool TryPlayDynamicSource(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryPlayDynamicSource();
+    }
+
     public bool TryPauseDynamicSource()
     {
         return ActiveInstance?.TryPauseDynamicSource() == true;
+    }
+
+    public bool TryPauseDynamicSource(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryPauseDynamicSource();
     }
 
     public bool TrySeekDynamicSourceBy(double seconds)
@@ -125,9 +137,21 @@ public sealed class WorldScreenManager : IDisposable
         return ActiveInstance?.TrySeekDynamicSourceBy(seconds) == true;
     }
 
+    public bool TrySeekDynamicSourceTo(BrowserScreenProfile screen, double seconds)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TrySeekDynamicSourceTo(seconds);
+    }
+
     public bool TryRestartDynamicSource()
     {
         return ActiveInstance?.TryRestartDynamicSource() == true;
+    }
+
+    public bool TryRestartDynamicSource(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryRestartDynamicSource();
     }
 
     public MediaPlaybackTelemetry? GetPlaybackTelemetry(BrowserScreenProfile screen)
@@ -136,6 +160,14 @@ public sealed class WorldScreenManager : IDisposable
         return browserScreens.TryGetValue(screen.ScreenId, out var instance)
             ? instance.PlaybackTelemetry
             : null;
+    }
+
+    public string GetSourceName(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            ? instance.SourceName
+            : "browser source not started";
     }
 
     public string GetSourceStatus(BrowserScreenProfile screen)
@@ -167,7 +199,7 @@ public sealed class WorldScreenManager : IDisposable
     private void DrawBrowserScreens()
     {
         var screens = configuration.BrowserScreens
-            .Take(Configuration.MaxBrowserScreens)
+            .Take(Configuration.MaxRenderableBrowserScreens)
             .Where(screen => screen.Enabled)
             .Select(screen => browserScreens[screen.ScreenId]);
 
@@ -221,11 +253,11 @@ public sealed class WorldScreenManager : IDisposable
     {
         configuration.Normalize();
         var activeIds = configuration.BrowserScreens
-            .Take(Configuration.MaxBrowserScreens)
+            .Take(Configuration.MaxRenderableBrowserScreens)
             .Select(screen => screen.ScreenId)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxBrowserScreens))
+        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxRenderableBrowserScreens))
         {
             if (!browserScreens.ContainsKey(screen.ScreenId))
                 browserScreens[screen.ScreenId] = new WorldScreenInstance(configuration, screen);
@@ -240,7 +272,7 @@ public sealed class WorldScreenManager : IDisposable
             browserScreens.Remove(screenId);
         }
 
-        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxBrowserScreens).Where(screen => !screen.Enabled))
+        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxRenderableBrowserScreens).Where(screen => !screen.Enabled))
         {
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
                 instance.Stop();
@@ -434,6 +466,15 @@ public sealed class WorldScreenManager : IDisposable
                 return false;
 
             controller.SeekBy(seconds);
+            return true;
+        }
+
+        public bool TrySeekDynamicSourceTo(double seconds)
+        {
+            if (frameSource is not IMediaPlaybackController controller)
+                return false;
+
+            controller.SeekTo(seconds);
             return true;
         }
 

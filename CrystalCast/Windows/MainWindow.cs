@@ -418,8 +418,19 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool DrawPlacement(BrowserScreenProfile screen)
     {
+        var placementLocked = IsPlacementControlsLocked(screen);
+        if (placementLocked)
+            DrawLockedControlsMessage(screen, "Placement controls");
+
         var before = screen.Placement.Clone();
+        if (placementLocked)
+            ImGui.BeginDisabled();
+
         var changed = DrawPlacementSettings(screen.ScreenId, screen.Placement);
+
+        if (placementLocked)
+            ImGui.EndDisabled();
+
         if (changed)
             CapturePlacementUndo(screen.ScreenId, before, screen.Placement);
 
@@ -503,6 +514,9 @@ public sealed class MainWindow : Window, IDisposable
 
         if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
+            if (IsPlacementControlsLocked(activeScreen))
+                return false;
+
             var before = activeScreen.Placement.Clone();
             if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation))
                 return false;
@@ -910,9 +924,7 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.EndDisabled();
 
         if (sourceLocked)
-            ImGui.TextDisabled(string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId)
-                ? "Source controls locked by IPC."
-                : $"Source controls locked by {screen.SourceControlsOwnerId}.");
+            DrawLockedControlsMessage(screen, "Source controls");
 
         if (draftVideoIdValid)
             ImGui.TextDisabled($"Video ID: {draftVideoId}");
@@ -1082,6 +1094,18 @@ public sealed class MainWindow : Window, IDisposable
     private static bool IsSourceControlsLocked(BrowserScreenProfile screen)
     {
         return screen.SourceControlsLocked;
+    }
+
+    private static bool IsPlacementControlsLocked(BrowserScreenProfile screen)
+    {
+        return screen.SourceControlsLocked;
+    }
+
+    private static void DrawLockedControlsMessage(BrowserScreenProfile screen, string label)
+    {
+        ImGui.TextDisabled(string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId)
+            ? $"{label} locked by IPC."
+            : $"{label} locked by {screen.SourceControlsOwnerId}.");
     }
 
     private static ScreenPlaybackState GetYouTubePlaybackState(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)

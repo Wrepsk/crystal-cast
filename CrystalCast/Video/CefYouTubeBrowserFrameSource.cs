@@ -23,6 +23,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     private VideoFrame? latestLoadingFrame;
     private MediaPlaybackTelemetry telemetry = new();
     private bool loop;
+    private bool playlistAutoplayNext;
     private bool audioEnabled;
     private float volume;
     private float playbackRate;
@@ -50,6 +51,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         float captureFps,
         bool autoplay,
         bool loop,
+        bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
         float playbackRate)
@@ -61,6 +63,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
         this.autoplay = autoplay;
         this.loop = loop;
+        this.playlistAutoplayNext = playlistAutoplayNext;
         this.audioEnabled = audioEnabled;
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
@@ -120,7 +123,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
-    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
+    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
         volume = QuantizeVolume(volume);
         playbackRate = ClampPlaybackRate(playbackRate);
@@ -128,7 +131,8 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         if (this.audioEnabled == audioEnabled
             && Math.Abs(this.volume - volume) < 0.001f
             && Math.Abs(this.playbackRate - playbackRate) < 0.001f
-            && this.loop == loop)
+            && this.loop == loop
+            && this.playlistAutoplayNext == playlistAutoplayNext)
         {
             return;
         }
@@ -137,6 +141,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         this.volume = volume;
         this.playbackRate = playbackRate;
         this.loop = loop;
+        this.playlistAutoplayNext = playlistAutoplayNext;
         ApplyBrowserMute(audioEnabled, volume);
         ExecutePlayerScript("crystalCastApplySettings", new
         {
@@ -144,6 +149,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             volume,
             playbackRate,
             loop,
+            playlistAutoplayNext,
         });
     }
 
@@ -269,7 +275,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         playerStatus = "player not ready";
         var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
         var pageUrl = $"{YouTubePlayerPage.PlayerOrigin}/player.html?source={Uri.EscapeDataString(source.DisplayName)}&attempt={playerLoadAttempt}&seq={sequence}";
-        var html = YouTubePlayerPage.BuildHtml(source, autoplay, loop, audioEnabled, volume, playbackRate);
+        var html = YouTubePlayerPage.BuildHtml(source, autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate);
         InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
         lastPlayerLoadUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         browserStatus = $"CEF loading YouTube player ({reason})";

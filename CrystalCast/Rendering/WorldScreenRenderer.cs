@@ -603,6 +603,7 @@ public sealed class WorldScreenManager : IDisposable
                         configuration.YouTubeBrowserEngine,
                         browserScreen.YouTubeAutoplay,
                         browserScreen.LoopYouTube,
+                        browserScreen.YouTubePlaylistAutoplayNext,
                         browserScreen.YouTubeAudioEnabled,
                         browserScreen.YouTubeVolume,
                         browserScreen.YouTubePlaybackRate);
@@ -686,7 +687,8 @@ public sealed class WorldScreenManager : IDisposable
                 browserScreen.YouTubeAudioEnabled,
                 effectiveVolume,
                 browserScreen.YouTubePlaybackRate,
-                browserScreen.LoopYouTube);
+                browserScreen.LoopYouTube,
+                browserScreen.YouTubePlaylistAutoplayNext);
 
             if (frameSource is YouTubeBrowserFrameSource ytSource)
             {

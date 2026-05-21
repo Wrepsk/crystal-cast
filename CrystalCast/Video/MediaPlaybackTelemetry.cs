@@ -20,7 +20,7 @@ public interface IMediaPlaybackTelemetrySource
 
 public interface IMediaPlaybackController
 {
-    void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop);
+    void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext);
     void Play();
     void Pause();
     void SeekBy(double seconds);

@@ -27,6 +27,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     private VideoFrame? latestFrame;
     private MediaPlaybackTelemetry telemetry = new();
     private bool loop;
+    private bool playlistAutoplayNext;
     private bool audioEnabled;
     private float volume;
     private float playbackRate;
@@ -48,6 +49,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         float captureFps,
         bool autoplay,
         bool loop,
+        bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
         float playbackRate)
@@ -59,6 +61,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
         this.autoplay = autoplay;
         this.loop = loop;
+        this.playlistAutoplayNext = playlistAutoplayNext;
         this.audioEnabled = audioEnabled;
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
@@ -122,7 +125,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
-    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
+    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
         volume = QuantizeVolume(volume);
         playbackRate = ClampPlaybackRate(playbackRate);
@@ -130,7 +133,8 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         if (this.audioEnabled == audioEnabled
             && Math.Abs(this.volume - volume) < 0.001f
             && Math.Abs(this.playbackRate - playbackRate) < 0.001f
-            && this.loop == loop)
+            && this.loop == loop
+            && this.playlistAutoplayNext == playlistAutoplayNext)
         {
             return;
         }
@@ -139,7 +143,8 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         this.volume = volume;
         this.playbackRate = playbackRate;
         this.loop = loop;
-        browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
+        this.playlistAutoplayNext = playlistAutoplayNext;
+        browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop, playlistAutoplayNext);
     }
 
     public void Play()
@@ -200,7 +205,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     {
         const string playerPageName = "player.html";
         var playerPagePath = Path.Combine(contentFolder, playerPageName);
-        File.WriteAllText(playerPagePath, YouTubePlayerPage.BuildHtml(source, autoplay, loop, audioEnabled, volume, playbackRate));
+        File.WriteAllText(playerPagePath, YouTubePlayerPage.BuildHtml(source, autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate));
         return playerPageName;
     }
 
@@ -463,7 +468,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             });
         }
 
-        public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
+        public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
         {
             var settingsJson = JsonSerializer.Serialize(new
             {
@@ -471,6 +476,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
                 volume,
                 playbackRate,
                 loop,
+                playlistAutoplayNext,
             }, JsonOptions);
 
             Post(async () =>

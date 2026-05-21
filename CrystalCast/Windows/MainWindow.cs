@@ -902,6 +902,7 @@ public sealed class MainWindow : Window, IDisposable
         var fps = screen.YouTubeCaptureFps;
         var autoplay = screen.YouTubeAutoplay;
         var loop = screen.LoopYouTube;
+        var playlistAutoplayNext = screen.YouTubePlaylistAutoplayNext;
         var rate = screen.YouTubePlaybackRate;
         var sourceLocked = IsSourceControlsLocked(screen);
 
@@ -981,6 +982,13 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Checkbox("Loop YouTube video", ref loop))
         {
             screen.LoopYouTube = loop;
+            changed = true;
+        }
+
+        if (committedSourceValid && committedSource.Kind == YouTubeSourceKind.Playlist
+            && ImGui.Checkbox("Autoplay next playlist video", ref playlistAutoplayNext))
+        {
+            screen.YouTubePlaylistAutoplayNext = playlistAutoplayNext;
             changed = true;
         }
 

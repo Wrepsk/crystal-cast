@@ -366,6 +366,7 @@ public sealed class BrowserScreenProfile
     public bool YouTubeCaptureFpsManual { get; set; }
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
+    public bool YouTubePlaylistAutoplayNext { get; set; } = true;
     public bool YouTubeAudioEnabled { get; set; }
     public float YouTubeVolume { get; set; } = 0.7f;
     public float YouTubePlaybackRate { get; set; } = 1.0f;
@@ -470,6 +471,7 @@ public sealed class BrowserScreenProfile
             YouTubeCaptureFpsManual = YouTubeCaptureFpsManual,
             YouTubeAutoplay = YouTubeAutoplay,
             LoopYouTube = LoopYouTube,
+            YouTubePlaylistAutoplayNext = YouTubePlaylistAutoplayNext,
             YouTubeAudioEnabled = YouTubeAudioEnabled,
             YouTubeVolume = YouTubeVolume,
             YouTubePlaybackRate = YouTubePlaybackRate,

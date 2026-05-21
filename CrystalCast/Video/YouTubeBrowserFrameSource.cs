@@ -11,6 +11,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     private readonly BrowserMediaEngine enginePreference;
     private readonly bool autoplay;
     private bool currentLoop;
+    private bool currentPlaylistAutoplayNext;
     private bool currentAudioEnabled;
     private float currentVolume;
     private float currentPlaybackRate;
@@ -26,6 +27,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         BrowserMediaEngine enginePreference,
         bool autoplay,
         bool loop,
+        bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
         float playbackRate)
@@ -37,6 +39,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         this.enginePreference = enginePreference;
         this.autoplay = autoplay;
         currentLoop = loop;
+        currentPlaylistAutoplayNext = playlistAutoplayNext;
         currentAudioEnabled = audioEnabled;
         currentVolume = volume;
         currentPlaybackRate = playbackRate;
@@ -83,15 +86,16 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         return false;
     }
 
-    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
+    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
         currentAudioEnabled = audioEnabled;
         currentVolume = volume;
         currentPlaybackRate = playbackRate;
         currentLoop = loop;
+        currentPlaylistAutoplayNext = playlistAutoplayNext;
 
         if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
+            controller.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop, playlistAutoplayNext);
     }
 
     public void Play()
@@ -167,7 +171,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         }
 
         if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);
+            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
     }
 
     private IVideoFrameSource CreateSource()
@@ -214,13 +218,13 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     [MethodImpl(MethodImplOptions.NoInlining)]
     private IVideoFrameSource CreateInitializedCefSource()
     {
-        return new CefYouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new CefYouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
     }
 
     private IVideoFrameSource CreateWebView2Source()
     {
         activeEngine = BrowserMediaEngine.WebView2Capture;
-        return new WebView2YouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new WebView2YouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
     }
 
     private void StartActiveSource()
@@ -237,7 +241,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
             activeSource = CreateFallbackAfterFailure(ex);
 
             if (activeSource is IMediaPlaybackController controller)
-                controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);
+                controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
 
             try
             {
@@ -298,7 +302,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         fallbackStatus = $"CEF failed, using WebView2 fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);
+            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
 
         StartActiveSource();
     }
@@ -318,7 +322,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         fallbackStatus = $"CEF YouTube playback failed, using WebView2 fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);
+            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
 
         StartActiveSource();
     }

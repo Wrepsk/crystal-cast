@@ -660,6 +660,8 @@ public sealed class ScreenStateIpc : IDisposable
             screen.YouTubeAutoplay = patch.Autoplay.Value;
         if (patch.Loop.HasValue)
             screen.LoopYouTube = patch.Loop.Value;
+        if (patch.PlaylistAutoplayNext.HasValue)
+            screen.YouTubePlaylistAutoplayNext = patch.PlaylistAutoplayNext.Value;
         if (patch.PlaybackRate.HasValue)
             screen.YouTubePlaybackRate = patch.PlaybackRate.Value;
         if (patch.BrowserWidth.HasValue)
@@ -840,6 +842,7 @@ public sealed class ScreenStateIpc : IDisposable
                 state.Source.VideoId,
                 screen?.YouTubeAutoplay,
                 screen?.LoopYouTube,
+                screen?.YouTubePlaylistAutoplayNext,
                 screen?.YouTubePlaybackRate,
                 screen?.YouTubeBrowserWidth,
                 screen?.YouTubeBrowserHeight,
@@ -849,7 +852,9 @@ public sealed class ScreenStateIpc : IDisposable
                 state.Playback.State,
                 state.Playback.PositionMs,
                 state.Playback.DurationMs,
-                state.Playback.Rate),
+                state.Playback.Rate,
+                state.Playback.Loop,
+                state.Playback.PlaylistAutoplayNext),
             Visual: string.Join('|',
                 state.Visual.OccludedAlpha,
                 state.Visual.OcclusionTolerance,
@@ -913,8 +918,14 @@ public sealed class ScreenStateIpc : IDisposable
     {
         if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true || patch?.Loop.HasValue == true)
             changes.Add(ScreenIpcChangeKind.Source);
-        if (patch?.PlaybackPaused.HasValue == true || patch?.PositionMs.HasValue == true || patch?.Restart == true || patch?.PlaybackRate.HasValue == true)
+        if (patch?.PlaybackPaused.HasValue == true
+            || patch?.PositionMs.HasValue == true
+            || patch?.Restart == true
+            || patch?.PlaybackRate.HasValue == true
+            || patch?.PlaylistAutoplayNext.HasValue == true)
+        {
             changes.Add(ScreenIpcChangeKind.Playback);
+        }
         if (patch?.BrowserWidth.HasValue == true || patch?.BrowserHeight.HasValue == true || patch?.CaptureFps.HasValue == true || patch?.CaptureFpsManual.HasValue == true)
             changes.Add(ScreenIpcChangeKind.Source);
     }
@@ -1037,6 +1048,7 @@ public sealed class ScreenStateIpc : IDisposable
                 DurationMs = telemetry.DurationMs,
                 Rate = telemetry.Rate,
                 Loop = screen.LoopYouTube,
+                PlaylistAutoplayNext = screen.YouTubePlaylistAutoplayNext,
                 HostTimestampUnixMs = telemetry.HostTimestampUnixMs,
             };
         }
@@ -1047,6 +1059,7 @@ public sealed class ScreenStateIpc : IDisposable
             PositionMs = 0,
             Rate = screen.YouTubePlaybackRate,
             Loop = screen.LoopYouTube,
+            PlaylistAutoplayNext = screen.YouTubePlaylistAutoplayNext,
             HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
     }

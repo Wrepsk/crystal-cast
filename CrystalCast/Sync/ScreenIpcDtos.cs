@@ -117,6 +117,7 @@ public sealed class YouTubeScreenPatchDto
     public bool Restart { get; set; }
     public bool? Autoplay { get; set; }
     public bool? Loop { get; set; }
+    public bool? PlaylistAutoplayNext { get; set; }
     public float? PlaybackRate { get; set; }
     public int? BrowserWidth { get; set; }
     public int? BrowserHeight { get; set; }

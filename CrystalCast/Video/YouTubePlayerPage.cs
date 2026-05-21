@@ -16,6 +16,7 @@ internal static class YouTubePlayerPage
         YouTubeSourceReference source,
         bool autoplay,
         bool loop,
+        bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
         float playbackRate)
@@ -28,6 +29,7 @@ internal static class YouTubePlayerPage
             liveChannelId = source.LiveChannelId,
             autoplay,
             loop,
+            playlistAutoplayNext,
             audioEnabled,
             volume = ToPlayerVolumePercent(volume),
             playbackRate,
@@ -142,6 +144,8 @@ internal static class YouTubePlayerPage
     const crystalCastConfig = {{configJson}};
     let player = null;
     let playerReady = false;
+    let playlistPinnedIndex = -1;
+    let playlistAdvanceBlockUntil = 0;
 
     function hasValue(value) {
       return typeof value === "string" && value.length > 0;
@@ -209,6 +213,11 @@ internal static class YouTubePlayerPage
         crystalCastConfig.volume = toPlayerVolumePercent(settings.volume);
         crystalCastConfig.playbackRate = settings.playbackRate;
         crystalCastConfig.loop = !!settings.loop;
+        crystalCastConfig.playlistAutoplayNext = !!settings.playlistAutoplayNext;
+        if (crystalCastConfig.playlistAutoplayNext) {
+          playlistPinnedIndex = -1;
+          playlistAdvanceBlockUntil = 0;
+        }
       }
 
       if (!playerReady || !player) {
@@ -248,6 +257,7 @@ internal static class YouTubePlayerPage
       }
 
       try {
+        playlistAdvanceBlockUntil = 0;
         enforceAudioSettings();
         player.playVideo();
         window.setTimeout(enforceAudioSettings, 0);
@@ -279,6 +289,94 @@ internal static class YouTubePlayerPage
         return !Number.isFinite(duration) || duration <= 0;
       } catch (error) {
         return false;
+      }
+    }
+
+    function getPlaylistIndex() {
+      try {
+        return player && player.getPlaylistIndex ? player.getPlaylistIndex() : -1;
+      } catch (error) {
+        return -1;
+      }
+    }
+
+    function blockPlaylistAdvance() {
+      if (!playerReady || !player) {
+        return;
+      }
+
+      playlistPinnedIndex = getPlaylistIndex();
+      playlistAdvanceBlockUntil = Date.now() + 1800;
+      enforceBlockedPlaylistAdvance();
+      window.setTimeout(enforceBlockedPlaylistAdvance, 80);
+      window.setTimeout(enforceBlockedPlaylistAdvance, 260);
+      window.setTimeout(enforceBlockedPlaylistAdvance, 700);
+    }
+
+    function enforceBlockedPlaylistAdvance() {
+      if (!playerReady || !player || Date.now() > playlistAdvanceBlockUntil) {
+        return;
+      }
+
+      try {
+        const currentIndex = getPlaylistIndex();
+        if (playlistPinnedIndex >= 0
+          && currentIndex >= 0
+          && currentIndex !== playlistPinnedIndex
+          && player.playVideoAt) {
+          player.playVideoAt(playlistPinnedIndex);
+        }
+
+        if (player.getDuration && player.seekTo) {
+          const duration = Number(player.getDuration());
+          if (Number.isFinite(duration) && duration > 0.1) {
+            player.seekTo(Math.max(0, duration - 0.05), true);
+          }
+        }
+
+        if (player.pauseVideo) {
+          player.pauseVideo();
+        }
+      } catch (error) {
+        postScriptError("blockPlaylistAdvance", error);
+      }
+    }
+
+    function enforcePlaylistAutoplayPolicy() {
+      if (!isPlaylistSource() || crystalCastConfig.playlistAutoplayNext || !playerReady || !player) {
+        playlistPinnedIndex = -1;
+        playlistAdvanceBlockUntil = 0;
+        return;
+      }
+
+      try {
+        const currentIndex = getPlaylistIndex();
+        const state = player.getPlayerState ? player.getPlayerState() : -1;
+        if (playlistPinnedIndex < 0 && currentIndex >= 0) {
+          playlistPinnedIndex = currentIndex;
+        }
+
+        if (playlistPinnedIndex >= 0 && currentIndex >= 0 && currentIndex !== playlistPinnedIndex && player.playVideoAt) {
+          playlistAdvanceBlockUntil = Date.now() + 1800;
+          player.playVideoAt(playlistPinnedIndex);
+          window.setTimeout(enforceBlockedPlaylistAdvance, 80);
+          window.setTimeout(enforceBlockedPlaylistAdvance, 260);
+          return;
+        }
+
+        const duration = player.getDuration ? Number(player.getDuration()) : 0;
+        const position = player.getCurrentTime ? Number(player.getCurrentTime()) : 0;
+        if (state === YT.PlayerState.PLAYING
+          && Number.isFinite(duration)
+          && Number.isFinite(position)
+          && duration > 1
+          && position > 1
+          && duration - position <= 0.35) {
+          playlistAdvanceBlockUntil = Date.now() + 1800;
+          enforceBlockedPlaylistAdvance();
+        }
+      } catch (error) {
+        postScriptError("playlistAutoplayPolicy", error);
       }
     }
 
@@ -407,10 +505,13 @@ internal static class YouTubePlayerPage
           },
           onStateChange: function () {
             try {
-              if (crystalCastConfig.loop && player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED && !isPlaylistSource()) {
+              const state = player && player.getPlayerState ? player.getPlayerState() : -1;
+              if (isPlaylistSource() && state === YT.PlayerState.ENDED && !crystalCastConfig.playlistAutoplayNext) {
+                blockPlaylistAdvance();
+              } else if (crystalCastConfig.loop && player && state === YT.PlayerState.ENDED && !isPlaylistSource()) {
                 player.seekTo(0, true);
                 player.playVideo();
-              } else if (crystalCastConfig.loop && player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED && isPlaylistSource() && player.getPlaylist && player.getPlaylistIndex) {
+              } else if (crystalCastConfig.loop && player && state === YT.PlayerState.ENDED && isPlaylistSource() && player.getPlaylist && player.getPlaylistIndex) {
                 const playlist = player.getPlaylist();
                 const index = player.getPlaylistIndex();
                 if (playlist && playlist.length > 0 && index >= playlist.length - 1) {
@@ -465,7 +566,10 @@ internal static class YouTubePlayerPage
       post("error", { code: -1, message: "failed to load YouTube IFrame API" });
     };
     document.head.appendChild(tag);
-    window.setInterval(postStatus, 500);
+    window.setInterval(function () {
+      enforcePlaylistAutoplayPolicy();
+      postStatus();
+    }, 500);
 
     var crystalCastFpsDetected = false;
 

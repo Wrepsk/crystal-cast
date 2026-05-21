@@ -65,6 +65,8 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
     public bool TryGetLatestFrame(out VideoFrame frame)
     {
+        TryFallbackFromCefPlayerFailure();
+
         if (activeSource != null)
             return activeSource.TryGetLatestFrame(out frame);
 
@@ -294,6 +296,26 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         activeSource.Dispose();
         activeSource = CreateWebView2Source();
         fallbackStatus = $"CEF failed, using WebView2 fallback: {cefStatus}";
+
+        if (activeSource is IMediaPlaybackController controller)
+            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);
+
+        StartActiveSource();
+    }
+
+    private void TryFallbackFromCefPlayerFailure()
+    {
+        if (enginePreference != BrowserMediaEngine.Auto
+            || activeEngine != BrowserMediaEngine.CefOffScreen
+            || activeSource is not CefYouTubeBrowserFrameSource { HasPlayerFailed: true } cefSource)
+        {
+            return;
+        }
+
+        var cefStatus = cefSource.Status;
+        activeSource.Dispose();
+        activeSource = CreateWebView2Source();
+        fallbackStatus = $"CEF YouTube playback failed, using WebView2 fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
             controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop);

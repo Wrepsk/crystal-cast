@@ -269,6 +269,19 @@ internal static class YouTubePlayerPage
       }
     }
 
+    function isLikelyLivePlayback() {
+      if (!playerReady || !player || !player.getDuration) {
+        return false;
+      }
+
+      try {
+        const duration = Number(player.getDuration());
+        return !Number.isFinite(duration) || duration <= 0;
+      } catch (error) {
+        return false;
+      }
+    }
+
     function postStatus() {
       if (!playerReady || !player) {
         return;
@@ -323,6 +336,11 @@ internal static class YouTubePlayerPage
       }
 
       try {
+        if (isLikelyLivePlayback()) {
+          postStatus();
+          return;
+        }
+
         player.seekTo(Math.max(0, seconds), true);
         postStatus();
       } catch (error) {
@@ -336,7 +354,10 @@ internal static class YouTubePlayerPage
       }
 
       try {
-        player.seekTo(0, true);
+        if (!isLikelyLivePlayback()) {
+          player.seekTo(0, true);
+        }
+
         enforceAudioSettings();
         player.playVideo();
         window.setTimeout(enforceAudioSettings, 0);
@@ -355,7 +376,7 @@ internal static class YouTubePlayerPage
         disablekb: 1,
         fs: 0,
         iv_load_policy: 3,
-        loop: crystalCastConfig.loop ? 1 : 0,
+        loop: 0,
         modestbranding: 1,
         playsinline: 1,
         rel: 0,
@@ -363,10 +384,9 @@ internal static class YouTubePlayerPage
       };
 
       if (isPlaylistSource()) {
+        playerVars.loop = crystalCastConfig.loop ? 1 : 0;
         playerVars.listType = "playlist";
         playerVars.list = crystalCastConfig.playlistId;
-      } else if (crystalCastConfig.loop && hasValue(crystalCastConfig.videoId)) {
-        playerVars.playlist = crystalCastConfig.videoId;
       }
 
       const playerOptions = {

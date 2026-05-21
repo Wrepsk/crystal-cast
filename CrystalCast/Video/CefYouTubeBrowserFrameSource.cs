@@ -76,6 +76,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     public int Height { get; }
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
+    public bool HasPlayerFailed => playerFailed;
 
     public string Status
     {

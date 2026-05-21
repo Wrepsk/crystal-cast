@@ -237,10 +237,20 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         var enabled = activeScreen.Enabled;
+        var enableLocked = IsSourceControlsLocked(activeScreen) && !activeScreen.Enabled;
+        if (enableLocked)
+            ImGui.BeginDisabled();
+
         if (ImGui.Checkbox("Screen enabled", ref enabled))
         {
             activeScreen.Enabled = enabled;
             changed = true;
+        }
+
+        if (enableLocked)
+        {
+            ImGui.EndDisabled();
+            DrawLockedControlsMessage(activeScreen, "Screen enable");
         }
 
         return changed;

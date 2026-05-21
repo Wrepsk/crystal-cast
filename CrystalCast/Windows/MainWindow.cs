@@ -1073,14 +1073,23 @@ public sealed class MainWindow : Window, IDisposable
 
         var committedSourceValid = TwitchVideoId.TryParseSource(screen.TwitchUrl, out var committedSource);
         var draft = uiState.UrlDraft;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var loadButtonWidth = ImGui.CalcTextSize("Load").X + (ImGui.GetStyle().FramePadding.X * 2.0f);
+        var rowWidth = ImGui.GetContentRegionAvail().X;
+        var keepLoadInline = rowWidth >= loadButtonWidth + spacing + 120.0f;
+        ImGui.TextUnformatted("Twitch channel / VOD URL");
+        ImGui.SetNextItemWidth(keepLoadInline
+            ? Math.Max(120.0f, rowWidth - loadButtonWidth - spacing)
+            : Math.Max(120.0f, rowWidth));
         if (sourceLocked)
             ImGui.BeginDisabled();
-        var pressedEnter = ImGui.InputText("Twitch channel / VOD URL", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
+        var pressedEnter = ImGui.InputText("##TwitchUrl", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
         uiState.UrlDraft = draft;
         var draftSourceValid = TwitchVideoId.TryParseSource(uiState.UrlDraft, out var draftSource);
 
-        ImGui.SameLine();
-        if (ImGui.Button("Load") || pressedEnter)
+        if (keepLoadInline)
+            ImGui.SameLine();
+        if (ImGui.Button("Load", new Vector2(Math.Min(loadButtonWidth, ImGui.GetContentRegionAvail().X), 0.0f)) || pressedEnter)
         {
             if (draftSourceValid)
             {
@@ -1217,13 +1226,19 @@ public sealed class MainWindow : Window, IDisposable
 
         ImGui.SameLine();
         var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var progressWidth = Math.Max(48.0f, ImGui.GetContentRegionAvail().X - buttonSize - spacing);
+        var restartWidth = Math.Max(buttonSize * 3.0f, 68.0f);
+        var availableAfterToggle = ImGui.GetContentRegionAvail().X;
+        var keepRestartInline = availableAfterToggle >= restartWidth + spacing + 48.0f;
+        var progressWidth = keepRestartInline
+            ? Math.Max(48.0f, availableAfterToggle - restartWidth - spacing)
+            : Math.Max(24.0f, availableAfterToggle);
         changed |= DrawYouTubeProgressBar(screen, telemetry, progressWidth, !sourceLocked && telemetry is { DurationMs: > 0 });
 
-        ImGui.SameLine();
+        if (keepRestartInline)
+            ImGui.SameLine();
         if (sourceLocked)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Restart##TwitchRestart", new Vector2(Math.Max(buttonSize * 3.0f, 68.0f), buttonSize)))
+        if (ImGui.Button("Restart##TwitchRestart", new Vector2(Math.Min(restartWidth, ImGui.GetContentRegionAvail().X), buttonSize)))
         {
             screen.PlaybackPaused = false;
             renderer.TryRestartDynamicSource();

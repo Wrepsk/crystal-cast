@@ -19,9 +19,8 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     };
 
     private readonly string input;
-    private readonly string videoId;
-    private readonly string canonicalUrl;
-    private readonly bool isValidVideoId;
+    private readonly YouTubeSourceReference source;
+    private readonly bool isValidSource;
     private readonly bool autoplay;
     private readonly object telemetryLock = new();
     private BrowserThread? browserThread;
@@ -54,8 +53,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         float playbackRate)
     {
         this.input = input;
-        isValidVideoId = YouTubeVideoId.TryParse(input, out videoId);
-        canonicalUrl = YouTubeVideoId.BuildCanonicalWatchUrl(videoId);
+        isValidSource = YouTubeVideoId.TryParseSource(input, out source);
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
@@ -65,8 +63,8 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
 
-        if (!isValidVideoId)
-            browserStatus = "invalid YouTube URL or video ID";
+        if (!isValidSource)
+            browserStatus = "invalid YouTube URL, video ID, playlist, or live channel";
 
         UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty);
     }
@@ -91,9 +89,9 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     public void Start()
     {
         var wasCaptureEnabled = captureEnabled;
-        if (!isValidVideoId)
+        if (!isValidSource)
         {
-            browserStatus = $"invalid YouTube URL or video ID: {input}";
+            browserStatus = $"invalid YouTube URL, video ID, playlist, or live channel: {input}";
             return;
         }
 
@@ -186,7 +184,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
             currentTelemetry = telemetry;
         }
 
-        return isValidVideoId;
+        return isValidSource;
     }
 
     public void Dispose()
@@ -202,7 +200,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     {
         const string playerPageName = "player.html";
         var playerPagePath = Path.Combine(contentFolder, playerPageName);
-        File.WriteAllText(playerPagePath, YouTubePlayerPage.BuildHtml(videoId, autoplay, loop, audioEnabled, volume, playbackRate));
+        File.WriteAllText(playerPagePath, YouTubePlayerPage.BuildHtml(source, autoplay, loop, audioEnabled, volume, playbackRate));
         return playerPageName;
     }
 
@@ -235,7 +233,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
         switch (type)
         {
             case "ready":
-                playerStatus = $"player ready: {videoId}";
+                playerStatus = $"player ready: {source.DisplayName}";
                 break;
             case "status":
                 UpdateFromStatusMessage(root);
@@ -255,6 +253,7 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
     private void UpdateFromStatusMessage(JsonElement root)
     {
         var title = TryGetString(root, "title", string.Empty);
+        var currentVideoId = TryGetString(root, "videoId", source.VideoId);
         var positionSeconds = TryGetDouble(root, "positionSeconds", 0.0);
         var durationSeconds = TryGetDouble(root, "durationSeconds", 0.0);
         var rate = (float)TryGetDouble(root, "rate", playbackRate);
@@ -268,14 +267,17 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
 
         var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
         var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
-        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title);
+        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
         playerStatus = string.IsNullOrWhiteSpace(title)
             ? $"player state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s"
             : $"{title}; state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s";
     }
 
-    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title)
+    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "")
     {
+        if (!YouTubeVideoId.IsValidVideoId(currentVideoId))
+            currentVideoId = source.VideoId;
+
         lock (telemetryLock)
         {
             telemetry = new MediaPlaybackTelemetry
@@ -285,8 +287,8 @@ public sealed class WebView2YouTubeBrowserFrameSource : IVideoFrameSource, IMedi
                 DurationMs = durationMs,
                 Rate = ClampPlaybackRate(rate),
                 Title = title,
-                VideoId = videoId,
-                CanonicalUrl = canonicalUrl,
+                VideoId = currentVideoId,
+                CanonicalUrl = YouTubeVideoId.BuildCanonicalSourceUrl(source, currentVideoId),
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = detectedVideoFps,
             };

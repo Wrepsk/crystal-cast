@@ -13,7 +13,7 @@ internal static class YouTubePlayerPage
     };
 
     public static string BuildHtml(
-        string videoId,
+        YouTubeSourceReference source,
         bool autoplay,
         bool loop,
         bool audioEnabled,
@@ -22,7 +22,10 @@ internal static class YouTubePlayerPage
     {
         var configJson = JsonSerializer.Serialize(new
         {
-            videoId,
+            sourceKind = source.Kind.ToString(),
+            videoId = source.VideoId,
+            playlistId = source.PlaylistId,
+            liveChannelId = source.LiveChannelId,
             autoplay,
             loop,
             audioEnabled,
@@ -139,6 +142,18 @@ internal static class YouTubePlayerPage
     const crystalCastConfig = {{configJson}};
     let player = null;
     let playerReady = false;
+
+    function hasValue(value) {
+      return typeof value === "string" && value.length > 0;
+    }
+
+    function isPlaylistSource() {
+      return crystalCastConfig.sourceKind === "Playlist" && hasValue(crystalCastConfig.playlistId);
+    }
+
+    function isLiveChannelSource() {
+      return crystalCastConfig.sourceKind === "LiveChannel" && hasValue(crystalCastConfig.liveChannelId);
+    }
 
     function toPlayerVolumePercent(volume) {
       const clamped = Math.max(0, Math.min(1, Number(volume) || 0));
@@ -263,6 +278,8 @@ internal static class YouTubePlayerPage
         const data = player.getVideoData ? player.getVideoData() : {};
         post("status", {
           title: data && data.title ? data.title : "",
+          videoId: data && (data.video_id || data.videoId) ? (data.video_id || data.videoId) : crystalCastConfig.videoId,
+          playlistIndex: player.getPlaylistIndex ? player.getPlaylistIndex() : -1,
           positionSeconds: player.getCurrentTime ? player.getCurrentTime() : 0,
           durationSeconds: player.getDuration ? player.getDuration() : 0,
           rate: player.getPlaybackRate ? player.getPlaybackRate() : crystalCastConfig.playbackRate,
@@ -332,23 +349,30 @@ internal static class YouTubePlayerPage
 
     window.onYouTubeIframeAPIReady = function () {
       debug("YouTube IFrame API ready");
-      player = new YT.Player("player", {
+      const playerVars = {
+        autoplay: crystalCastConfig.autoplay ? 1 : 0,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
+        loop: crystalCastConfig.loop ? 1 : 0,
+        modestbranding: 1,
+        playsinline: 1,
+        rel: 0,
+        origin: crystalCastConfig.origin
+      };
+
+      if (isPlaylistSource()) {
+        playerVars.listType = "playlist";
+        playerVars.list = crystalCastConfig.playlistId;
+      } else if (crystalCastConfig.loop && hasValue(crystalCastConfig.videoId)) {
+        playerVars.playlist = crystalCastConfig.videoId;
+      }
+
+      const playerOptions = {
         width: "100%",
         height: "100%",
-        videoId: crystalCastConfig.videoId,
-        playerVars: {
-          autoplay: crystalCastConfig.autoplay ? 1 : 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          loop: crystalCastConfig.loop ? 1 : 0,
-          modestbranding: 1,
-          playsinline: 1,
-          playlist: crystalCastConfig.loop ? crystalCastConfig.videoId : undefined,
-          rel: 0,
-          origin: crystalCastConfig.origin
-        },
+        playerVars: playerVars,
         events: {
           onReady: function () {
             playerReady = true;
@@ -363,9 +387,15 @@ internal static class YouTubePlayerPage
           },
           onStateChange: function () {
             try {
-              if (crystalCastConfig.loop && player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED) {
+              if (crystalCastConfig.loop && player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED && !isPlaylistSource()) {
                 player.seekTo(0, true);
                 player.playVideo();
+              } else if (crystalCastConfig.loop && player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED && isPlaylistSource() && player.getPlaylist && player.getPlaylistIndex) {
+                const playlist = player.getPlaylist();
+                const index = player.getPlaylistIndex();
+                if (playlist && playlist.length > 0 && index >= playlist.length - 1) {
+                  player.playVideoAt(0);
+                }
               }
             } catch (error) {
               postScriptError("loop", error);
@@ -378,7 +408,32 @@ internal static class YouTubePlayerPage
             post("error", { code: event && event.data ? event.data : 0 });
           }
         }
-      });
+      };
+
+      if (hasValue(crystalCastConfig.videoId)) {
+        playerOptions.videoId = crystalCastConfig.videoId;
+      }
+
+      if (isLiveChannelSource()) {
+        const frame = document.createElement("iframe");
+        frame.id = "youtubeLiveFrame";
+        frame.setAttribute("frameborder", "0");
+        frame.setAttribute("allow", "autoplay; encrypted-media");
+        frame.src = "https://www.youtube.com/embed/live_stream?channel="
+          + encodeURIComponent(crystalCastConfig.liveChannelId)
+          + "&enablejsapi=1&autoplay=" + (crystalCastConfig.autoplay ? "1" : "0")
+          + "&controls=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&rel=0&origin="
+          + encodeURIComponent(crystalCastConfig.origin);
+        const host = document.getElementById("player");
+        while (host.firstChild) {
+          host.removeChild(host.firstChild);
+        }
+
+        host.appendChild(frame);
+        player = new YT.Player("youtubeLiveFrame", playerOptions);
+      } else {
+        player = new YT.Player("player", playerOptions);
+      }
     };
 
     debug("loading YouTube IFrame API");

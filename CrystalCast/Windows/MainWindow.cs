@@ -901,18 +901,18 @@ public sealed class MainWindow : Window, IDisposable
             uiState.UrlDraftSource = screen.YouTubeUrl;
         }
 
-        var committedVideoIdValid = YouTubeVideoId.TryParse(screen.YouTubeUrl, out var committedVideoId);
+        var committedSourceValid = YouTubeVideoId.TryParseSource(screen.YouTubeUrl, out var committedSource);
         var draft = uiState.UrlDraft;
         if (sourceLocked)
             ImGui.BeginDisabled();
         var pressedEnter = ImGui.InputText("YouTube URL / ID", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
         uiState.UrlDraft = draft;
-        var draftVideoIdValid = YouTubeVideoId.TryParse(uiState.UrlDraft, out var draftVideoId);
+        var draftSourceValid = YouTubeVideoId.TryParseSource(uiState.UrlDraft, out var draftSource);
 
         ImGui.SameLine();
         if (ImGui.Button("Load") || pressedEnter)
         {
-            if (draftVideoIdValid)
+            if (draftSourceValid)
             {
                 screen.YouTubeUrl = uiState.UrlDraft.Trim();
                 uiState.UrlDraftSource = screen.YouTubeUrl;
@@ -926,14 +926,14 @@ public sealed class MainWindow : Window, IDisposable
         if (sourceLocked)
             DrawLockedControlsMessage(screen, "Source controls");
 
-        if (draftVideoIdValid)
-            ImGui.TextDisabled($"Video ID: {draftVideoId}");
+        if (draftSourceValid)
+            ImGui.TextDisabled(draftSource.DisplayName);
         else if (!string.IsNullOrWhiteSpace(uiState.UrlDraft))
-            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Video ID: invalid");
-        else if (committedVideoIdValid)
-            ImGui.TextDisabled($"Current video ID: {committedVideoId}");
+            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "YouTube source: invalid");
+        else if (committedSourceValid)
+            ImGui.TextDisabled($"Current {committedSource.DisplayName}");
         else
-            ImGui.TextDisabled("Video ID: empty");
+            ImGui.TextDisabled("YouTube source: empty");
 
         changed |= DrawYouTubePlaybackControls(screen);
         changed |= DrawYouTubeResolutionPreset(screen);

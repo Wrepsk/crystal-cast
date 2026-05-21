@@ -645,9 +645,9 @@ public sealed class ScreenStateIpc : IDisposable
         if (patch.Url != null)
         {
             var url = patch.Url.Trim();
-            if (!string.IsNullOrWhiteSpace(url) && !YouTubeVideoId.TryParse(url, out _))
+            if (!string.IsNullOrWhiteSpace(url) && !YouTubeVideoId.TryParseSource(url, out _))
             {
-                error = "YouTube URL or video ID is invalid.";
+                error = "YouTube URL, video ID, playlist, or live channel is invalid.";
                 return false;
             }
 
@@ -1089,7 +1089,7 @@ public sealed class ScreenStateIpc : IDisposable
     private ScreenSourceState BuildYouTubeSourceState(BrowserScreenProfile screen)
     {
         var telemetry = renderer.GetPlaybackTelemetry(screen);
-        if (!YouTubeVideoId.TryParse(screen.YouTubeUrl, out var videoId))
+        if (!YouTubeVideoId.TryParseSource(screen.YouTubeUrl, out var source))
         {
             return new ScreenSourceState
             {
@@ -1100,16 +1100,29 @@ public sealed class ScreenStateIpc : IDisposable
             };
         }
 
-        var canonicalUrl = YouTubeVideoId.BuildCanonicalWatchUrl(videoId);
+        var currentVideoId = YouTubeVideoId.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
+            ? telemetry!.VideoId
+            : source.VideoId;
+        var canonicalUrl = YouTubeVideoId.BuildCanonicalSourceUrl(source, currentVideoId);
         return new ScreenSourceState
         {
             Kind = ScreenSourceKind.YouTubeBrowser,
             Provider = BrowserSourceProviderKind.YouTube.ToString(),
-            Identity = $"youtube:{videoId}",
+            Identity = BuildYouTubeSourceIdentity(source),
             Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "YouTube video" : telemetry.Title,
             Hash = string.Empty,
             Url = canonicalUrl,
-            VideoId = videoId,
+            VideoId = currentVideoId,
+        };
+    }
+
+    private static string BuildYouTubeSourceIdentity(YouTubeSourceReference source)
+    {
+        return source.Kind switch
+        {
+            YouTubeSourceKind.Playlist => $"youtube:playlist:{source.PlaylistId}",
+            YouTubeSourceKind.LiveChannel => $"youtube:live-channel:{source.LiveChannelId}",
+            _ => $"youtube:{source.VideoId}",
         };
     }
 

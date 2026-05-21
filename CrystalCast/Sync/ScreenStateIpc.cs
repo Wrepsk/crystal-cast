@@ -34,6 +34,7 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, string> sourceStateProvider;
     private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
     private readonly Dictionary<string, ScreenChangeFingerprint> localScreenFingerprints = new(StringComparer.Ordinal);
+    private readonly HashSet<string> knownLocalScreenIds = new(StringComparer.Ordinal);
 
     public ScreenStateIpc(Configuration configuration, WorldScreenManager renderer)
     {
@@ -74,14 +75,12 @@ public sealed class ScreenStateIpc : IDisposable
     {
         configuration.Normalize();
         var states = new List<ScreenStateEnvelope>();
-        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
+        if (configuration.Enabled && configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
             var screensToPublish = configuration.BrowserScreens
                 .Take(Configuration.MaxRenderableBrowserScreens)
                 .Where(screen => screen.Enabled)
                 .ToArray();
-            if (screensToPublish.Length == 0)
-                screensToPublish = [configuration.GetActiveBrowserScreen()];
 
             foreach (var screen in screensToPublish)
             {
@@ -92,7 +91,7 @@ public sealed class ScreenStateIpc : IDisposable
                 states.Add(BuildBrowserScreenState(screen, resolved));
             }
         }
-        else
+        else if (configuration.Enabled)
         {
             var placement = configuration.GetLocalVideoPlacement();
             if (TryResolveForIpc(placement, out var resolved))
@@ -103,6 +102,9 @@ public sealed class ScreenStateIpc : IDisposable
         }
 
         configuration.Save();
+        var publishedScreenIds = states.Select(state => state.ScreenId).ToHashSet(StringComparer.Ordinal);
+        RememberKnownLocalScreens(publishedScreenIds);
+
         string? firstJson = null;
         foreach (var state in states)
         {
@@ -112,10 +114,13 @@ public sealed class ScreenStateIpc : IDisposable
             MaybeSendScreenChanged(state, changedScreenId, forcedChanges);
         }
 
+        SendUnavailableEventsForMissingLocalScreens(publishedScreenIds);
+
         if (forcedChanges is { Count: > 0 }
             && !string.IsNullOrWhiteSpace(changedScreenId)
             && states.All(state => !string.Equals(state.ScreenId, changedScreenId, StringComparison.Ordinal))
             && FindBrowserScreen(changedScreenId) is { } forcedScreen
+            && forcedScreen.Enabled
             && TryBuildBrowserScreenState(forcedScreen, out var forcedState))
         {
             MaybeSendScreenChanged(forcedState, changedScreenId, forcedChanges);
@@ -136,15 +141,15 @@ public sealed class ScreenStateIpc : IDisposable
     public IEnumerable<ScreenStateEnvelope> BuildLocalStates()
     {
         configuration.Normalize();
+        if (!configuration.Enabled)
+            return [];
+
         if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
             var enabledScreens = configuration.BrowserScreens
                 .Take(Configuration.MaxRenderableBrowserScreens)
                 .Where(screen => screen.Enabled)
                 .ToArray();
-
-            if (enabledScreens.Length == 0)
-                enabledScreens = [configuration.GetActiveBrowserScreen()];
 
             var states = new List<ScreenStateEnvelope>();
             foreach (var screen in enabledScreens)
@@ -272,11 +277,13 @@ public sealed class ScreenStateIpc : IDisposable
         sourceStateProvider.UnregisterFunc();
         remoteScreens.Clear();
         localScreenFingerprints.Clear();
+        knownLocalScreenIds.Clear();
     }
 
     private string GetSnapshotJson()
     {
         var localStates = BuildLocalStates().ToArray();
+        RememberKnownLocalScreens(localStates.Select(state => state.ScreenId));
         var snapshot = new
         {
             schemaVersion = 1,
@@ -330,6 +337,7 @@ public sealed class ScreenStateIpc : IDisposable
         configuration.Normalize();
         configuration.Save();
         localScreenFingerprints.Remove(screenId);
+        knownLocalScreenIds.Remove(screenId);
         return true;
     }
 
@@ -718,8 +726,12 @@ public sealed class ScreenStateIpc : IDisposable
         if (!localScreenFingerprints.TryGetValue(state.ScreenId, out var previous))
         {
             localScreenFingerprints[state.ScreenId] = next;
-            if (IsForcedScreen(state.ScreenId, forcedScreenId, forcedChanges))
-                SendScreenChanged(state, screen, forcedChanges!);
+            SendScreenChanged(
+                state,
+                screen,
+                IsForcedScreen(state.ScreenId, forcedScreenId, forcedChanges)
+                    ? forcedChanges!
+                    : GetCreateChangeKinds());
 
             return;
         }
@@ -767,6 +779,43 @@ public sealed class ScreenStateIpc : IDisposable
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
         screenChangedProvider.SendMessage(JsonSerializer.Serialize(evt, JsonOptions));
+    }
+
+    private void SendUnavailableEventsForMissingLocalScreens(HashSet<string> currentScreenIds)
+    {
+        foreach (var screenId in knownLocalScreenIds.Except(currentScreenIds, StringComparer.Ordinal).ToList())
+        {
+            var screen = FindBrowserScreen(screenId);
+            SendScreenUnavailable(screenId, screen);
+            localScreenFingerprints.Remove(screenId);
+            knownLocalScreenIds.Remove(screenId);
+        }
+    }
+
+    private void SendScreenUnavailable(string screenId, BrowserScreenProfile? screen)
+    {
+        var evt = new ScreenIpcChangeEvent
+        {
+            ScreenId = screenId,
+            OwnerSessionId = configuration.OwnerSessionId,
+            CreatedByIpc = screen?.CreatedByIpc ?? false,
+            OwnerId = screen?.IpcOwnerId ?? string.Empty,
+            SourceControlsLocked = screen?.SourceControlsLocked ?? false,
+            SourceControlsOwnerId = screen?.SourceControlsOwnerId ?? string.Empty,
+            Changes = [ScreenIpcChangeKind.Source],
+            State = null,
+            TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+        screenChangedProvider.SendMessage(JsonSerializer.Serialize(evt, JsonOptions));
+    }
+
+    private void RememberKnownLocalScreens(IEnumerable<string> screenIds)
+    {
+        foreach (var screenId in screenIds)
+        {
+            if (!string.IsNullOrWhiteSpace(screenId))
+                knownLocalScreenIds.Add(screenId);
+        }
     }
 
     private static ScreenChangeFingerprint BuildFingerprint(ScreenStateEnvelope state, BrowserScreenProfile? screen)

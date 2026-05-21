@@ -295,6 +295,7 @@ public class Configuration : IPluginConfiguration
 public enum BrowserSourceProviderKind
 {
     YouTube = 1,
+    Twitch = 2,
 }
 
 public enum ScreenPlacementMode
@@ -371,6 +372,15 @@ public sealed class BrowserScreenProfile
     public float YouTubeVolume { get; set; } = 0.7f;
     public float YouTubePlaybackRate { get; set; } = 1.0f;
 
+    public string TwitchUrl { get; set; } = string.Empty;
+    public int TwitchBrowserWidth { get; set; } = 1920;
+    public int TwitchBrowserHeight { get; set; } = 1080;
+    public float TwitchCaptureFps { get; set; } = 60.0f;
+    public bool TwitchCaptureFpsManual { get; set; }
+    public bool TwitchAutoplay { get; set; } = true;
+    public bool TwitchAudioEnabled { get; set; }
+    public float TwitchVolume { get; set; } = 0.7f;
+
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
     public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
@@ -400,7 +410,7 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
-        if (ProviderKind != BrowserSourceProviderKind.YouTube)
+        if (ProviderKind is not (BrowserSourceProviderKind.YouTube or BrowserSourceProviderKind.Twitch))
         {
             ProviderKind = BrowserSourceProviderKind.YouTube;
             changed = true;
@@ -436,6 +446,32 @@ public sealed class BrowserScreenProfile
         if (Math.Abs(YouTubePlaybackRate - playbackRate) > 0.0001f)
         {
             YouTubePlaybackRate = playbackRate;
+            changed = true;
+        }
+
+        if (TwitchBrowserWidth <= 0)
+        {
+            TwitchBrowserWidth = 1920;
+            changed = true;
+        }
+
+        if (TwitchBrowserHeight <= 0)
+        {
+            TwitchBrowserHeight = 1080;
+            changed = true;
+        }
+
+        var twitchCaptureFps = Math.Clamp(TwitchCaptureFps, 1.0f, 60.0f);
+        if (Math.Abs(TwitchCaptureFps - twitchCaptureFps) > 0.0001f)
+        {
+            TwitchCaptureFps = twitchCaptureFps;
+            changed = true;
+        }
+
+        var twitchVolume = Math.Clamp(TwitchVolume, 0.0f, 1.0f);
+        if (Math.Abs(TwitchVolume - twitchVolume) > 0.0001f)
+        {
+            TwitchVolume = twitchVolume;
             changed = true;
         }
 
@@ -475,6 +511,14 @@ public sealed class BrowserScreenProfile
             YouTubeAudioEnabled = YouTubeAudioEnabled,
             YouTubeVolume = YouTubeVolume,
             YouTubePlaybackRate = YouTubePlaybackRate,
+            TwitchUrl = TwitchUrl,
+            TwitchBrowserWidth = TwitchBrowserWidth,
+            TwitchBrowserHeight = TwitchBrowserHeight,
+            TwitchCaptureFps = TwitchCaptureFps,
+            TwitchCaptureFpsManual = TwitchCaptureFpsManual,
+            TwitchAutoplay = TwitchAutoplay,
+            TwitchAudioEnabled = TwitchAudioEnabled,
+            TwitchVolume = TwitchVolume,
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,

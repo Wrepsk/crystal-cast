@@ -354,7 +354,12 @@ public sealed class WorldScreenManager : IDisposable
         public float AudioDistanceMeters { get; private set; }
         public float SpatialAudioAttenuation { get; private set; } = 1.0f;
         public float EffectiveAudioVolume { get; private set; }
-        public float DetectedVideoFps => frameSource is YouTubeBrowserFrameSource ytSource ? ytSource.DetectedVideoFps : 0.0f;
+        public float DetectedVideoFps => frameSource switch
+        {
+            YouTubeBrowserFrameSource ytSource => ytSource.DetectedVideoFps,
+            TwitchBrowserFrameSource twitchSource => twitchSource.DetectedVideoFps,
+            _ => 0.0f,
+        };
 
         public bool TryPrepareFrame(out IDalamudTextureWrap? texture)
         {
@@ -543,8 +548,8 @@ public sealed class WorldScreenManager : IDisposable
             if (browserScreen == null)
                 return null;
 
-            var width = Math.Clamp(browserScreen.YouTubeBrowserWidth, 320, 3840);
-            var height = Math.Clamp(browserScreen.YouTubeBrowserHeight, 180, 2160);
+            var width = Math.Clamp(GetBrowserWidth(), 320, 3840);
+            var height = Math.Clamp(GetBrowserHeight(), 180, 2160);
             if (dynamicTexture.TextureWrap != null && dynamicTexture.Width == width && dynamicTexture.Height == height)
                 return dynamicTexture.TextureWrap;
 
@@ -595,18 +600,31 @@ public sealed class WorldScreenManager : IDisposable
                         configuration.LocalVideoHeight);
                     break;
                 case ScreenSourceKind.YouTubeBrowser when browserScreen != null:
-                    frameSource = new YouTubeBrowserFrameSource(
-                        browserScreen.YouTubeUrl,
-                        browserScreen.YouTubeBrowserWidth,
-                        browserScreen.YouTubeBrowserHeight,
-                        browserScreen.YouTubeCaptureFps,
-                        configuration.YouTubeBrowserEngine,
-                        browserScreen.YouTubeAutoplay,
-                        browserScreen.LoopYouTube,
-                        browserScreen.YouTubePlaylistAutoplayNext,
-                        browserScreen.YouTubeAudioEnabled,
-                        browserScreen.YouTubeVolume,
-                        browserScreen.YouTubePlaybackRate);
+                    frameSource = browserScreen.ProviderKind == BrowserSourceProviderKind.Twitch
+                        ? new TwitchBrowserFrameSource(
+                            browserScreen.TwitchUrl,
+                            browserScreen.TwitchBrowserWidth,
+                            browserScreen.TwitchBrowserHeight,
+                            browserScreen.TwitchCaptureFps,
+                            configuration.YouTubeBrowserEngine,
+                            browserScreen.TwitchAutoplay,
+                            false,
+                            false,
+                            browserScreen.TwitchAudioEnabled,
+                            browserScreen.TwitchVolume,
+                            1.0f)
+                        : new YouTubeBrowserFrameSource(
+                            browserScreen.YouTubeUrl,
+                            browserScreen.YouTubeBrowserWidth,
+                            browserScreen.YouTubeBrowserHeight,
+                            browserScreen.YouTubeCaptureFps,
+                            configuration.YouTubeBrowserEngine,
+                            browserScreen.YouTubeAutoplay,
+                            browserScreen.LoopYouTube,
+                            browserScreen.YouTubePlaylistAutoplayNext,
+                            browserScreen.YouTubeAudioEnabled,
+                            browserScreen.YouTubeVolume,
+                            browserScreen.YouTubePlaybackRate);
                     break;
             }
         }
@@ -625,9 +643,9 @@ public sealed class WorldScreenManager : IDisposable
                 ScreenSourceKind.YouTubeBrowser when browserScreen != null => string.Join('|',
                     ScreenSourceKind.YouTubeBrowser,
                     browserScreen.ProviderKind,
-                    browserScreen.YouTubeUrl,
-                    browserScreen.YouTubeBrowserWidth,
-                    browserScreen.YouTubeBrowserHeight,
+                    GetBrowserUrl(),
+                    GetBrowserWidth(),
+                    GetBrowserHeight(),
                     configuration.YouTubeBrowserEngine),
                 _ => GetSourceKind().ToString(),
             };
@@ -680,29 +698,18 @@ public sealed class WorldScreenManager : IDisposable
             if (browserScreen == null || frameSource is not IMediaPlaybackController controller)
                 return;
 
-            var effectiveVolume = browserScreen.YouTubeAudioEnabled
-                ? CalculateEffectiveAudioVolume(browserScreen.YouTubeVolume)
+            var audioEnabled = GetBrowserAudioEnabled();
+            var effectiveVolume = audioEnabled
+                ? CalculateEffectiveAudioVolume(GetBrowserVolume())
                 : CalculateEffectiveAudioVolume(0.0f, smooth: false);
             controller.ApplyPlaybackSettings(
-                browserScreen.YouTubeAudioEnabled,
+                audioEnabled,
                 effectiveVolume,
-                browserScreen.YouTubePlaybackRate,
-                browserScreen.LoopYouTube,
-                browserScreen.YouTubePlaylistAutoplayNext);
+                GetBrowserPlaybackRate(),
+                GetBrowserLoop(),
+                GetBrowserPlaylistAutoplayNext());
 
-            if (frameSource is YouTubeBrowserFrameSource ytSource)
-            {
-                if (browserScreen.YouTubeCaptureFpsManual)
-                {
-                    ytSource.UpdateCaptureFps(browserScreen.YouTubeCaptureFps);
-                }
-                else
-                {
-                    var detected = ytSource.DetectedVideoFps;
-                    if (detected > 0.0f)
-                        ytSource.UpdateCaptureFps(detected);
-                }
-            }
+            ApplyBrowserCaptureFps();
         }
 
         private void UpdateSpatialAudioMetrics()
@@ -965,6 +972,91 @@ public sealed class WorldScreenManager : IDisposable
             var outsideY = MathF.Max(MathF.Abs(localY) - (downLength * 0.5f), 0.0f);
 
             return (outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ);
+        }
+
+        private string GetBrowserUrl()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? browserScreen.TwitchUrl
+                : browserScreen?.YouTubeUrl ?? string.Empty;
+        }
+
+        private int GetBrowserWidth()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? browserScreen.TwitchBrowserWidth
+                : browserScreen?.YouTubeBrowserWidth ?? configuration.LocalVideoWidth;
+        }
+
+        private int GetBrowserHeight()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? browserScreen.TwitchBrowserHeight
+                : browserScreen?.YouTubeBrowserHeight ?? configuration.LocalVideoHeight;
+        }
+
+        private bool GetBrowserAudioEnabled()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? browserScreen.TwitchAudioEnabled
+                : browserScreen?.YouTubeAudioEnabled ?? false;
+        }
+
+        private float GetBrowserVolume()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? browserScreen.TwitchVolume
+                : browserScreen?.YouTubeVolume ?? 0.0f;
+        }
+
+        private float GetBrowserPlaybackRate()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.Twitch
+                ? 1.0f
+                : browserScreen?.YouTubePlaybackRate ?? 1.0f;
+        }
+
+        private bool GetBrowserLoop()
+        {
+            return browserScreen?.ProviderKind == BrowserSourceProviderKind.YouTube && browserScreen.LoopYouTube;
+        }
+
+        private bool GetBrowserPlaylistAutoplayNext()
+        {
+            return browserScreen?.ProviderKind != BrowserSourceProviderKind.YouTube || browserScreen.YouTubePlaylistAutoplayNext;
+        }
+
+        private void ApplyBrowserCaptureFps()
+        {
+            switch (frameSource)
+            {
+                case YouTubeBrowserFrameSource ytSource:
+                    ApplyBrowserCaptureFps(
+                        browserScreen?.YouTubeCaptureFpsManual == true,
+                        browserScreen?.YouTubeCaptureFps ?? 60.0f,
+                        ytSource.DetectedVideoFps,
+                        ytSource.UpdateCaptureFps);
+                    break;
+                case TwitchBrowserFrameSource twitchSource:
+                    ApplyBrowserCaptureFps(
+                        browserScreen?.TwitchCaptureFpsManual == true,
+                        browserScreen?.TwitchCaptureFps ?? 60.0f,
+                        twitchSource.DetectedVideoFps,
+                        twitchSource.UpdateCaptureFps);
+                    break;
+            }
+        }
+
+        private static void ApplyBrowserCaptureFps(bool manual, float configuredFps, float detectedFps, Action<float> update)
+        {
+            if (manual)
+            {
+                update(configuredFps);
+                return;
+            }
+
+            if (detectedFps > 0.0f)
+                update(detectedFps);
         }
 
         private ScreenSourceKind GetSourceKind() => browserScreen == null ? ScreenSourceKind.LocalVideo : ScreenSourceKind.YouTubeBrowser;

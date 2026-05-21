@@ -24,7 +24,7 @@ public sealed class MainWindow : Window, IDisposable
     ];
 
     private static readonly string[] SourceNames =
-        ["Local video", "YouTube browser"];
+        ["Local video", "Browser screens"];
 
     private static readonly ScreenSourceKind[] SourceKinds =
         [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
@@ -45,6 +45,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
     private readonly Dictionary<string, YouTubeUiState> youtubeUiStates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TwitchUiState> twitchUiStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlacementUndoHistory> placementUndoHistories = new(StringComparer.Ordinal);
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
@@ -163,6 +164,22 @@ public sealed class MainWindow : Window, IDisposable
         if (ImGui.Button("Add YouTube"))
         {
             var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
+            screen.ProviderKind = BrowserSourceProviderKind.YouTube;
+            config.BrowserScreens.Add(screen);
+            config.ActiveBrowserScreenId = screen.ScreenId;
+            renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
+            changed = true;
+        }
+        if (!canAddUserScreen)
+            ImGui.EndDisabled();
+
+        ImGui.SameLine();
+        if (!canAddUserScreen)
+            ImGui.BeginDisabled();
+        if (ImGui.Button("Add Twitch"))
+        {
+            var screen = config.CreateDefaultBrowserScreen(GetNextTwitchScreenName(config));
+            screen.ProviderKind = BrowserSourceProviderKind.Twitch;
             config.BrowserScreens.Add(screen);
             config.ActiveBrowserScreenId = screen.ScreenId;
             renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
@@ -201,6 +218,7 @@ public sealed class MainWindow : Window, IDisposable
             var removedId = activeScreen.ScreenId;
             config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
             youtubeUiStates.Remove(removedId);
+            twitchUiStates.Remove(removedId);
             placementUndoHistories.Remove(removedId);
             if (renamingScreenId == removedId)
                 renamingScreenId = string.Empty;
@@ -827,7 +845,9 @@ public sealed class MainWindow : Window, IDisposable
                 changed |= DrawLocalVideoSource(config);
                 break;
             case ScreenSourceKind.YouTubeBrowser:
-                changed |= DrawYouTubeSource(activeScreen);
+                changed |= activeScreen.ProviderKind == BrowserSourceProviderKind.Twitch
+                    ? DrawTwitchSource(activeScreen)
+                    : DrawYouTubeSource(activeScreen);
                 break;
         }
 
@@ -844,7 +864,9 @@ public sealed class MainWindow : Window, IDisposable
                 changed |= DrawSpatialAudio(config);
                 break;
             case ScreenSourceKind.YouTubeBrowser:
-                changed |= DrawYouTubeAudio(activeScreen);
+                changed |= activeScreen.ProviderKind == BrowserSourceProviderKind.Twitch
+                    ? DrawTwitchAudio(activeScreen)
+                    : DrawYouTubeAudio(activeScreen);
                 changed |= DrawSpatialAudio(activeScreen);
                 break;
         }
@@ -1035,6 +1057,186 @@ public sealed class MainWindow : Window, IDisposable
         return -1;
     }
 
+    private bool DrawTwitchSource(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var uiState = GetTwitchUiState(screen);
+        var fps = screen.TwitchCaptureFps;
+        var autoplay = screen.TwitchAutoplay;
+        var sourceLocked = IsSourceControlsLocked(screen);
+
+        if (!string.Equals(uiState.UrlDraftSource, screen.TwitchUrl, StringComparison.Ordinal))
+        {
+            uiState.UrlDraft = screen.TwitchUrl;
+            uiState.UrlDraftSource = screen.TwitchUrl;
+        }
+
+        var committedSourceValid = TwitchVideoId.TryParseSource(screen.TwitchUrl, out var committedSource);
+        var draft = uiState.UrlDraft;
+        if (sourceLocked)
+            ImGui.BeginDisabled();
+        var pressedEnter = ImGui.InputText("Twitch channel / VOD URL", ref draft, 1024, ImGuiInputTextFlags.EnterReturnsTrue);
+        uiState.UrlDraft = draft;
+        var draftSourceValid = TwitchVideoId.TryParseSource(uiState.UrlDraft, out var draftSource);
+
+        ImGui.SameLine();
+        if (ImGui.Button("Load") || pressedEnter)
+        {
+            if (draftSourceValid)
+            {
+                screen.TwitchUrl = uiState.UrlDraft.Trim();
+                uiState.UrlDraftSource = screen.TwitchUrl;
+                screen.PlaybackPaused = false;
+                changed = true;
+            }
+        }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+
+        if (sourceLocked)
+            DrawLockedControlsMessage(screen, "Source controls");
+
+        if (draftSourceValid)
+            ImGui.TextDisabled(draftSource.DisplayName);
+        else if (!string.IsNullOrWhiteSpace(uiState.UrlDraft))
+            ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), "Twitch source: invalid");
+        else if (committedSourceValid)
+            ImGui.TextDisabled($"Current {committedSource.DisplayName}");
+        else
+            ImGui.TextDisabled("Twitch source: empty");
+
+        changed |= DrawTwitchPlaybackControls(screen);
+        changed |= DrawTwitchResolutionPreset(screen);
+
+        var manualFps = screen.TwitchCaptureFpsManual;
+        if (ImGui.Checkbox("Set capture FPS manually", ref manualFps))
+        {
+            screen.TwitchCaptureFpsManual = manualFps;
+            changed = true;
+        }
+
+        if (screen.TwitchCaptureFpsManual)
+        {
+            if (ImGui.InputFloat("Capture FPS", ref fps, 1.0f, 5.0f))
+            {
+                screen.TwitchCaptureFps = Math.Clamp(fps, 1.0f, 120.0f);
+                changed = true;
+            }
+        }
+        else
+        {
+            var detectedFps = renderer.GetDetectedVideoFps(screen);
+            var autoFps = detectedFps > 0.0f ? detectedFps : 60.0f;
+            ImGui.TextDisabled($"Capture FPS: {autoFps:0.#} ({(detectedFps > 0.0f ? "auto-detected" : "default")})");
+        }
+
+        if (sourceLocked)
+            ImGui.BeginDisabled();
+        if (ImGui.Checkbox("Autoplay on load", ref autoplay))
+        {
+            screen.TwitchAutoplay = autoplay;
+            changed = true;
+        }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+
+        return changed;
+    }
+
+    private static bool DrawTwitchResolutionPreset(BrowserScreenProfile screen)
+    {
+        var current = FindYouTubeResolutionPreset(screen.TwitchBrowserWidth, screen.TwitchBrowserHeight);
+        var currentLabel = current >= 0
+            ? YouTubeResolutionPresets[current].Name
+            : $"Custom ({screen.TwitchBrowserWidth} x {screen.TwitchBrowserHeight})";
+
+        if (!ImGui.BeginCombo("Browser resolution", currentLabel))
+            return false;
+
+        var changed = false;
+        for (var i = 0; i < YouTubeResolutionPresets.Length; i++)
+        {
+            var preset = YouTubeResolutionPresets[i];
+            var selected = i == current;
+            if (ImGui.Selectable(preset.Name, selected))
+            {
+                screen.TwitchBrowserWidth = preset.Width;
+                screen.TwitchBrowserHeight = preset.Height;
+                changed = true;
+            }
+
+            if (selected)
+                ImGui.SetItemDefaultFocus();
+        }
+
+        ImGui.EndCombo();
+        return changed;
+    }
+
+    private bool DrawTwitchPlaybackControls(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var telemetry = renderer.PlaybackTelemetry;
+        var position = telemetry == null
+            ? "0:00"
+            : FormatPlaybackPosition(telemetry.PositionMs);
+        var duration = telemetry is { DurationMs: > 0 }
+            ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
+            : string.Empty;
+        var state = GetYouTubePlaybackState(screen, telemetry);
+        var isPlaying = state == ScreenPlaybackState.Playing;
+        var sourceLocked = IsSourceControlsLocked(screen);
+
+        ImGui.TextDisabled($"Playback: {state} @ {position}{duration}");
+
+        var buttonSize = ImGui.GetFrameHeight();
+        var toggleLabel = isPlaying
+            ? "Pause##TwitchPlayPause"
+            : "Play##TwitchPlayPause";
+        if (sourceLocked)
+            ImGui.BeginDisabled();
+        if (ImGui.Button(toggleLabel, new Vector2(Math.Max(buttonSize * 2.5f, 52.0f), buttonSize)))
+        {
+            if (isPlaying)
+            {
+                screen.PlaybackPaused = true;
+                renderer.TryPauseDynamicSource();
+            }
+            else
+            {
+                screen.PlaybackPaused = false;
+                renderer.TryPlayDynamicSource();
+            }
+
+            changed = true;
+        }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(sourceLocked ? "Locked by IPC" : isPlaying ? "Pause" : "Play");
+
+        ImGui.SameLine();
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var progressWidth = Math.Max(48.0f, ImGui.GetContentRegionAvail().X - buttonSize - spacing);
+        changed |= DrawYouTubeProgressBar(screen, telemetry, progressWidth, !sourceLocked && telemetry is { DurationMs: > 0 });
+
+        ImGui.SameLine();
+        if (sourceLocked)
+            ImGui.BeginDisabled();
+        if (ImGui.Button("Restart##TwitchRestart", new Vector2(Math.Max(buttonSize * 3.0f, 68.0f), buttonSize)))
+        {
+            screen.PlaybackPaused = false;
+            renderer.TryRestartDynamicSource();
+            changed = true;
+        }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(sourceLocked ? "Locked by IPC" : "Restart");
+
+        return changed;
+    }
+
     private bool DrawYouTubePlaybackControls(BrowserScreenProfile screen)
     {
         var changed = false;
@@ -1218,6 +1420,28 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
+    private static bool DrawTwitchAudio(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var audioEnabled = screen.TwitchAudioEnabled;
+        var volume = screen.TwitchVolume;
+
+        ImGui.TextUnformatted("Playback audio");
+        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        {
+            screen.TwitchAudioEnabled = audioEnabled;
+            changed = true;
+        }
+
+        if (screen.TwitchAudioEnabled && ImGui.SliderFloat("Twitch volume", ref volume, 0.0f, 1.0f))
+        {
+            screen.TwitchVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private bool DrawSpatialAudio(Configuration config)
     {
         var changed = false;
@@ -1318,6 +1542,20 @@ public sealed class MainWindow : Window, IDisposable
         return state;
     }
 
+    private TwitchUiState GetTwitchUiState(BrowserScreenProfile screen)
+    {
+        if (twitchUiStates.TryGetValue(screen.ScreenId, out var state))
+            return state;
+
+        state = new TwitchUiState
+        {
+            UrlDraft = screen.TwitchUrl,
+            UrlDraftSource = screen.TwitchUrl,
+        };
+        twitchUiStates[screen.ScreenId] = state;
+        return state;
+    }
+
     private static string GetNextScreenName(Configuration config)
     {
         for (var i = 1; i <= Configuration.MaxBrowserScreens; i++)
@@ -1328,6 +1566,18 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return $"YouTube screen {config.BrowserScreens.Count + 1}";
+    }
+
+    private static string GetNextTwitchScreenName(Configuration config)
+    {
+        for (var i = 1; i <= Configuration.MaxBrowserScreens; i++)
+        {
+            var name = $"Twitch screen {i}";
+            if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return name;
+        }
+
+        return $"Twitch screen {config.BrowserScreens.Count + 1}";
     }
 
     private static string GetNextPlacementPresetName(Configuration config)
@@ -1411,6 +1661,12 @@ public sealed class MainWindow : Window, IDisposable
         public string UrlDraftSource { get; set; } = string.Empty;
         public float ProgressDraftSeconds { get; set; } = -1.0f;
         public bool ProgressScrubbing { get; set; }
+    }
+
+    private sealed class TwitchUiState
+    {
+        public string UrlDraft { get; set; } = string.Empty;
+        public string UrlDraftSource { get; set; } = string.Empty;
     }
 
     private sealed class PlacementUndoHistory

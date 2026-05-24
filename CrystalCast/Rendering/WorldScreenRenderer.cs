@@ -38,6 +38,7 @@ public sealed class WorldScreenManager : IDisposable
 
     public string Status { get; private set; } = "not initialized";
     public string LastDrawStatus { get; private set; } = "not drawn yet";
+    public string SceneCompositeStatus => PctService.SceneCompositeStatus;
     public string SourceStatus => ActiveInstance?.SourceStatus ?? "no dynamic source";
     public string AudioStatus => ActiveInstance?.AudioStatus ?? "audio stopped";
     public string SourceName => ActiveInstance?.SourceName ?? "no source";

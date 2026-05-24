@@ -254,6 +254,7 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         ImGui.TextUnformatted($"Renderer: {renderer.Status}");
         ImGui.TextUnformatted($"Draw: {renderer.LastDrawStatus}");
+        ImGui.TextUnformatted($"Scene composite: {renderer.SceneCompositeStatus}");
         ImGui.TextUnformatted($"Source: {renderer.SourceName}");
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
         ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");

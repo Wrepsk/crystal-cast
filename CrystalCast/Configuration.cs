@@ -1,4 +1,5 @@
 using Dalamud.Configuration;
+using CrystalCast.Video;
 using System;
 
 namespace CrystalCast;
@@ -410,7 +411,7 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
-        if (ProviderKind is not (BrowserSourceProviderKind.YouTube or BrowserSourceProviderKind.Twitch))
+        if (!BrowserSourceProviderRegistry.IsSupported(ProviderKind))
         {
             ProviderKind = BrowserSourceProviderKind.YouTube;
             changed = true;

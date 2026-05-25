@@ -55,7 +55,7 @@ internal static class ScreenPatchApplier
 
     public static bool IsSupportedBrowserProvider(BrowserSourceProviderKind provider)
     {
-        return provider is BrowserSourceProviderKind.YouTube or BrowserSourceProviderKind.Twitch;
+        return BrowserSourceProviderRegistry.IsSupported(provider);
     }
 
     public static BrowserSourceProviderKind ResolveRequestedProvider(

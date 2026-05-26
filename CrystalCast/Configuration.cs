@@ -121,13 +121,13 @@ public class Configuration : IPluginConfiguration
         }
         if (BrowserScreens.Count == 0)
         {
-            BrowserScreens.Add(CreateBrowserScreenFromLegacy("YouTube screen 1"));
+            BrowserScreens.Add(CreateBrowserScreenFromLegacy("Browser screen 1"));
             changed = true;
         }
 
         var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < BrowserScreens.Count; i++)
-            changed |= BrowserScreens[i].Normalize($"YouTube screen {i + 1}", usedScreenIds);
+            changed |= BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);
 
         if (string.IsNullOrWhiteSpace(ActiveBrowserScreenId) || BrowserScreens.All(screen => screen.ScreenId != ActiveBrowserScreenId))
         {
@@ -350,7 +350,7 @@ public sealed class ScreenPlacementPreset
 public sealed class BrowserScreenProfile
 {
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = "YouTube screen";
+    public string Name { get; set; } = "Browser screen";
     public bool Enabled { get; set; } = true;
     public bool CreatedByIpc { get; set; }
     public string IpcOwnerId { get; set; } = string.Empty;

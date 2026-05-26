@@ -6,6 +6,12 @@ namespace CrystalCast.Windows;
 
 internal sealed class ScreenListPanel(WorldScreenManager renderer)
 {
+    private static readonly (BrowserSourceProviderKind Kind, string Name)[] SourceProviders =
+    [
+        (BrowserSourceProviderKind.YouTube, "YouTube"),
+        (BrowserSourceProviderKind.Twitch, "Twitch"),
+    ];
+
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
 
@@ -35,27 +41,14 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             ImGui.EndCombo();
         }
 
+        changed |= DrawScreenSourceCombo(activeScreen);
+
         if (!canAddUserScreen)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Add YouTube"))
+        if (ImGui.Button("Add screen"))
         {
             var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
-            screen.ProviderKind = BrowserSourceProviderKind.YouTube;
-            config.BrowserScreens.Add(screen);
-            config.ActiveBrowserScreenId = screen.ScreenId;
-            renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
-            changed = true;
-        }
-        if (!canAddUserScreen)
-            ImGui.EndDisabled();
-
-        ImGui.SameLine();
-        if (!canAddUserScreen)
-            ImGui.BeginDisabled();
-        if (ImGui.Button("Add Twitch"))
-        {
-            var screen = config.CreateDefaultBrowserScreen(GetNextTwitchScreenName(config));
-            screen.ProviderKind = BrowserSourceProviderKind.Twitch;
+            screen.ProviderKind = activeScreen.ProviderKind;
             config.BrowserScreens.Add(screen);
             config.ActiveBrowserScreenId = screen.ScreenId;
             renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
@@ -118,6 +111,39 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         return changed;
     }
 
+    private static bool DrawScreenSourceCombo(BrowserScreenProfile activeScreen)
+    {
+        var changed = false;
+        var current = FindSourceProviderIndex(activeScreen.ProviderKind);
+        var sourceLocked = SourceControlUi.IsSourceControlsLocked(activeScreen);
+
+        if (sourceLocked)
+            ImGui.BeginDisabled();
+        if (ImGui.BeginCombo("Screen source", SourceProviders[current].Name))
+        {
+            for (var i = 0; i < SourceProviders.Length; i++)
+            {
+                var provider = SourceProviders[i];
+                var selected = i == current;
+                if (ImGui.Selectable(provider.Name, selected))
+                {
+                    activeScreen.ProviderKind = provider.Kind;
+                    activeScreen.PlaybackPaused = false;
+                    changed = true;
+                }
+
+                if (selected)
+                    ImGui.SetItemDefaultFocus();
+            }
+
+            ImGui.EndCombo();
+        }
+        if (sourceLocked)
+            ImGui.EndDisabled();
+
+        return changed;
+    }
+
     private bool DrawRenameControls(BrowserScreenProfile activeScreen)
     {
         var changed = false;
@@ -153,29 +179,17 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
     {
         for (var i = 1; i <= Configuration.MaxBrowserScreens; i++)
         {
-            var name = $"YouTube screen {i}";
+            var name = $"Browser screen {i}";
             if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
                 return name;
         }
 
-        return $"YouTube screen {config.BrowserScreens.Count + 1}";
-    }
-
-    private static string GetNextTwitchScreenName(Configuration config)
-    {
-        for (var i = 1; i <= Configuration.MaxBrowserScreens; i++)
-        {
-            var name = $"Twitch screen {i}";
-            if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
-                return name;
-        }
-
-        return $"Twitch screen {config.BrowserScreens.Count + 1}";
+        return $"Browser screen {config.BrowserScreens.Count + 1}";
     }
 
     private static string GetDuplicateScreenName(Configuration config, string sourceName)
     {
-        var baseName = string.IsNullOrWhiteSpace(sourceName) ? "YouTube screen" : $"{sourceName} copy";
+        var baseName = string.IsNullOrWhiteSpace(sourceName) ? "Browser screen" : $"{sourceName} copy";
         if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, baseName, StringComparison.OrdinalIgnoreCase)))
             return baseName;
 
@@ -194,5 +208,16 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         var right = new Vector3(MathF.Cos(placement.YawRadians), 0.0f, -MathF.Sin(placement.YawRadians));
         placement.PositionX += right.X * 0.35f;
         placement.PositionZ += right.Z * 0.35f;
+    }
+
+    private static int FindSourceProviderIndex(BrowserSourceProviderKind providerKind)
+    {
+        for (var i = 0; i < SourceProviders.Length; i++)
+        {
+            if (SourceProviders[i].Kind == providerKind)
+                return i;
+        }
+
+        return 0;
     }
 }

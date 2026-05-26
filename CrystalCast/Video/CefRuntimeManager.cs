@@ -97,6 +97,7 @@ internal static class CefRuntimeManager
                 SetInstanceProperty(settings, "WindowlessRenderingEnabled", true);
                 SetInstanceProperty(settings, "MultiThreadedMessageLoop", true);
                 SetInstanceProperty(settings, "BackgroundColor", 0xFF000000u);
+                AddCefCommandLineArg(settings, "autoplay-policy", "no-user-gesture-required");
                 cefSettingsType.GetMethod("EnableAudio", BindingFlags.Instance | BindingFlags.Public)?.Invoke(settings, null);
 
                 initialized = InvokeCefInitialize(cefType, settings);
@@ -399,6 +400,15 @@ internal static class CefRuntimeManager
     {
         var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
         property?.SetValue(instance, ConvertValue(value, property.PropertyType));
+    }
+
+    private static void AddCefCommandLineArg(object settings, string key, string value)
+    {
+        var property = settings.GetType().GetProperty("CefCommandLineArgs", BindingFlags.Public | BindingFlags.Instance);
+        if (property?.GetValue(settings) is not System.Collections.IDictionary args)
+            return;
+
+        args[key] = value;
     }
 
     private static object ConvertValue(object value, Type targetType)

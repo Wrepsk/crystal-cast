@@ -15,9 +15,12 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
                 changed |= DrawSpatialAudio(config);
                 break;
             case ScreenSourceKind.YouTubeBrowser:
-                changed |= activeScreen.ProviderKind == BrowserSourceProviderKind.Twitch
-                    ? DrawTwitchAudio(activeScreen)
-                    : DrawYouTubeAudio(activeScreen);
+                changed |= activeScreen.ProviderKind switch
+                {
+                    BrowserSourceProviderKind.Twitch => DrawTwitchAudio(activeScreen),
+                    BrowserSourceProviderKind.Dailymotion => DrawDailymotionAudio(activeScreen),
+                    _ => DrawYouTubeAudio(activeScreen),
+                };
                 changed |= DrawSpatialAudio(activeScreen);
                 break;
         }
@@ -85,6 +88,28 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         if (screen.TwitchAudioEnabled && ImGui.SliderFloat("Twitch volume", ref volume, 0.0f, 1.0f))
         {
             screen.TwitchVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool DrawDailymotionAudio(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var audioEnabled = screen.DailymotionAudioEnabled;
+        var volume = screen.DailymotionVolume;
+
+        ImGui.TextUnformatted("Playback audio");
+        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        {
+            screen.DailymotionAudioEnabled = audioEnabled;
+            changed = true;
+        }
+
+        if (screen.DailymotionAudioEnabled && ImGui.SliderFloat("Dailymotion volume", ref volume, 0.0f, 1.0f))
+        {
+            screen.DailymotionVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
         }
 

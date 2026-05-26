@@ -13,6 +13,7 @@ internal sealed class SourceControlsPanel
         [
             new YouTubeSourceControlsPanel(renderer),
             new TwitchSourceControlsPanel(renderer),
+            new DailymotionSourceControlsPanel(renderer),
         ];
 
         browserPanels = panels.ToDictionary(panel => panel.ProviderKind);

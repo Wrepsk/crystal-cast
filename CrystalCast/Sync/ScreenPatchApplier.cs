@@ -16,7 +16,7 @@ internal static class ScreenPatchApplier
             return false;
         }
 
-        screen.ProviderKind = ResolveRequestedProvider(screen, request.Provider, request.YouTube, request.Twitch);
+        screen.ProviderKind = ResolveRequestedProvider(screen, request.Provider, request.YouTube, request.Twitch, request.Dailymotion);
 
         var name = IpcJsonService.NormalizeText(request.Name);
         if (!string.IsNullOrWhiteSpace(name))
@@ -42,7 +42,7 @@ internal static class ScreenPatchApplier
         }
 
         ApplyPlacementPatch(screen.Placement, request.Placement);
-        return ApplyProviderPatch(screen, screen.ProviderKind, request.YouTube, request.Twitch, out error);
+        return ApplyProviderPatch(screen, screen.ProviderKind, request.YouTube, request.Twitch, request.Dailymotion, out error);
     }
 
     public static void ApplySourceLock(BrowserScreenProfile screen, ScreenIpcSourceLockRequest request)
@@ -62,15 +62,19 @@ internal static class ScreenPatchApplier
         BrowserScreenProfile screen,
         BrowserSourceProviderKind? provider,
         YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch)
+        TwitchScreenPatchDto? twitch,
+        DailymotionScreenPatchDto? dailymotion)
     {
         if (provider.HasValue)
             return provider.Value;
 
-        if (twitch != null && youtube == null)
+        if (dailymotion != null && youtube == null && twitch == null)
+            return BrowserSourceProviderKind.Dailymotion;
+
+        if (twitch != null && youtube == null && dailymotion == null)
             return BrowserSourceProviderKind.Twitch;
 
-        if (youtube != null && twitch == null)
+        if (youtube != null && twitch == null && dailymotion == null)
             return BrowserSourceProviderKind.YouTube;
 
         return screen.ProviderKind;
@@ -81,12 +85,14 @@ internal static class ScreenPatchApplier
         BrowserSourceProviderKind provider,
         YouTubeScreenPatchDto? youtube,
         TwitchScreenPatchDto? twitch,
+        DailymotionScreenPatchDto? dailymotion,
         out string error)
     {
         return provider switch
         {
             BrowserSourceProviderKind.YouTube => ApplyYouTubePatch(screen, youtube, out error),
             BrowserSourceProviderKind.Twitch => ApplyTwitchPatch(screen, twitch, out error),
+            BrowserSourceProviderKind.Dailymotion => ApplyDailymotionPatch(screen, dailymotion, out error),
             _ => UnsupportedProvider(provider, out error),
         };
     }
@@ -220,6 +226,52 @@ internal static class ScreenPatchApplier
             screen.TwitchAudioEnabled = patch.AudioEnabled.Value;
         if (patch.Volume.HasValue)
             screen.TwitchVolume = patch.Volume.Value;
+        if (patch.SpatialAudioEnabled.HasValue)
+            screen.SpatialAudioEnabled = patch.SpatialAudioEnabled.Value;
+        if (patch.SpatialAudioFullVolumeRadiusMeters.HasValue)
+            screen.SpatialAudioFullVolumeRadiusMeters = patch.SpatialAudioFullVolumeRadiusMeters.Value;
+        if (patch.SpatialAudioSilentRadiusMeters.HasValue)
+            screen.SpatialAudioSilentRadiusMeters = patch.SpatialAudioSilentRadiusMeters.Value;
+
+        return true;
+    }
+
+    private static bool ApplyDailymotionPatch(BrowserScreenProfile screen, DailymotionScreenPatchDto? patch, out string error)
+    {
+        error = string.Empty;
+        if (patch == null)
+            return true;
+
+        if (patch.Url != null)
+        {
+            var url = patch.Url.Trim();
+            if (!string.IsNullOrWhiteSpace(url) && !DailymotionVideoId.TryParseSource(url, out _))
+            {
+                error = "Dailymotion URL, video ID, or playlist is invalid.";
+                return false;
+            }
+
+            screen.DailymotionUrl = url;
+        }
+
+        if (patch.PlaybackPaused.HasValue)
+            screen.PlaybackPaused = patch.PlaybackPaused.Value;
+        if (patch.Autoplay.HasValue)
+            screen.DailymotionAutoplay = patch.Autoplay.Value;
+        if (patch.Loop.HasValue)
+            screen.LoopDailymotion = patch.Loop.Value;
+        if (patch.BrowserWidth.HasValue)
+            screen.DailymotionBrowserWidth = patch.BrowserWidth.Value;
+        if (patch.BrowserHeight.HasValue)
+            screen.DailymotionBrowserHeight = patch.BrowserHeight.Value;
+        if (patch.CaptureFps.HasValue)
+            screen.DailymotionCaptureFps = patch.CaptureFps.Value;
+        if (patch.CaptureFpsManual.HasValue)
+            screen.DailymotionCaptureFpsManual = patch.CaptureFpsManual.Value;
+        if (patch.AudioEnabled.HasValue)
+            screen.DailymotionAudioEnabled = patch.AudioEnabled.Value;
+        if (patch.Volume.HasValue)
+            screen.DailymotionVolume = patch.Volume.Value;
         if (patch.SpatialAudioEnabled.HasValue)
             screen.SpatialAudioEnabled = patch.SpatialAudioEnabled.Value;
         if (patch.SpatialAudioFullVolumeRadiusMeters.HasValue)

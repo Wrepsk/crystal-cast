@@ -5,7 +5,7 @@ namespace CrystalCast.Sync;
 
 public sealed class ScreenStateIpc : IDisposable
 {
-    public const int ApiVersion = 4;
+    public const int ApiVersion = 5;
 
     private readonly Configuration configuration;
     private readonly ScreenStateBuilder stateBuilder;

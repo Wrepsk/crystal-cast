@@ -7,6 +7,7 @@ internal static class BrowserSourceProviderRegistry
         {
             [BrowserSourceProviderKind.YouTube] = new YouTubeBrowserSourceProvider(),
             [BrowserSourceProviderKind.Twitch] = new TwitchBrowserSourceProvider(),
+            [BrowserSourceProviderKind.Dailymotion] = new DailymotionBrowserSourceProvider(),
         };
 
     public static bool IsSupported(BrowserSourceProviderKind provider)
@@ -56,6 +57,7 @@ internal static class BrowserSourceProviderRegistry
         {
             YouTubeBrowserFrameSource source => source.DetectedVideoFps,
             TwitchBrowserFrameSource source => source.DetectedVideoFps,
+            DailymotionBrowserFrameSource source => source.DetectedVideoFps,
             _ => 0.0f,
         };
     }
@@ -184,6 +186,57 @@ internal static class BrowserSourceProviderRegistry
             BrowserSourceProviderRegistry.ApplyCaptureFps(
                 screen.TwitchCaptureFpsManual,
                 screen.TwitchCaptureFps,
+                source.DetectedVideoFps,
+                source.UpdateCaptureFps);
+        }
+    }
+
+    private sealed class DailymotionBrowserSourceProvider : IBrowserSourceProvider
+    {
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        {
+            return new DailymotionBrowserFrameSource(
+                screen.DailymotionUrl,
+                screen.DailymotionBrowserWidth,
+                screen.DailymotionBrowserHeight,
+                screen.DailymotionCaptureFps,
+                enginePreference,
+                screen.DailymotionAutoplay,
+                screen.LoopDailymotion,
+                true,
+                screen.DailymotionAudioEnabled,
+                screen.DailymotionVolume,
+                1.0f);
+        }
+
+        public string GetUrl(BrowserScreenProfile screen)
+        {
+            return screen.DailymotionUrl;
+        }
+
+        public BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceDimensions(screen.DailymotionBrowserWidth, screen.DailymotionBrowserHeight);
+        }
+
+        public BrowserSourceRuntimeSettings GetRuntimeSettings(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceRuntimeSettings(
+                screen.DailymotionAudioEnabled,
+                screen.DailymotionVolume,
+                1.0f,
+                screen.LoopDailymotion,
+                true);
+        }
+
+        public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
+        {
+            if (frameSource is not DailymotionBrowserFrameSource source)
+                return;
+
+            BrowserSourceProviderRegistry.ApplyCaptureFps(
+                screen.DailymotionCaptureFpsManual,
+                screen.DailymotionCaptureFps,
                 source.DetectedVideoFps,
                 source.UpdateCaptureFps);
         }

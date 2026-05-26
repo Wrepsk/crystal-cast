@@ -97,7 +97,7 @@ internal sealed class ScreenChangePublisher
             changes.Add(ScreenIpcChangeKind.Placement);
         if (request.SourceControlsLocked.HasValue || !string.IsNullOrWhiteSpace(request.SourceControlsOwnerId))
             changes.Add(ScreenIpcChangeKind.SourceLock);
-        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch);
+        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch, request.Dailymotion);
 
         return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
     }
@@ -105,7 +105,7 @@ internal sealed class ScreenChangePublisher
     public static ScreenIpcChangeKind[] GetSourceUpdateChangeKinds(ScreenIpcSourceUpdateRequest request)
     {
         var changes = new List<ScreenIpcChangeKind>();
-        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch);
+        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch, request.Dailymotion);
         return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
     }
 
@@ -200,7 +200,14 @@ internal sealed class ScreenChangePublisher
                 screen?.TwitchBrowserWidth,
                 screen?.TwitchBrowserHeight,
                 screen?.TwitchCaptureFps,
-                screen?.TwitchCaptureFpsManual),
+                screen?.TwitchCaptureFpsManual,
+                screen?.DailymotionUrl,
+                screen?.DailymotionAutoplay,
+                screen?.LoopDailymotion,
+                screen?.DailymotionBrowserWidth,
+                screen?.DailymotionBrowserHeight,
+                screen?.DailymotionCaptureFps,
+                screen?.DailymotionCaptureFpsManual),
             Playback: string.Join('|',
                 state.Playback.State,
                 state.Playback.PositionMs,
@@ -241,10 +248,12 @@ internal sealed class ScreenChangePublisher
         List<ScreenIpcChangeKind> changes,
         bool providerChanged,
         YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch)
+        TwitchScreenPatchDto? twitch,
+        DailymotionScreenPatchDto? dailymotion)
     {
         AddYouTubeChangeKinds(changes, providerChanged, youtube);
         AddTwitchChangeKinds(changes, providerChanged, twitch);
+        AddDailymotionChangeKinds(changes, providerChanged, dailymotion);
     }
 
     private static void AddYouTubeChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, YouTubeScreenPatchDto? patch)
@@ -266,6 +275,20 @@ internal sealed class ScreenChangePublisher
     private static void AddTwitchChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, TwitchScreenPatchDto? patch)
     {
         if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true)
+            changes.Add(ScreenIpcChangeKind.Source);
+        if (patch?.PlaybackPaused.HasValue == true
+            || patch?.PositionMs.HasValue == true
+            || patch?.Restart == true)
+        {
+            changes.Add(ScreenIpcChangeKind.Playback);
+        }
+        if (patch?.BrowserWidth.HasValue == true || patch?.BrowserHeight.HasValue == true || patch?.CaptureFps.HasValue == true || patch?.CaptureFpsManual.HasValue == true)
+            changes.Add(ScreenIpcChangeKind.Source);
+    }
+
+    private static void AddDailymotionChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, DailymotionScreenPatchDto? patch)
+    {
+        if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true || patch?.Loop.HasValue == true)
             changes.Add(ScreenIpcChangeKind.Source);
         if (patch?.PlaybackPaused.HasValue == true
             || patch?.PositionMs.HasValue == true

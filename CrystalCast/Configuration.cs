@@ -297,6 +297,7 @@ public enum BrowserSourceProviderKind
 {
     YouTube = 1,
     Twitch = 2,
+    Dailymotion = 3,
 }
 
 public enum ScreenPlacementMode
@@ -381,6 +382,16 @@ public sealed class BrowserScreenProfile
     public bool TwitchAutoplay { get; set; } = true;
     public bool TwitchAudioEnabled { get; set; }
     public float TwitchVolume { get; set; } = 0.7f;
+
+    public string DailymotionUrl { get; set; } = string.Empty;
+    public int DailymotionBrowserWidth { get; set; } = 1280;
+    public int DailymotionBrowserHeight { get; set; } = 720;
+    public float DailymotionCaptureFps { get; set; } = 60.0f;
+    public bool DailymotionCaptureFpsManual { get; set; }
+    public bool DailymotionAutoplay { get; set; } = true;
+    public bool LoopDailymotion { get; set; }
+    public bool DailymotionAudioEnabled { get; set; }
+    public float DailymotionVolume { get; set; } = 0.7f;
 
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
@@ -476,6 +487,32 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
+        if (DailymotionBrowserWidth <= 0)
+        {
+            DailymotionBrowserWidth = 1280;
+            changed = true;
+        }
+
+        if (DailymotionBrowserHeight <= 0)
+        {
+            DailymotionBrowserHeight = 720;
+            changed = true;
+        }
+
+        var dailymotionCaptureFps = Math.Clamp(DailymotionCaptureFps, 1.0f, 60.0f);
+        if (Math.Abs(DailymotionCaptureFps - dailymotionCaptureFps) > 0.0001f)
+        {
+            DailymotionCaptureFps = dailymotionCaptureFps;
+            changed = true;
+        }
+
+        var dailymotionVolume = Math.Clamp(DailymotionVolume, 0.0f, 1.0f);
+        if (Math.Abs(DailymotionVolume - dailymotionVolume) > 0.0001f)
+        {
+            DailymotionVolume = dailymotionVolume;
+            changed = true;
+        }
+
         if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
         {
             SpatialAudioSilentRadiusMeters = SpatialAudioFullVolumeRadiusMeters + 0.1f;
@@ -520,6 +557,15 @@ public sealed class BrowserScreenProfile
             TwitchAutoplay = TwitchAutoplay,
             TwitchAudioEnabled = TwitchAudioEnabled,
             TwitchVolume = TwitchVolume,
+            DailymotionUrl = DailymotionUrl,
+            DailymotionBrowserWidth = DailymotionBrowserWidth,
+            DailymotionBrowserHeight = DailymotionBrowserHeight,
+            DailymotionCaptureFps = DailymotionCaptureFps,
+            DailymotionCaptureFpsManual = DailymotionCaptureFpsManual,
+            DailymotionAutoplay = DailymotionAutoplay,
+            LoopDailymotion = LoopDailymotion,
+            DailymotionAudioEnabled = DailymotionAudioEnabled,
+            DailymotionVolume = DailymotionVolume,
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,

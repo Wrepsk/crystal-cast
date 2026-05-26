@@ -175,6 +175,21 @@ internal sealed class ScreenStateBuilder
                 HostTimestampUnixMs = playback.HostTimestampUnixMs,
             }
             : null;
+        var dailymotionState = screen.ProviderKind == BrowserSourceProviderKind.Dailymotion
+            ? new DailymotionSourceStateDto
+            {
+                Url = screen.DailymotionUrl,
+                CanonicalUrl = source.Url,
+                VideoId = source.VideoId,
+                PlaylistId = GetDailymotionPlaylistId(screen.DailymotionUrl),
+                Title = source.Title,
+                State = playback.State,
+                PositionMs = playback.PositionMs,
+                DurationMs = playback.DurationMs,
+                Rate = playback.Rate,
+                HostTimestampUnixMs = playback.HostTimestampUnixMs,
+            }
+            : null;
 
         return new ScreenIpcSourceStateResponse
         {
@@ -192,6 +207,7 @@ internal sealed class ScreenStateBuilder
             SourceStatus = renderer.GetSourceStatus(screen),
             YouTube = youtubeState,
             Twitch = twitchState,
+            Dailymotion = dailymotionState,
         };
     }
 
@@ -219,8 +235,13 @@ internal sealed class ScreenStateBuilder
     private ScreenPlaybackStateDto BuildBrowserPlaybackState(BrowserScreenProfile screen)
     {
         var telemetry = renderer.GetPlaybackTelemetry(screen);
-        var rate = screen.ProviderKind == BrowserSourceProviderKind.Twitch ? 1.0f : screen.YouTubePlaybackRate;
-        var loop = screen.ProviderKind == BrowserSourceProviderKind.YouTube && screen.LoopYouTube;
+        var rate = screen.ProviderKind == BrowserSourceProviderKind.YouTube ? screen.YouTubePlaybackRate : 1.0f;
+        var loop = screen.ProviderKind switch
+        {
+            BrowserSourceProviderKind.YouTube => screen.LoopYouTube,
+            BrowserSourceProviderKind.Dailymotion => screen.LoopDailymotion,
+            _ => false,
+        };
         var playlistAutoplayNext = screen.ProviderKind != BrowserSourceProviderKind.YouTube || screen.YouTubePlaylistAutoplayNext;
         if (telemetry != null)
         {
@@ -273,6 +294,7 @@ internal sealed class ScreenStateBuilder
         {
             BrowserSourceProviderKind.YouTube => BuildYouTubeSourceState(screen),
             BrowserSourceProviderKind.Twitch => BuildTwitchSourceState(screen),
+            BrowserSourceProviderKind.Dailymotion => BuildDailymotionSourceState(screen),
             _ => new ScreenSourceState
             {
                 Kind = ScreenSourceKind.YouTubeBrowser,
@@ -360,6 +382,52 @@ internal sealed class ScreenStateBuilder
             TwitchSourceKind.Video => $"twitch:video:{source.VideoId}",
             _ => $"twitch:channel:{source.ChannelName}",
         };
+    }
+
+    private ScreenSourceState BuildDailymotionSourceState(BrowserScreenProfile screen)
+    {
+        var telemetry = renderer.GetPlaybackTelemetry(screen);
+        if (!DailymotionVideoId.TryParseSource(screen.DailymotionUrl, out var source))
+        {
+            return new ScreenSourceState
+            {
+                Kind = ScreenSourceKind.YouTubeBrowser,
+                Provider = BrowserSourceProviderKind.Dailymotion.ToString(),
+                Identity = "dailymotion:invalid",
+                Title = "Invalid Dailymotion source",
+            };
+        }
+
+        var currentVideoId = DailymotionVideoId.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
+            ? telemetry!.VideoId
+            : source.VideoId;
+        var canonicalUrl = DailymotionVideoId.BuildCanonicalSourceUrl(source, currentVideoId);
+        return new ScreenSourceState
+        {
+            Kind = ScreenSourceKind.YouTubeBrowser,
+            Provider = BrowserSourceProviderKind.Dailymotion.ToString(),
+            Identity = BuildDailymotionSourceIdentity(source),
+            Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "Dailymotion" : telemetry.Title,
+            Hash = string.Empty,
+            Url = canonicalUrl,
+            VideoId = currentVideoId,
+        };
+    }
+
+    private static string BuildDailymotionSourceIdentity(DailymotionSourceReference source)
+    {
+        return source.Kind switch
+        {
+            DailymotionSourceKind.Playlist => $"dailymotion:playlist:{source.PlaylistId}",
+            _ => $"dailymotion:video:{source.VideoId}",
+        };
+    }
+
+    private static string GetDailymotionPlaylistId(string url)
+    {
+        return DailymotionVideoId.TryParseSource(url, out var source) && source.Kind == DailymotionSourceKind.Playlist
+            ? source.PlaylistId
+            : string.Empty;
     }
 
     private static string GetTwitchChannelName(string url)

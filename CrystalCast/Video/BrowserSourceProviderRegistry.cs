@@ -53,13 +53,7 @@ internal static class BrowserSourceProviderRegistry
 
     public static float GetDetectedVideoFps(IVideoFrameSource? frameSource)
     {
-        return frameSource switch
-        {
-            YouTubeBrowserFrameSource source => source.DetectedVideoFps,
-            TwitchBrowserFrameSource source => source.DetectedVideoFps,
-            DailymotionBrowserFrameSource source => source.DetectedVideoFps,
-            _ => 0.0f,
-        };
+        return frameSource is IBrowserFrameSourceRuntime source ? source.DetectedVideoFps : 0.0f;
     }
 
     public static void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
@@ -93,7 +87,8 @@ internal static class BrowserSourceProviderRegistry
     {
         public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
         {
-            return new YouTubeBrowserFrameSource(
+            return new BrowserFrameSource(
+                BrowserSourceDescriptors.YouTube,
                 screen.YouTubeUrl,
                 screen.YouTubeBrowserWidth,
                 screen.YouTubeBrowserHeight,
@@ -129,7 +124,7 @@ internal static class BrowserSourceProviderRegistry
 
         public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
         {
-            if (frameSource is not YouTubeBrowserFrameSource source)
+            if (frameSource is not IBrowserFrameSourceRuntime { ProviderKind: BrowserSourceProviderKind.YouTube } source)
                 return;
 
             BrowserSourceProviderRegistry.ApplyCaptureFps(
@@ -144,7 +139,8 @@ internal static class BrowserSourceProviderRegistry
     {
         public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
         {
-            return new TwitchBrowserFrameSource(
+            return new BrowserFrameSource(
+                BrowserSourceDescriptors.Twitch,
                 screen.TwitchUrl,
                 screen.TwitchBrowserWidth,
                 screen.TwitchBrowserHeight,
@@ -180,7 +176,7 @@ internal static class BrowserSourceProviderRegistry
 
         public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
         {
-            if (frameSource is not TwitchBrowserFrameSource source)
+            if (frameSource is not IBrowserFrameSourceRuntime { ProviderKind: BrowserSourceProviderKind.Twitch } source)
                 return;
 
             BrowserSourceProviderRegistry.ApplyCaptureFps(
@@ -195,7 +191,8 @@ internal static class BrowserSourceProviderRegistry
     {
         public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
         {
-            return new DailymotionBrowserFrameSource(
+            return new BrowserFrameSource(
+                BrowserSourceDescriptors.Dailymotion,
                 screen.DailymotionUrl,
                 screen.DailymotionBrowserWidth,
                 screen.DailymotionBrowserHeight,
@@ -231,7 +228,7 @@ internal static class BrowserSourceProviderRegistry
 
         public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
         {
-            if (frameSource is not DailymotionBrowserFrameSource source)
+            if (frameSource is not IBrowserFrameSourceRuntime { ProviderKind: BrowserSourceProviderKind.Dailymotion } source)
                 return;
 
             BrowserSourceProviderRegistry.ApplyCaptureFps(

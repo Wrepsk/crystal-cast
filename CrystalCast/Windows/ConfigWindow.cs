@@ -217,7 +217,7 @@ public sealed class ConfigWindow : Window, IDisposable
         var changed = false;
         var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
 
-        if (ImGui.BeginCombo("YouTube backend", BrowserEngineNames[current]))
+        if (ImGui.BeginCombo("Browser backend", BrowserEngineNames[current]))
         {
             for (var i = 0; i < BrowserEngineNames.Length; i++)
             {
@@ -235,7 +235,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled("Auto prefers CEF offscreen and falls back to WebView2 capture.");
+        ImGui.TextDisabled("Auto uses each source's preferred backend and falls back when available.");
         return changed;
     }
 

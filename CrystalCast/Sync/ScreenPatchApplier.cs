@@ -1,5 +1,3 @@
-using CrystalCast.Video;
-
 namespace CrystalCast.Sync;
 
 internal static class ScreenPatchApplier
@@ -16,7 +14,7 @@ internal static class ScreenPatchApplier
             return false;
         }
 
-        screen.ProviderKind = ResolveRequestedProvider(screen, request.Provider, request.YouTube, request.Twitch, request.Dailymotion);
+        screen.ProviderKind = ResolveRequestedProvider(screen, request.Provider, request);
 
         var name = IpcJsonService.NormalizeText(request.Name);
         if (!string.IsNullOrWhiteSpace(name))
@@ -42,7 +40,7 @@ internal static class ScreenPatchApplier
         }
 
         ApplyPlacementPatch(screen.Placement, request.Placement);
-        return ApplyProviderPatch(screen, screen.ProviderKind, request.YouTube, request.Twitch, request.Dailymotion, out error);
+        return ApplyProviderPatch(screen, screen.ProviderKind, request, out error);
     }
 
     public static void ApplySourceLock(BrowserScreenProfile screen, ScreenIpcSourceLockRequest request)
@@ -55,46 +53,47 @@ internal static class ScreenPatchApplier
 
     public static bool IsSupportedBrowserProvider(BrowserSourceProviderKind provider)
     {
-        return BrowserSourceProviderRegistry.IsSupported(provider);
+        return BrowserSourceIpcAdapters.IsSupported(provider);
     }
 
     public static BrowserSourceProviderKind ResolveRequestedProvider(
         BrowserScreenProfile screen,
         BrowserSourceProviderKind? provider,
-        YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch,
-        DailymotionScreenPatchDto? dailymotion)
+        ScreenIpcMutationRequest request)
     {
-        if (provider.HasValue)
-            return provider.Value;
+        return BrowserSourceIpcAdapters.ResolveRequestedProvider(screen, provider, request);
+    }
 
-        if (dailymotion != null && youtube == null && twitch == null)
-            return BrowserSourceProviderKind.Dailymotion;
-
-        if (twitch != null && youtube == null && dailymotion == null)
-            return BrowserSourceProviderKind.Twitch;
-
-        if (youtube != null && twitch == null && dailymotion == null)
-            return BrowserSourceProviderKind.YouTube;
-
-        return screen.ProviderKind;
+    public static BrowserSourceProviderKind ResolveRequestedProvider(
+        BrowserScreenProfile screen,
+        BrowserSourceProviderKind? provider,
+        ScreenIpcSourceUpdateRequest request)
+    {
+        return BrowserSourceIpcAdapters.ResolveRequestedProvider(screen, provider, request);
     }
 
     public static bool ApplyProviderPatch(
         BrowserScreenProfile screen,
         BrowserSourceProviderKind provider,
-        YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch,
-        DailymotionScreenPatchDto? dailymotion,
+        ScreenIpcMutationRequest request,
         out string error)
     {
-        return provider switch
-        {
-            BrowserSourceProviderKind.YouTube => ApplyYouTubePatch(screen, youtube, out error),
-            BrowserSourceProviderKind.Twitch => ApplyTwitchPatch(screen, twitch, out error),
-            BrowserSourceProviderKind.Dailymotion => ApplyDailymotionPatch(screen, dailymotion, out error),
-            _ => UnsupportedProvider(provider, out error),
-        };
+        if (!BrowserSourceIpcAdapters.IsSupported(provider))
+            return UnsupportedProvider(provider, out error);
+
+        return BrowserSourceIpcAdapters.Get(provider).ApplyPatch(screen, request, out error);
+    }
+
+    public static bool ApplyProviderPatch(
+        BrowserScreenProfile screen,
+        BrowserSourceProviderKind provider,
+        ScreenIpcSourceUpdateRequest request,
+        out string error)
+    {
+        if (!BrowserSourceIpcAdapters.IsSupported(provider))
+            return UnsupportedProvider(provider, out error);
+
+        return BrowserSourceIpcAdapters.Get(provider).ApplyPatch(screen, request, out error);
     }
 
     private static void ApplyPlacementPatch(ScreenPlacementSettings placement, ScreenPlacementPatchDto? patch)
@@ -142,143 +141,4 @@ internal static class ScreenPatchApplier
         return false;
     }
 
-    private static bool ApplyYouTubePatch(BrowserScreenProfile screen, YouTubeScreenPatchDto? patch, out string error)
-    {
-        error = string.Empty;
-        if (patch == null)
-            return true;
-
-        if (patch.Url != null)
-        {
-            var url = patch.Url.Trim();
-            if (!string.IsNullOrWhiteSpace(url) && !YouTubeVideoId.TryParseSource(url, out _))
-            {
-                error = "YouTube URL, video ID, playlist, or live channel is invalid.";
-                return false;
-            }
-
-            screen.YouTubeUrl = url;
-        }
-
-        if (patch.PlaybackPaused.HasValue)
-            screen.PlaybackPaused = patch.PlaybackPaused.Value;
-        if (patch.Autoplay.HasValue)
-            screen.YouTubeAutoplay = patch.Autoplay.Value;
-        if (patch.Loop.HasValue)
-            screen.LoopYouTube = patch.Loop.Value;
-        if (patch.PlaylistAutoplayNext.HasValue)
-            screen.YouTubePlaylistAutoplayNext = patch.PlaylistAutoplayNext.Value;
-        if (patch.PlaybackRate.HasValue)
-            screen.YouTubePlaybackRate = patch.PlaybackRate.Value;
-        if (patch.BrowserWidth.HasValue)
-            screen.YouTubeBrowserWidth = patch.BrowserWidth.Value;
-        if (patch.BrowserHeight.HasValue)
-            screen.YouTubeBrowserHeight = patch.BrowserHeight.Value;
-        if (patch.CaptureFps.HasValue)
-            screen.YouTubeCaptureFps = patch.CaptureFps.Value;
-        if (patch.CaptureFpsManual.HasValue)
-            screen.YouTubeCaptureFpsManual = patch.CaptureFpsManual.Value;
-        if (patch.AudioEnabled.HasValue)
-            screen.YouTubeAudioEnabled = patch.AudioEnabled.Value;
-        if (patch.Volume.HasValue)
-            screen.YouTubeVolume = patch.Volume.Value;
-        if (patch.SpatialAudioEnabled.HasValue)
-            screen.SpatialAudioEnabled = patch.SpatialAudioEnabled.Value;
-        if (patch.SpatialAudioFullVolumeRadiusMeters.HasValue)
-            screen.SpatialAudioFullVolumeRadiusMeters = patch.SpatialAudioFullVolumeRadiusMeters.Value;
-        if (patch.SpatialAudioSilentRadiusMeters.HasValue)
-            screen.SpatialAudioSilentRadiusMeters = patch.SpatialAudioSilentRadiusMeters.Value;
-
-        return true;
-    }
-
-    private static bool ApplyTwitchPatch(BrowserScreenProfile screen, TwitchScreenPatchDto? patch, out string error)
-    {
-        error = string.Empty;
-        if (patch == null)
-            return true;
-
-        if (patch.Url != null)
-        {
-            var url = patch.Url.Trim();
-            if (!string.IsNullOrWhiteSpace(url) && !TwitchVideoId.TryParseSource(url, out _))
-            {
-                error = "Twitch channel or VOD URL is invalid.";
-                return false;
-            }
-
-            screen.TwitchUrl = url;
-        }
-
-        if (patch.PlaybackPaused.HasValue)
-            screen.PlaybackPaused = patch.PlaybackPaused.Value;
-        if (patch.Autoplay.HasValue)
-            screen.TwitchAutoplay = patch.Autoplay.Value;
-        if (patch.BrowserWidth.HasValue)
-            screen.TwitchBrowserWidth = patch.BrowserWidth.Value;
-        if (patch.BrowserHeight.HasValue)
-            screen.TwitchBrowserHeight = patch.BrowserHeight.Value;
-        if (patch.CaptureFps.HasValue)
-            screen.TwitchCaptureFps = patch.CaptureFps.Value;
-        if (patch.CaptureFpsManual.HasValue)
-            screen.TwitchCaptureFpsManual = patch.CaptureFpsManual.Value;
-        if (patch.AudioEnabled.HasValue)
-            screen.TwitchAudioEnabled = patch.AudioEnabled.Value;
-        if (patch.Volume.HasValue)
-            screen.TwitchVolume = patch.Volume.Value;
-        if (patch.SpatialAudioEnabled.HasValue)
-            screen.SpatialAudioEnabled = patch.SpatialAudioEnabled.Value;
-        if (patch.SpatialAudioFullVolumeRadiusMeters.HasValue)
-            screen.SpatialAudioFullVolumeRadiusMeters = patch.SpatialAudioFullVolumeRadiusMeters.Value;
-        if (patch.SpatialAudioSilentRadiusMeters.HasValue)
-            screen.SpatialAudioSilentRadiusMeters = patch.SpatialAudioSilentRadiusMeters.Value;
-
-        return true;
-    }
-
-    private static bool ApplyDailymotionPatch(BrowserScreenProfile screen, DailymotionScreenPatchDto? patch, out string error)
-    {
-        error = string.Empty;
-        if (patch == null)
-            return true;
-
-        if (patch.Url != null)
-        {
-            var url = patch.Url.Trim();
-            if (!string.IsNullOrWhiteSpace(url) && !DailymotionVideoId.TryParseSource(url, out _))
-            {
-                error = "Dailymotion URL, video ID, or playlist is invalid.";
-                return false;
-            }
-
-            screen.DailymotionUrl = url;
-        }
-
-        if (patch.PlaybackPaused.HasValue)
-            screen.PlaybackPaused = patch.PlaybackPaused.Value;
-        if (patch.Autoplay.HasValue)
-            screen.DailymotionAutoplay = patch.Autoplay.Value;
-        if (patch.Loop.HasValue)
-            screen.LoopDailymotion = patch.Loop.Value;
-        if (patch.BrowserWidth.HasValue)
-            screen.DailymotionBrowserWidth = patch.BrowserWidth.Value;
-        if (patch.BrowserHeight.HasValue)
-            screen.DailymotionBrowserHeight = patch.BrowserHeight.Value;
-        if (patch.CaptureFps.HasValue)
-            screen.DailymotionCaptureFps = patch.CaptureFps.Value;
-        if (patch.CaptureFpsManual.HasValue)
-            screen.DailymotionCaptureFpsManual = patch.CaptureFpsManual.Value;
-        if (patch.AudioEnabled.HasValue)
-            screen.DailymotionAudioEnabled = patch.AudioEnabled.Value;
-        if (patch.Volume.HasValue)
-            screen.DailymotionVolume = patch.Volume.Value;
-        if (patch.SpatialAudioEnabled.HasValue)
-            screen.SpatialAudioEnabled = patch.SpatialAudioEnabled.Value;
-        if (patch.SpatialAudioFullVolumeRadiusMeters.HasValue)
-            screen.SpatialAudioFullVolumeRadiusMeters = patch.SpatialAudioFullVolumeRadiusMeters.Value;
-        if (patch.SpatialAudioSilentRadiusMeters.HasValue)
-            screen.SpatialAudioSilentRadiusMeters = patch.SpatialAudioSilentRadiusMeters.Value;
-
-        return true;
-    }
 }

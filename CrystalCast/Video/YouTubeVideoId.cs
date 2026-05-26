@@ -211,7 +211,7 @@ public readonly record struct YouTubeSourceReference(
     YouTubeSourceKind Kind,
     string VideoId,
     string PlaylistId,
-    string LiveChannelId)
+    string LiveChannelId) : IBrowserSourceReference
 {
     public string DisplayName => Kind switch
     {

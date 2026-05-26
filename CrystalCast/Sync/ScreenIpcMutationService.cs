@@ -118,7 +118,7 @@ internal sealed class ScreenIpcMutationService
 
             configuration.Normalize();
             configuration.Save();
-            ApplyRuntimeControls(screen, request.YouTube, request.Twitch, request.Dailymotion);
+            ApplyRuntimeControls(screen, request);
             publishLocalState(screen.ScreenId, ScreenChangePublisher.GetMutationChangeKinds(request));
             return IpcJsonService.SerializeMutationSuccess(screen, created: false);
         }
@@ -173,9 +173,9 @@ internal sealed class ScreenIpcMutationService
             if (request.Provider is { } provider && !ScreenPatchApplier.IsSupportedBrowserProvider(provider))
                 return IpcJsonService.SerializeMutationError($"Unsupported browser source provider '{provider}'.", screen.ScreenId);
 
-            var providerKind = ScreenPatchApplier.ResolveRequestedProvider(screen, request.Provider, request.YouTube, request.Twitch, request.Dailymotion);
+            var providerKind = ScreenPatchApplier.ResolveRequestedProvider(screen, request.Provider, request);
             screen.ProviderKind = providerKind;
-            if (!ScreenPatchApplier.ApplyProviderPatch(screen, providerKind, request.YouTube, request.Twitch, request.Dailymotion, out var error))
+            if (!ScreenPatchApplier.ApplyProviderPatch(screen, providerKind, request, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
             configuration.SourceKind = ScreenSourceKind.YouTubeBrowser;
@@ -184,7 +184,7 @@ internal sealed class ScreenIpcMutationService
 
             configuration.Normalize();
             configuration.Save();
-            ApplyRuntimeControls(screen, request.YouTube, request.Twitch, request.Dailymotion);
+            ApplyRuntimeControls(screen, request);
             publishLocalState(screen.ScreenId, ScreenChangePublisher.GetSourceUpdateChangeKinds(request));
             return IpcJsonService.SerializeMutationSuccess(screen, created: false);
         }
@@ -227,96 +227,14 @@ internal sealed class ScreenIpcMutationService
         }
     }
 
-    private void ApplyRuntimeControls(
-        BrowserScreenProfile screen,
-        YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch,
-        DailymotionScreenPatchDto? dailymotion)
+    private void ApplyRuntimeControls(BrowserScreenProfile screen, ScreenIpcMutationRequest request)
     {
-        switch (screen.ProviderKind)
-        {
-            case BrowserSourceProviderKind.Twitch:
-                ApplyTwitchRuntimeControls(screen, twitch);
-                return;
-            case BrowserSourceProviderKind.Dailymotion:
-                ApplyDailymotionRuntimeControls(screen, dailymotion);
-                return;
-            default:
-                ApplyYouTubeRuntimeControls(screen, youtube);
-                return;
-        }
+        BrowserSourceIpcAdapters.Get(screen.ProviderKind).ApplyRuntimeControls(renderer, screen, request);
     }
 
-    private void ApplyYouTubeRuntimeControls(BrowserScreenProfile screen, YouTubeScreenPatchDto? patch)
+    private void ApplyRuntimeControls(BrowserScreenProfile screen, ScreenIpcSourceUpdateRequest request)
     {
-        if (patch == null)
-            return;
-
-        if (patch.Restart)
-        {
-            renderer.TryRestartDynamicSource(screen);
-        }
-        else if (patch.PositionMs.HasValue)
-        {
-            var seconds = Math.Max(0.0, patch.PositionMs.Value / 1000.0);
-            renderer.TrySeekDynamicSourceTo(screen, seconds);
-        }
-
-        if (!patch.PlaybackPaused.HasValue)
-            return;
-
-        if (patch.PlaybackPaused.Value)
-            renderer.TryPauseDynamicSource(screen);
-        else
-            renderer.TryPlayDynamicSource(screen);
-    }
-
-    private void ApplyTwitchRuntimeControls(BrowserScreenProfile screen, TwitchScreenPatchDto? patch)
-    {
-        if (patch == null)
-            return;
-
-        if (patch.Restart)
-        {
-            renderer.TryRestartDynamicSource(screen);
-        }
-        else if (patch.PositionMs.HasValue)
-        {
-            var seconds = Math.Max(0.0, patch.PositionMs.Value / 1000.0);
-            renderer.TrySeekDynamicSourceTo(screen, seconds);
-        }
-
-        if (!patch.PlaybackPaused.HasValue)
-            return;
-
-        if (patch.PlaybackPaused.Value)
-            renderer.TryPauseDynamicSource(screen);
-        else
-            renderer.TryPlayDynamicSource(screen);
-    }
-
-    private void ApplyDailymotionRuntimeControls(BrowserScreenProfile screen, DailymotionScreenPatchDto? patch)
-    {
-        if (patch == null)
-            return;
-
-        if (patch.Restart)
-        {
-            renderer.TryRestartDynamicSource(screen);
-        }
-        else if (patch.PositionMs.HasValue)
-        {
-            var seconds = Math.Max(0.0, patch.PositionMs.Value / 1000.0);
-            renderer.TrySeekDynamicSourceTo(screen, seconds);
-        }
-
-        if (!patch.PlaybackPaused.HasValue)
-            return;
-
-        if (patch.PlaybackPaused.Value)
-            renderer.TryPauseDynamicSource(screen);
-        else
-            renderer.TryPlayDynamicSource(screen);
+        BrowserSourceIpcAdapters.Get(screen.ProviderKind).ApplyRuntimeControls(renderer, screen, request);
     }
 
     private BrowserScreenProfile? FindBrowserScreen(string screenId)

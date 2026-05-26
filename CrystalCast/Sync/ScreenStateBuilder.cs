@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using CrystalCast.Rendering;
-using CrystalCast.Video;
 
 namespace CrystalCast.Sync;
 
@@ -144,54 +143,12 @@ internal sealed class ScreenStateBuilder
 
     public ScreenIpcSourceStateResponse BuildSourceStateResponse(BrowserScreenProfile screen)
     {
-        var source = BuildBrowserSourceState(screen);
-        var playback = BuildBrowserPlaybackState(screen);
-        var youtubeState = screen.ProviderKind == BrowserSourceProviderKind.YouTube
-            ? new YouTubeSourceStateDto
-            {
-                Url = screen.YouTubeUrl,
-                CanonicalUrl = source.Url,
-                VideoId = source.VideoId,
-                Title = source.Title,
-                State = playback.State,
-                PositionMs = playback.PositionMs,
-                DurationMs = playback.DurationMs,
-                Rate = playback.Rate,
-                HostTimestampUnixMs = playback.HostTimestampUnixMs,
-            }
-            : null;
-        var twitchState = screen.ProviderKind == BrowserSourceProviderKind.Twitch
-            ? new TwitchSourceStateDto
-            {
-                Url = screen.TwitchUrl,
-                CanonicalUrl = source.Url,
-                VideoId = source.VideoId,
-                ChannelName = GetTwitchChannelName(screen.TwitchUrl),
-                Title = source.Title,
-                State = playback.State,
-                PositionMs = playback.PositionMs,
-                DurationMs = playback.DurationMs,
-                Rate = playback.Rate,
-                HostTimestampUnixMs = playback.HostTimestampUnixMs,
-            }
-            : null;
-        var dailymotionState = screen.ProviderKind == BrowserSourceProviderKind.Dailymotion
-            ? new DailymotionSourceStateDto
-            {
-                Url = screen.DailymotionUrl,
-                CanonicalUrl = source.Url,
-                VideoId = source.VideoId,
-                PlaylistId = GetDailymotionPlaylistId(screen.DailymotionUrl),
-                Title = source.Title,
-                State = playback.State,
-                PositionMs = playback.PositionMs,
-                DurationMs = playback.DurationMs,
-                Rate = playback.Rate,
-                HostTimestampUnixMs = playback.HostTimestampUnixMs,
-            }
-            : null;
+        var telemetry = renderer.GetPlaybackTelemetry(screen);
+        var adapter = BrowserSourceIpcAdapters.Get(screen.ProviderKind);
+        var source = adapter.BuildSourceState(screen, telemetry);
+        var playback = adapter.BuildPlaybackState(screen, telemetry);
 
-        return new ScreenIpcSourceStateResponse
+        var response = new ScreenIpcSourceStateResponse
         {
             Success = true,
             ScreenId = screen.ScreenId,
@@ -205,10 +162,9 @@ internal sealed class ScreenStateBuilder
             Provider = screen.ProviderKind.ToString(),
             SourceName = renderer.GetSourceName(screen),
             SourceStatus = renderer.GetSourceStatus(screen),
-            YouTube = youtubeState,
-            Twitch = twitchState,
-            Dailymotion = dailymotionState,
         };
+        adapter.PopulateSourceStateResponse(response, screen, source, playback);
+        return response;
     }
 
     public static bool TryResolveForIpc(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
@@ -235,37 +191,7 @@ internal sealed class ScreenStateBuilder
     private ScreenPlaybackStateDto BuildBrowserPlaybackState(BrowserScreenProfile screen)
     {
         var telemetry = renderer.GetPlaybackTelemetry(screen);
-        var rate = screen.ProviderKind == BrowserSourceProviderKind.YouTube ? screen.YouTubePlaybackRate : 1.0f;
-        var loop = screen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.YouTube => screen.LoopYouTube,
-            BrowserSourceProviderKind.Dailymotion => screen.LoopDailymotion,
-            _ => false,
-        };
-        var playlistAutoplayNext = screen.ProviderKind != BrowserSourceProviderKind.YouTube || screen.YouTubePlaylistAutoplayNext;
-        if (telemetry != null)
-        {
-            return new ScreenPlaybackStateDto
-            {
-                State = screen.PlaybackPaused ? ScreenPlaybackState.Paused : telemetry.State,
-                PositionMs = telemetry.PositionMs,
-                DurationMs = telemetry.DurationMs,
-                Rate = telemetry.Rate,
-                Loop = loop,
-                PlaylistAutoplayNext = playlistAutoplayNext,
-                HostTimestampUnixMs = telemetry.HostTimestampUnixMs,
-            };
-        }
-
-        return new ScreenPlaybackStateDto
-        {
-            State = screen.PlaybackPaused ? ScreenPlaybackState.Paused : ScreenPlaybackState.Playing,
-            PositionMs = 0,
-            Rate = rate,
-            Loop = loop,
-            PlaylistAutoplayNext = playlistAutoplayNext,
-            HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        };
+        return BrowserSourceIpcAdapters.Get(screen.ProviderKind).BuildPlaybackState(screen, telemetry);
     }
 
     private static ScreenSourceState BuildFileSourceState(ScreenSourceKind kind, string path, string fallbackIdentity)
@@ -290,151 +216,8 @@ internal sealed class ScreenStateBuilder
 
     private ScreenSourceState BuildBrowserSourceState(BrowserScreenProfile screen)
     {
-        return screen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.YouTube => BuildYouTubeSourceState(screen),
-            BrowserSourceProviderKind.Twitch => BuildTwitchSourceState(screen),
-            BrowserSourceProviderKind.Dailymotion => BuildDailymotionSourceState(screen),
-            _ => new ScreenSourceState
-            {
-                Kind = ScreenSourceKind.YouTubeBrowser,
-                Provider = screen.ProviderKind.ToString(),
-                Identity = $"browser:{screen.ProviderKind}",
-                Title = $"{screen.ProviderKind} source",
-            },
-        };
-    }
-
-    private ScreenSourceState BuildYouTubeSourceState(BrowserScreenProfile screen)
-    {
         var telemetry = renderer.GetPlaybackTelemetry(screen);
-        if (!YouTubeVideoId.TryParseSource(screen.YouTubeUrl, out var source))
-        {
-            return new ScreenSourceState
-            {
-                Kind = ScreenSourceKind.YouTubeBrowser,
-                Provider = BrowserSourceProviderKind.YouTube.ToString(),
-                Identity = "youtube:invalid",
-                Title = "Invalid YouTube source",
-            };
-        }
-
-        var currentVideoId = YouTubeVideoId.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
-            ? telemetry!.VideoId
-            : source.VideoId;
-        var canonicalUrl = YouTubeVideoId.BuildCanonicalSourceUrl(source, currentVideoId);
-        return new ScreenSourceState
-        {
-            Kind = ScreenSourceKind.YouTubeBrowser,
-            Provider = BrowserSourceProviderKind.YouTube.ToString(),
-            Identity = BuildYouTubeSourceIdentity(source),
-            Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "YouTube video" : telemetry.Title,
-            Hash = string.Empty,
-            Url = canonicalUrl,
-            VideoId = currentVideoId,
-        };
-    }
-
-    private static string BuildYouTubeSourceIdentity(YouTubeSourceReference source)
-    {
-        return source.Kind switch
-        {
-            YouTubeSourceKind.Playlist => $"youtube:playlist:{source.PlaylistId}",
-            YouTubeSourceKind.LiveChannel => $"youtube:live-channel:{source.LiveChannelId}",
-            _ => $"youtube:{source.VideoId}",
-        };
-    }
-
-    private ScreenSourceState BuildTwitchSourceState(BrowserScreenProfile screen)
-    {
-        var telemetry = renderer.GetPlaybackTelemetry(screen);
-        if (!TwitchVideoId.TryParseSource(screen.TwitchUrl, out var source))
-        {
-            return new ScreenSourceState
-            {
-                Kind = ScreenSourceKind.YouTubeBrowser,
-                Provider = BrowserSourceProviderKind.Twitch.ToString(),
-                Identity = "twitch:invalid",
-                Title = "Invalid Twitch source",
-            };
-        }
-
-        var currentVideoId = TwitchVideoId.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
-            ? telemetry!.VideoId
-            : source.VideoId;
-        var canonicalUrl = TwitchVideoId.BuildCanonicalSourceUrl(source, currentVideoId);
-        return new ScreenSourceState
-        {
-            Kind = ScreenSourceKind.YouTubeBrowser,
-            Provider = BrowserSourceProviderKind.Twitch.ToString(),
-            Identity = BuildTwitchSourceIdentity(source),
-            Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "Twitch" : telemetry.Title,
-            Hash = string.Empty,
-            Url = canonicalUrl,
-            VideoId = currentVideoId,
-        };
-    }
-
-    private static string BuildTwitchSourceIdentity(TwitchSourceReference source)
-    {
-        return source.Kind switch
-        {
-            TwitchSourceKind.Video => $"twitch:video:{source.VideoId}",
-            _ => $"twitch:channel:{source.ChannelName}",
-        };
-    }
-
-    private ScreenSourceState BuildDailymotionSourceState(BrowserScreenProfile screen)
-    {
-        var telemetry = renderer.GetPlaybackTelemetry(screen);
-        if (!DailymotionVideoId.TryParseSource(screen.DailymotionUrl, out var source))
-        {
-            return new ScreenSourceState
-            {
-                Kind = ScreenSourceKind.YouTubeBrowser,
-                Provider = BrowserSourceProviderKind.Dailymotion.ToString(),
-                Identity = "dailymotion:invalid",
-                Title = "Invalid Dailymotion source",
-            };
-        }
-
-        var currentVideoId = DailymotionVideoId.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
-            ? telemetry!.VideoId
-            : source.VideoId;
-        var canonicalUrl = DailymotionVideoId.BuildCanonicalSourceUrl(source, currentVideoId);
-        return new ScreenSourceState
-        {
-            Kind = ScreenSourceKind.YouTubeBrowser,
-            Provider = BrowserSourceProviderKind.Dailymotion.ToString(),
-            Identity = BuildDailymotionSourceIdentity(source),
-            Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? "Dailymotion" : telemetry.Title,
-            Hash = string.Empty,
-            Url = canonicalUrl,
-            VideoId = currentVideoId,
-        };
-    }
-
-    private static string BuildDailymotionSourceIdentity(DailymotionSourceReference source)
-    {
-        return source.Kind switch
-        {
-            DailymotionSourceKind.Playlist => $"dailymotion:playlist:{source.PlaylistId}",
-            _ => $"dailymotion:video:{source.VideoId}",
-        };
-    }
-
-    private static string GetDailymotionPlaylistId(string url)
-    {
-        return DailymotionVideoId.TryParseSource(url, out var source) && source.Kind == DailymotionSourceKind.Playlist
-            ? source.PlaylistId
-            : string.Empty;
-    }
-
-    private static string GetTwitchChannelName(string url)
-    {
-        return TwitchVideoId.TryParseSource(url, out var source) && source.Kind == TwitchSourceKind.Channel
-            ? source.ChannelName
-            : string.Empty;
+        return BrowserSourceIpcAdapters.Get(screen.ProviderKind).BuildSourceState(screen, telemetry);
     }
 
     private static string TryHashFile(string path)

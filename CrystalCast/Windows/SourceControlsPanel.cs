@@ -5,18 +5,11 @@ namespace CrystalCast.Windows;
 internal sealed class SourceControlsPanel
 {
     private readonly LocalVideoSourceControlsPanel localVideoPanel = new();
-    private readonly Dictionary<BrowserSourceProviderKind, IBrowserSourceControlsPanel> browserPanels;
+    private readonly BrowserSourceControlsPanel browserPanel;
 
     public SourceControlsPanel(WorldScreenManager renderer)
     {
-        IBrowserSourceControlsPanel[] panels =
-        [
-            new YouTubeSourceControlsPanel(renderer),
-            new TwitchSourceControlsPanel(renderer),
-            new DailymotionSourceControlsPanel(renderer),
-        ];
-
-        browserPanels = panels.ToDictionary(panel => panel.ProviderKind);
+        browserPanel = new BrowserSourceControlsPanel(renderer);
     }
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
@@ -31,15 +24,11 @@ internal sealed class SourceControlsPanel
 
     public void ClearScreen(string screenId)
     {
-        foreach (var panel in browserPanels.Values)
-            panel.ClearScreen(screenId);
+        browserPanel.ClearScreen(screenId);
     }
 
     private bool DrawBrowserSource(BrowserScreenProfile screen)
     {
-        if (!browserPanels.TryGetValue(screen.ProviderKind, out var panel))
-            panel = browserPanels[BrowserSourceProviderKind.YouTube];
-
-        return panel.Draw(screen);
+        return browserPanel.Draw(screen);
     }
 }

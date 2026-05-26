@@ -244,7 +244,7 @@ public static partial class DailymotionVideoId
 public readonly record struct DailymotionSourceReference(
     DailymotionSourceKind Kind,
     string VideoId,
-    string PlaylistId)
+    string PlaylistId) : IBrowserSourceReference
 {
     public string DisplayName => Kind switch
     {

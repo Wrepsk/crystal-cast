@@ -134,7 +134,7 @@ public static partial class TwitchVideoId
 public readonly record struct TwitchSourceReference(
     TwitchSourceKind Kind,
     string VideoId,
-    string ChannelName)
+    string ChannelName) : IBrowserSourceReference
 {
     public string DisplayName => Kind switch
     {

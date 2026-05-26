@@ -1,9 +1,8 @@
-using System.Runtime.CompilerServices;
-
 namespace CrystalCast.Video;
 
-public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController
+internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
 {
+    private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
     private readonly int width;
     private readonly int height;
@@ -19,7 +18,8 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     private BrowserMediaEngine activeEngine;
     private string fallbackStatus = string.Empty;
 
-    public YouTubeBrowserFrameSource(
+    public BrowserFrameSource(
+        BrowserSourceDescriptor descriptor,
         string input,
         int width,
         int height,
@@ -32,6 +32,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         float volume,
         float playbackRate)
     {
+        this.descriptor = descriptor;
         this.input = input;
         this.width = width;
         this.height = height;
@@ -45,7 +46,8 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         currentPlaybackRate = playbackRate;
     }
 
-    public string Name => activeSource?.Name ?? $"YouTube browser ({DescribePreference(enginePreference)})";
+    public BrowserSourceProviderKind ProviderKind => descriptor.ProviderKind;
+    public string Name => activeSource?.Name ?? $"{descriptor.DisplayName} browser ({DescribePreference(enginePreference)})";
     public int Width => activeSource?.Width ?? Math.Clamp(width, 320, 3840);
     public int Height => activeSource?.Height ?? Math.Clamp(height, 180, 2160);
     public float FramesPerSecond => activeSource?.FramesPerSecond ?? Math.Clamp(captureFps, 1.0f, 120.0f);
@@ -53,6 +55,17 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     public string Status => string.IsNullOrWhiteSpace(fallbackStatus)
         ? activeSource?.Status ?? "browser source not started"
         : $"{activeSource?.Status ?? "browser source not started"}; {fallbackStatus}";
+
+    public float DetectedVideoFps
+    {
+        get
+        {
+            if (activeSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var t))
+                return t.DetectedVideoFps;
+
+            return 0.0f;
+        }
+    }
 
     public void Start()
     {
@@ -131,29 +144,16 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         TryFallbackFromCefStartFailure();
     }
 
+    public void UpdateCaptureFps(float fps)
+    {
+        if (activeSource is IBrowserFrameSourceRuntime runtime)
+            runtime.UpdateCaptureFps(fps);
+    }
+
     public void Dispose()
     {
         activeSource?.Dispose();
         activeSource = null;
-    }
-
-    public float DetectedVideoFps
-    {
-        get
-        {
-            if (activeSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var t))
-                return t.DetectedVideoFps;
-
-            return 0.0f;
-        }
-    }
-
-    public void UpdateCaptureFps(float fps)
-    {
-        if (activeSource is CefYouTubeBrowserFrameSource cef)
-            cef.UpdateCaptureFps(fps);
-        else if (activeSource is WebView2YouTubeBrowserFrameSource webView2)
-            webView2.UpdateCaptureFps(fps);
     }
 
     private void EnsureSource()
@@ -186,6 +186,13 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
     private IVideoFrameSource CreateAutoSource()
     {
+        return descriptor.PreferredAutoEngine == BrowserMediaEngine.WebView2Capture
+            ? CreateAutoWebView2FirstSource()
+            : CreateAutoCefFirstSource();
+    }
+
+    private IVideoFrameSource CreateAutoCefFirstSource()
+    {
         if (CefRuntimeManager.CanInitialize(out var status))
         {
             fallbackStatus = string.Empty;
@@ -194,6 +201,24 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
         fallbackStatus = $"CEF unavailable, using WebView2 fallback: {status}";
         return CreateWebView2Source();
+    }
+
+    private IVideoFrameSource CreateAutoWebView2FirstSource()
+    {
+        if (WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var webView2Status))
+        {
+            fallbackStatus = $"using WebView2 for {descriptor.DisplayName}: {runtimeVersion}";
+            return CreateWebView2Source();
+        }
+
+        if (CefRuntimeManager.CanInitialize(out var cefStatus))
+        {
+            fallbackStatus = $"WebView2 unavailable, using CEF for {descriptor.DisplayName}: {webView2Status}";
+            return CreateCefSource();
+        }
+
+        fallbackStatus = $"browser source unavailable: WebView2 {webView2Status}; CEF {cefStatus}";
+        return CreateUnavailableSource(fallbackStatus);
     }
 
     private IVideoFrameSource CreateCefSource()
@@ -212,19 +237,13 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
         fallbackStatus = enginePreference == BrowserMediaEngine.CefOffScreen ? string.Empty : fallbackStatus;
         activeEngine = BrowserMediaEngine.CefOffScreen;
-        return CreateInitializedCefSource();
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private IVideoFrameSource CreateInitializedCefSource()
-    {
-        return new CefYouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new CefBrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
     }
 
     private IVideoFrameSource CreateWebView2Source()
     {
         activeEngine = BrowserMediaEngine.WebView2Capture;
-        return new WebView2YouTubeBrowserFrameSource(input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new WebView2BrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
     }
 
     private void StartActiveSource()
@@ -294,7 +313,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
             return;
 
         var cefStatus = activeSource.Status;
-        if (cefStatus.Contains("invalid YouTube", StringComparison.OrdinalIgnoreCase))
+        if (cefStatus.Contains(descriptor.InvalidSourceMessage, StringComparison.OrdinalIgnoreCase))
             return;
 
         activeSource.Dispose();
@@ -311,7 +330,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
     {
         if (enginePreference != BrowserMediaEngine.Auto
             || activeEngine != BrowserMediaEngine.CefOffScreen
-            || activeSource is not CefYouTubeBrowserFrameSource { HasPlayerFailed: true } cefSource)
+            || activeSource is not CefBrowserFrameSource { HasPlayerFailed: true } cefSource)
         {
             return;
         }
@@ -319,7 +338,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
         var cefStatus = cefSource.Status;
         activeSource.Dispose();
         activeSource = CreateWebView2Source();
-        fallbackStatus = $"CEF YouTube playback failed, using WebView2 fallback: {cefStatus}";
+        fallbackStatus = $"CEF {descriptor.DisplayName} playback failed, using WebView2 fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
             controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
@@ -339,7 +358,7 @@ public sealed class YouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybac
 
     private sealed class UnavailableFrameSource(int width, int height, float framesPerSecond, string status) : IVideoFrameSource
     {
-        public string Name => "YouTube browser (unavailable)";
+        public string Name => "browser source (unavailable)";
         public int Width { get; } = width;
         public int Height { get; } = height;
         public float FramesPerSecond { get; } = framesPerSecond;

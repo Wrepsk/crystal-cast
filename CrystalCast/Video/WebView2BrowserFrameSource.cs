@@ -8,18 +8,16 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace CrystalCast.Video;
 
-public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController
+internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
 {
-    private const string VirtualHostName = "crystalcast.local";
-    private const string PlayerOrigin = $"https://{VirtualHostName}";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
-    private readonly TwitchSourceReference source;
+    private readonly IBrowserSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
     private readonly object telemetryLock = new();
@@ -42,7 +40,8 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
     private double lastCaptureMilliseconds;
     private float detectedVideoFps;
 
-    public WebView2TwitchBrowserFrameSource(
+    public WebView2BrowserFrameSource(
+        BrowserSourceDescriptor descriptor,
         string input,
         int width,
         int height,
@@ -54,8 +53,9 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         float volume,
         float playbackRate)
     {
+        this.descriptor = descriptor;
         this.input = input;
-        isValidSource = TwitchVideoId.TryParseSource(input, out source);
+        isValidSource = descriptor.TryParse(input, out source);
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
@@ -67,16 +67,18 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         this.playbackRate = ClampPlaybackRate(playbackRate);
 
         if (!isValidSource)
-            browserStatus = "invalid Twitch channel or VOD URL";
+            browserStatus = descriptor.InvalidSourceMessage;
 
         UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty);
     }
 
-    public string Name => "Twitch browser (WebView2 capture)";
+    public BrowserSourceProviderKind ProviderKind => descriptor.ProviderKind;
+    public string Name => $"{descriptor.DisplayName} browser (WebView2 capture)";
     public int Width { get; }
     public int Height { get; }
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
+    public float DetectedVideoFps => detectedVideoFps;
 
     public string Status
     {
@@ -94,7 +96,7 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         var wasCaptureEnabled = captureEnabled;
         if (!isValidSource)
         {
-            browserStatus = $"invalid Twitch channel or VOD URL: {input}";
+            browserStatus = descriptor.ParseInvalidInputStatus(input);
             return;
         }
 
@@ -201,11 +203,20 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
 
+    public void UpdateCaptureFps(float fps)
+    {
+        var clamped = Math.Clamp(fps, 1.0f, 120.0f);
+        if (Math.Abs(FramesPerSecond - clamped) < 0.01f)
+            return;
+
+        FramesPerSecond = clamped;
+    }
+
     private string WritePlayerPage(string contentFolder)
     {
         const string playerPageName = "player.html";
         var playerPagePath = Path.Combine(contentFolder, playerPageName);
-        File.WriteAllText(playerPagePath, TwitchPlayerPage.BuildHtml(source, autoplay, audioEnabled, volume));
+        File.WriteAllText(playerPagePath, descriptor.BuildHtml(source, new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate)));
         return playerPageName;
     }
 
@@ -249,25 +260,25 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
                 UpdateDetectedVideoFps(root);
                 break;
             case "error":
-                playerStatus = DescribeTwitchError(root);
+                playerStatus = descriptor.DescribeError(root);
                 break;
             case "script-error":
-                playerStatus = TryGetString(root, "message", "script error");
+                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "script error");
                 break;
             case "debug":
-                playerStatus = TryGetString(root, "message", "browser debug");
+                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "browser debug");
                 break;
         }
     }
 
     private void UpdateFromStatusMessage(JsonElement root)
     {
-        var title = TryGetString(root, "title", string.Empty);
-        var currentVideoId = TryGetString(root, "videoId", source.VideoId);
-        var positionSeconds = TryGetDouble(root, "positionSeconds", 0.0);
-        var durationSeconds = TryGetDouble(root, "durationSeconds", 0.0);
-        var rate = (float)TryGetDouble(root, "rate", playbackRate);
-        var stateCode = TryGetInt(root, "state", -1);
+        var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
+        var currentVideoId = BrowserSourceDescriptors.TryGetString(root, "videoId", source.VideoId);
+        var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
+        var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
+        var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", playbackRate);
+        var stateCode = BrowserSourceDescriptors.TryGetInt(root, "state", -1);
         var playbackState = stateCode switch
         {
             1 or 3 => ScreenPlaybackState.Playing,
@@ -278,14 +289,12 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
         var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
         UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
-        playerStatus = string.IsNullOrWhiteSpace(title)
-            ? $"player state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s"
-            : $"{title}; state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s";
+        playerStatus = descriptor.FormatPlayerStatus(title, stateCode, positionSeconds, durationSeconds, root);
     }
 
     private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "")
     {
-        if (!TwitchVideoId.IsValidVideoId(currentVideoId))
+        if (!descriptor.IsValidVideoId(currentVideoId))
             currentVideoId = source.VideoId;
 
         lock (telemetryLock)
@@ -298,7 +307,7 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
                 Rate = ClampPlaybackRate(rate),
                 Title = title,
                 VideoId = currentVideoId,
-                CanonicalUrl = TwitchVideoId.BuildCanonicalSourceUrl(source, currentVideoId),
+                CanonicalUrl = descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = detectedVideoFps,
             };
@@ -329,18 +338,9 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         }
     }
 
-    public void UpdateCaptureFps(float fps)
-    {
-        var clamped = Math.Clamp(fps, 1.0f, 120.0f);
-        if (Math.Abs(FramesPerSecond - clamped) < 0.01f)
-            return;
-
-        FramesPerSecond = clamped;
-    }
-
     private void UpdateDetectedVideoFps(JsonElement root)
     {
-        var fps = (float)TryGetDouble(root, "fps", 0.0);
+        var fps = (float)BrowserSourceDescriptors.TryGetDouble(root, "fps", 0.0);
         if (fps >= 1.0f && fps <= 240.0f)
         {
             detectedVideoFps = fps;
@@ -369,24 +369,6 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         }
     }
 
-    private static string DescribeTwitchError(JsonElement root)
-    {
-        if (root.TryGetProperty("message", out var messageProperty) && messageProperty.ValueKind == JsonValueKind.String)
-            return messageProperty.GetString() ?? "Twitch player error";
-
-        var code = TryGetInt(root, "code", 0);
-        return code switch
-        {
-            2 => "Twitch player error: invalid video ID or parameter",
-            5 => "Twitch player error: HTML5 playback failed",
-            100 => "Twitch player error: video unavailable or private",
-            101 or 150 => "Twitch player error: embedding is disallowed by the owner",
-            153 => "Twitch player error: missing or blocked HTTP Referer",
-            -1 => "Twitch player error: failed to load the embed API",
-            _ => $"Twitch player error: {code}",
-        };
-    }
-
     private static float ClampPlaybackRate(float rate)
     {
         if (!float.IsFinite(rate))
@@ -411,30 +393,9 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
             : MathF.Ceiling(clamped * 100.0f) / 100.0f;
     }
 
-    private static string TryGetString(JsonElement root, string propertyName, string fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString() ?? fallback
-            : fallback;
-    }
-
-    private static double TryGetDouble(JsonElement root, string propertyName, double fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.TryGetDouble(out var value)
-            ? value
-            : fallback;
-    }
-
-    private static int TryGetInt(JsonElement root, string propertyName, int fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.TryGetInt32(out var value)
-            ? value
-            : fallback;
-    }
-
     private sealed class BrowserThread : IDisposable
     {
-        private readonly WebView2TwitchBrowserFrameSource owner;
+        private readonly WebView2BrowserFrameSource owner;
         private readonly Thread thread;
         private readonly ManualResetEventSlim contextReady = new();
         private volatile bool shutdownRequested;
@@ -443,13 +404,13 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
         private CoreWebView2? webView;
         private volatile bool disposed;
 
-        public BrowserThread(WebView2TwitchBrowserFrameSource owner)
+        public BrowserThread(WebView2BrowserFrameSource owner)
         {
             this.owner = owner;
             thread = new Thread(ThreadMain)
             {
                 IsBackground = true,
-                Name = "CrystalCast WebView2 Twitch source",
+                Name = $"CrystalCast WebView2 {owner.descriptor.DisplayName} source",
             };
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
@@ -609,13 +570,24 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
                 var userDataFolder = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "CrystalCast",
-                    "WebView2");
+                    owner.descriptor.WebView2UserDataFolderName);
                 Directory.CreateDirectory(userDataFolder);
                 var contentFolder = Path.Combine(userDataFolder, "Content");
                 Directory.CreateDirectory(contentFolder);
                 var playerPageName = owner.WritePlayerPage(contentFolder);
 
-                var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                CoreWebView2Environment environment;
+                if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))
+                {
+                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+                }
+                else
+                {
+                    var environmentOptions = new CoreWebView2EnvironmentOptions(
+                        additionalBrowserArguments: owner.descriptor.WebView2AdditionalBrowserArguments);
+                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
+                }
+
                 controller = await environment.CreateCoreWebView2ControllerAsync(BrowserNative.HwndMessage);
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
@@ -627,11 +599,11 @@ public sealed class WebView2TwitchBrowserFrameSource : IVideoFrameSource, IMedia
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
                 webView.SetVirtualHostNameToFolderMapping(
-                    VirtualHostName,
+                    owner.descriptor.VirtualHostName,
                     contentFolder,
                     CoreWebView2HostResourceAccessKind.DenyCors);
-                owner.browserStatus = "WebView2 loading Twitch player";
-                webView.Navigate($"{PlayerOrigin}/{playerPageName}");
+                owner.browserStatus = $"WebView2 loading {owner.descriptor.DisplayName} player";
+                webView.Navigate($"{owner.descriptor.PlayerOrigin}/{playerPageName}");
                 _ = CaptureLoopAsync();
             }
             catch (Exception ex)

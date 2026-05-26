@@ -5,15 +5,16 @@ using System.Text.Json;
 
 namespace CrystalCast.Video;
 
-public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController
+internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
 {
     private static long globalPlayerPageSequence;
     private const long PlayerReadyReloadDelayMs = 8000;
     private const long LoadingFrameIntervalMs = 66;
     private const int MaxPlayerReadyReloads = 2;
 
+    private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
-    private readonly YouTubeSourceReference source;
+    private readonly IBrowserSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
     private readonly object telemetryLock = new();
@@ -44,7 +45,8 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
     private bool playerReady;
     private bool playerFailed;
 
-    public CefYouTubeBrowserFrameSource(
+    public CefBrowserFrameSource(
+        BrowserSourceDescriptor descriptor,
         string input,
         int width,
         int height,
@@ -56,8 +58,9 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         float volume,
         float playbackRate)
     {
+        this.descriptor = descriptor;
         this.input = input;
-        isValidSource = YouTubeVideoId.TryParseSource(input, out source);
+        isValidSource = descriptor.TryParse(input, out source);
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
@@ -69,17 +72,19 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         this.playbackRate = ClampPlaybackRate(playbackRate);
 
         if (!isValidSource)
-            browserStatus = "invalid YouTube URL, video ID, playlist, or live channel";
+            browserStatus = descriptor.InvalidSourceMessage;
 
         UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty);
     }
 
-    public string Name => "YouTube browser (CEF offscreen)";
+    public BrowserSourceProviderKind ProviderKind => descriptor.ProviderKind;
+    public string Name => $"{descriptor.DisplayName} browser (CEF offscreen)";
     public int Width { get; }
     public int Height { get; }
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
     public bool HasPlayerFailed => playerFailed;
+    public float DetectedVideoFps => detectedVideoFps;
 
     public string Status
     {
@@ -97,7 +102,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         var wasCaptureEnabled = captureEnabled;
         if (!isValidSource)
         {
-            browserStatus = $"invalid YouTube URL, video ID, playlist, or live channel: {input}";
+            browserStatus = descriptor.ParseInvalidInputStatus(input);
             return;
         }
 
@@ -252,12 +257,12 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
             AddBrowserEventHandler(browser, "StatusMessage", nameof(OnStatusMessage));
             AddBrowserEventHandler(browser, "TitleChanged", nameof(OnTitleChanged));
 
-            LoadPlayerHtml("new video");
+            LoadPlayerHtml(descriptor.LoadReason);
         }
         catch (Exception ex)
         {
             browserStatus = $"CEF browser failed: {ex.Message}";
-            Plugin.Log.Warning(ex, "Failed to create CEF YouTube browser.");
+            Plugin.Log.Warning(ex, "Failed to create CEF {Provider} browser.", descriptor.DisplayName);
         }
     }
 
@@ -274,11 +279,11 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         lastLoadingFrameUnixMs = 0;
         playerStatus = "player not ready";
         var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
-        var pageUrl = $"{YouTubePlayerPage.PlayerOrigin}/player.html?source={Uri.EscapeDataString(source.DisplayName)}&attempt={playerLoadAttempt}&seq={sequence}";
-        var html = YouTubePlayerPage.BuildHtml(source, autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate);
+        var pageUrl = $"{descriptor.PlayerOrigin}/player.html?source={Uri.EscapeDataString(source.DisplayName)}&attempt={playerLoadAttempt}&seq={sequence}";
+        var html = descriptor.BuildHtml(source, new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate));
         InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
         lastPlayerLoadUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        browserStatus = $"CEF loading YouTube player ({reason})";
+        browserStatus = $"CEF loading {descriptor.DisplayName} player ({reason})";
     }
 
     private void ApplyBrowserMute(bool audioEnabled, float volume)
@@ -305,12 +310,24 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
 
     private void MaybeReloadPlayerIfNotReady()
     {
-        if (browser == null || playerReady || playerFailed || playerLoadAttempt >= MaxPlayerReadyReloads || lastPlayerLoadUnixMs == 0)
+        if (browser == null || playerReady || playerFailed || lastPlayerLoadUnixMs == 0)
             return;
 
         var elapsedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastPlayerLoadUnixMs;
         if (elapsedMs < PlayerReadyReloadDelayMs)
             return;
+
+        if (playerLoadAttempt >= MaxPlayerReadyReloads)
+        {
+            if (descriptor.FailCefWhenReadyTimeoutExhausted)
+            {
+                playerFailed = true;
+                playerStatus = $"{descriptor.DisplayName} player did not report ready";
+                browserStatus = $"CEF {descriptor.DisplayName} player ready timeout";
+            }
+
+            return;
+        }
 
         try
         {
@@ -321,7 +338,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         {
             playerFailed = true;
             browserStatus = $"CEF player reload failed: {ex.Message}";
-            Plugin.Log.Debug(ex, "Failed to reload CEF YouTube player after ready timeout.");
+            Plugin.Log.Debug(ex, "Failed to reload CEF {Provider} player after ready timeout.", descriptor.DisplayName);
         }
     }
 
@@ -438,7 +455,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         {
             var script = argument == null
                 ? $"window.{functionName} && window.{functionName}();"
-                : $"window.{functionName} && window.{functionName}({JsonSerializer.Serialize(argument, YouTubePlayerPage.JsonOptions)});";
+                : $"window.{functionName} && window.{functionName}({JsonSerializer.Serialize(argument, descriptor.JsonOptions)});";
             InvokeWebBrowserExtension("ExecuteScriptAsync", currentBrowser, script);
         }
         catch (Exception ex)
@@ -723,7 +740,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         try
         {
             var message = GetInstanceProperty<object?>(args, "Message");
-            var json = message as string ?? JsonSerializer.Serialize(message, YouTubePlayerPage.JsonOptions);
+            var json = message as string ?? JsonSerializer.Serialize(message, descriptor.JsonOptions);
             using var document = JsonDocument.Parse(json);
             UpdateFromWebMessage(document.RootElement);
         }
@@ -788,6 +805,8 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
                 playerFailed = false;
                 playerReadyUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 playerStatus = $"player ready: {source.DisplayName}";
+                if (autoplay && captureEnabled)
+                    Play();
                 break;
             case "status":
                 UpdateFromStatusMessage(root);
@@ -797,25 +816,25 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
                 break;
             case "error":
                 playerFailed = true;
-                playerStatus = DescribeYouTubeError(root);
+                playerStatus = descriptor.DescribeError(root);
                 break;
             case "script-error":
-                playerStatus = TryGetString(root, "message", "script error");
+                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "script error");
                 break;
             case "debug":
-                playerStatus = TryGetString(root, "message", "browser debug");
+                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "browser debug");
                 break;
         }
     }
 
     private void UpdateFromStatusMessage(JsonElement root)
     {
-        var title = TryGetString(root, "title", string.Empty);
-        var currentVideoId = TryGetString(root, "videoId", source.VideoId);
-        var positionSeconds = TryGetDouble(root, "positionSeconds", 0.0);
-        var durationSeconds = TryGetDouble(root, "durationSeconds", 0.0);
-        var rate = (float)TryGetDouble(root, "rate", playbackRate);
-        var stateCode = TryGetInt(root, "state", -1);
+        var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
+        var currentVideoId = BrowserSourceDescriptors.TryGetString(root, "videoId", source.VideoId);
+        var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
+        var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
+        var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", playbackRate);
+        var stateCode = BrowserSourceDescriptors.TryGetInt(root, "state", -1);
         var playbackState = stateCode switch
         {
             1 or 3 => ScreenPlaybackState.Playing,
@@ -826,14 +845,12 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
         var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
         UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
-        playerStatus = string.IsNullOrWhiteSpace(title)
-            ? $"player state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s"
-            : $"{title}; state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s";
+        playerStatus = descriptor.FormatPlayerStatus(title, stateCode, positionSeconds, durationSeconds, root);
     }
 
     private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "")
     {
-        if (!YouTubeVideoId.IsValidVideoId(currentVideoId))
+        if (!descriptor.IsValidVideoId(currentVideoId))
             currentVideoId = source.VideoId;
 
         lock (telemetryLock)
@@ -846,7 +863,7 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
                 Rate = ClampPlaybackRate(rate),
                 Title = title,
                 VideoId = currentVideoId,
-                CanonicalUrl = YouTubeVideoId.BuildCanonicalSourceUrl(source, currentVideoId),
+                CanonicalUrl = descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = detectedVideoFps,
             };
@@ -910,30 +927,12 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
 
     private void UpdateDetectedVideoFps(JsonElement root)
     {
-        var fps = (float)TryGetDouble(root, "fps", 0.0);
+        var fps = (float)BrowserSourceDescriptors.TryGetDouble(root, "fps", 0.0);
         if (fps >= 1.0f && fps <= 240.0f)
         {
             detectedVideoFps = fps;
             playerStatus = $"detected video fps: {fps:0.#}";
         }
-    }
-
-    private static string DescribeYouTubeError(JsonElement root)
-    {
-        if (root.TryGetProperty("message", out var messageProperty) && messageProperty.ValueKind == JsonValueKind.String)
-            return messageProperty.GetString() ?? "YouTube player error";
-
-        var code = TryGetInt(root, "code", 0);
-        return code switch
-        {
-            2 => "YouTube player error: invalid video ID or parameter",
-            5 => "YouTube player error: HTML5 playback failed",
-            100 => "YouTube player error: video unavailable or private",
-            101 or 150 => "YouTube player error: embedding is disallowed by the owner",
-            153 => "YouTube player error: missing or blocked HTTP Referer",
-            -1 => "YouTube player error: failed to load the IFrame API",
-            _ => $"YouTube player error: {code}",
-        };
     }
 
     private static float ClampPlaybackRate(float rate)
@@ -958,26 +957,5 @@ public sealed class CefYouTubeBrowserFrameSource : IVideoFrameSource, IMediaPlay
         return clamped <= 0.0f
             ? 0.0f
             : MathF.Ceiling(clamped * 100.0f) / 100.0f;
-    }
-
-    private static string TryGetString(JsonElement root, string propertyName, string fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString() ?? fallback
-            : fallback;
-    }
-
-    private static double TryGetDouble(JsonElement root, string propertyName, double fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.TryGetDouble(out var value)
-            ? value
-            : fallback;
-    }
-
-    private static int TryGetInt(JsonElement root, string propertyName, int fallback)
-    {
-        return root.TryGetProperty(propertyName, out var property) && property.TryGetInt32(out var value)
-            ? value
-            : fallback;
     }
 }

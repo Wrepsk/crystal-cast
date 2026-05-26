@@ -92,21 +92,12 @@ internal sealed class ScreenChangePublisher
 
     public static ScreenIpcChangeKind[] GetMutationChangeKinds(ScreenIpcMutationRequest request)
     {
-        var changes = new List<ScreenIpcChangeKind>();
-        if (request.Placement != null)
-            changes.Add(ScreenIpcChangeKind.Placement);
-        if (request.SourceControlsLocked.HasValue || !string.IsNullOrWhiteSpace(request.SourceControlsOwnerId))
-            changes.Add(ScreenIpcChangeKind.SourceLock);
-        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch, request.Dailymotion);
-
-        return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
+        return BrowserSourceIpcAdapters.GetMutationChangeKinds(request);
     }
 
     public static ScreenIpcChangeKind[] GetSourceUpdateChangeKinds(ScreenIpcSourceUpdateRequest request)
     {
-        var changes = new List<ScreenIpcChangeKind>();
-        AddBrowserChangeKinds(changes, request.Provider.HasValue, request.YouTube, request.Twitch, request.Dailymotion);
-        return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
+        return BrowserSourceIpcAdapters.GetSourceUpdateChangeKinds(request);
     }
 
     private BrowserScreenProfile? FindBrowserScreen(string screenId)
@@ -169,6 +160,17 @@ internal sealed class ScreenChangePublisher
 
     private static ScreenChangeFingerprint BuildFingerprint(ScreenStateEnvelope state, BrowserScreenProfile? screen)
     {
+        var sourceParts = new List<object?>
+        {
+            state.Source.Kind,
+            state.Source.Provider,
+            state.Source.Identity,
+            state.Source.Title,
+            state.Source.Url,
+            state.Source.VideoId,
+        };
+        BrowserSourceIpcAdapters.AddFingerprintParts(screen, sourceParts);
+
         return new ScreenChangeFingerprint(
             Placement: string.Join('|',
                 state.Position.X,
@@ -180,34 +182,7 @@ internal sealed class ScreenChangePublisher
                 state.Rotation.W,
                 state.SizeMeters.X,
                 state.SizeMeters.Y),
-            Source: string.Join('|',
-                state.Source.Kind,
-                state.Source.Provider,
-                state.Source.Identity,
-                state.Source.Title,
-                state.Source.Url,
-                state.Source.VideoId,
-                screen?.YouTubeAutoplay,
-                screen?.LoopYouTube,
-                screen?.YouTubePlaylistAutoplayNext,
-                screen?.YouTubePlaybackRate,
-                screen?.YouTubeBrowserWidth,
-                screen?.YouTubeBrowserHeight,
-                screen?.YouTubeCaptureFps,
-                screen?.YouTubeCaptureFpsManual,
-                screen?.TwitchUrl,
-                screen?.TwitchAutoplay,
-                screen?.TwitchBrowserWidth,
-                screen?.TwitchBrowserHeight,
-                screen?.TwitchCaptureFps,
-                screen?.TwitchCaptureFpsManual,
-                screen?.DailymotionUrl,
-                screen?.DailymotionAutoplay,
-                screen?.LoopDailymotion,
-                screen?.DailymotionBrowserWidth,
-                screen?.DailymotionBrowserHeight,
-                screen?.DailymotionCaptureFps,
-                screen?.DailymotionCaptureFpsManual),
+            Source: string.Join('|', sourceParts),
             Playback: string.Join('|',
                 state.Playback.State,
                 state.Playback.PositionMs,
@@ -242,62 +217,6 @@ internal sealed class ScreenChangePublisher
             changes.Add(ScreenIpcChangeKind.SourceLock);
 
         return changes;
-    }
-
-    private static void AddBrowserChangeKinds(
-        List<ScreenIpcChangeKind> changes,
-        bool providerChanged,
-        YouTubeScreenPatchDto? youtube,
-        TwitchScreenPatchDto? twitch,
-        DailymotionScreenPatchDto? dailymotion)
-    {
-        AddYouTubeChangeKinds(changes, providerChanged, youtube);
-        AddTwitchChangeKinds(changes, providerChanged, twitch);
-        AddDailymotionChangeKinds(changes, providerChanged, dailymotion);
-    }
-
-    private static void AddYouTubeChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, YouTubeScreenPatchDto? patch)
-    {
-        if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true || patch?.Loop.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
-        if (patch?.PlaybackPaused.HasValue == true
-            || patch?.PositionMs.HasValue == true
-            || patch?.Restart == true
-            || patch?.PlaybackRate.HasValue == true
-            || patch?.PlaylistAutoplayNext.HasValue == true)
-        {
-            changes.Add(ScreenIpcChangeKind.Playback);
-        }
-        if (patch?.BrowserWidth.HasValue == true || patch?.BrowserHeight.HasValue == true || patch?.CaptureFps.HasValue == true || patch?.CaptureFpsManual.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
-    }
-
-    private static void AddTwitchChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, TwitchScreenPatchDto? patch)
-    {
-        if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
-        if (patch?.PlaybackPaused.HasValue == true
-            || patch?.PositionMs.HasValue == true
-            || patch?.Restart == true)
-        {
-            changes.Add(ScreenIpcChangeKind.Playback);
-        }
-        if (patch?.BrowserWidth.HasValue == true || patch?.BrowserHeight.HasValue == true || patch?.CaptureFps.HasValue == true || patch?.CaptureFpsManual.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
-    }
-
-    private static void AddDailymotionChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, DailymotionScreenPatchDto? patch)
-    {
-        if (providerChanged || patch is { Url: not null } || patch?.Autoplay.HasValue == true || patch?.Loop.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
-        if (patch?.PlaybackPaused.HasValue == true
-            || patch?.PositionMs.HasValue == true
-            || patch?.Restart == true)
-        {
-            changes.Add(ScreenIpcChangeKind.Playback);
-        }
-        if (patch?.BrowserWidth.HasValue == true || patch?.BrowserHeight.HasValue == true || patch?.CaptureFps.HasValue == true || patch?.CaptureFpsManual.HasValue == true)
-            changes.Add(ScreenIpcChangeKind.Source);
     }
 
     private readonly record struct ScreenChangeFingerprint(

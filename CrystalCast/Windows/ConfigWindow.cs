@@ -16,10 +16,10 @@ public sealed class ConfigWindow : Window, IDisposable
     ];
 
     private static readonly string[] BrowserEngineNames =
-        ["Auto (CEF, then WebView2)", "CEF offscreen", "WebView2 capture"];
+        ["Auto (CEF, then WebView2)", "CEF offscreen", "WebView2 JPEG capture", "WebView2 window capture (Experimental)"];
 
     private static readonly BrowserMediaEngine[] BrowserEngines =
-        [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture];
+        [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture];
 
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
@@ -235,7 +235,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled("Auto prefers CEF offscreen and falls back to WebView2 capture.");
+        ImGui.TextDisabled("Auto prefers CEF offscreen and falls back to WebView2 JPEG capture. Window capture is experimental and removes JPEG compression.");
         return changed;
     }
 

@@ -13,6 +13,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             [BrowserSourceProviderKind.YouTube] = CreateYouTubeDescriptor(),
             [BrowserSourceProviderKind.Twitch] = CreateTwitchDescriptor(),
             [BrowserSourceProviderKind.Dailymotion] = CreateDailymotionDescriptor(),
+            [BrowserSourceProviderKind.Vimeo] = CreateVimeoDescriptor(),
         };
 
     private readonly Dictionary<string, BrowserSourceUiState> uiStates = new(StringComparer.Ordinal);
@@ -379,6 +380,42 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             SetAutoplay = (screen, value) => screen.DailymotionAutoplay = value,
             GetLoop = screen => screen.LoopDailymotion,
             SetLoop = (screen, value) => screen.LoopDailymotion = value,
+        };
+    }
+
+    private static BrowserSourceUiDescriptor CreateVimeoDescriptor()
+    {
+        return new BrowserSourceUiDescriptor
+        {
+            ProviderKind = BrowserSourceProviderKind.Vimeo,
+            SourceDescriptor = BrowserSourceDescriptors.Vimeo,
+            InputLabel = "Vimeo URL / ID",
+            InvalidText = "Vimeo source: invalid",
+            EmptyText = "Vimeo source: empty",
+            LoopLabel = "Loop Vimeo video",
+            SupportsLoop = true,
+            SupportsPlaybackRate = true,
+            SupportsPlaylistAutoplayNext = false,
+            RequireDurationForSeek = true,
+            GetUrl = screen => screen.VimeoUrl,
+            SetUrl = (screen, value) => screen.VimeoUrl = value,
+            GetBrowserWidth = screen => screen.VimeoBrowserWidth,
+            GetBrowserHeight = screen => screen.VimeoBrowserHeight,
+            SetBrowserResolution = (screen, width, height) =>
+            {
+                screen.VimeoBrowserWidth = width;
+                screen.VimeoBrowserHeight = height;
+            },
+            GetCaptureFps = screen => screen.VimeoCaptureFps,
+            SetCaptureFps = (screen, value) => screen.VimeoCaptureFps = value,
+            GetCaptureFpsManual = screen => screen.VimeoCaptureFpsManual,
+            SetCaptureFpsManual = (screen, value) => screen.VimeoCaptureFpsManual = value,
+            GetAutoplay = screen => screen.VimeoAutoplay,
+            SetAutoplay = (screen, value) => screen.VimeoAutoplay = value,
+            GetLoop = screen => screen.LoopVimeo,
+            SetLoop = (screen, value) => screen.LoopVimeo = value,
+            GetPlaybackRate = screen => screen.VimeoPlaybackRate,
+            SetPlaybackRate = (screen, value) => screen.VimeoPlaybackRate = value,
         };
     }
 

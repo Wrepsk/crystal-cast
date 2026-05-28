@@ -298,6 +298,7 @@ public enum BrowserSourceProviderKind
     YouTube = 1,
     Twitch = 2,
     Dailymotion = 3,
+    Vimeo = 4,
 }
 
 public enum ScreenPlacementMode
@@ -392,6 +393,17 @@ public sealed class BrowserScreenProfile
     public bool LoopDailymotion { get; set; }
     public bool DailymotionAudioEnabled { get; set; }
     public float DailymotionVolume { get; set; } = 0.7f;
+
+    public string VimeoUrl { get; set; } = string.Empty;
+    public int VimeoBrowserWidth { get; set; } = 1280;
+    public int VimeoBrowserHeight { get; set; } = 720;
+    public float VimeoCaptureFps { get; set; } = 60.0f;
+    public bool VimeoCaptureFpsManual { get; set; }
+    public bool VimeoAutoplay { get; set; } = true;
+    public bool LoopVimeo { get; set; }
+    public bool VimeoAudioEnabled { get; set; }
+    public float VimeoVolume { get; set; } = 0.7f;
+    public float VimeoPlaybackRate { get; set; } = 1.0f;
 
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
@@ -513,6 +525,39 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
+        if (VimeoBrowserWidth <= 0)
+        {
+            VimeoBrowserWidth = 1280;
+            changed = true;
+        }
+
+        if (VimeoBrowserHeight <= 0)
+        {
+            VimeoBrowserHeight = 720;
+            changed = true;
+        }
+
+        var vimeoCaptureFps = Math.Clamp(VimeoCaptureFps, 1.0f, 60.0f);
+        if (Math.Abs(VimeoCaptureFps - vimeoCaptureFps) > 0.0001f)
+        {
+            VimeoCaptureFps = vimeoCaptureFps;
+            changed = true;
+        }
+
+        var vimeoVolume = Math.Clamp(VimeoVolume, 0.0f, 1.0f);
+        if (Math.Abs(VimeoVolume - vimeoVolume) > 0.0001f)
+        {
+            VimeoVolume = vimeoVolume;
+            changed = true;
+        }
+
+        var vimeoPlaybackRate = Math.Clamp(VimeoPlaybackRate, 0.25f, 2.0f);
+        if (Math.Abs(VimeoPlaybackRate - vimeoPlaybackRate) > 0.0001f)
+        {
+            VimeoPlaybackRate = vimeoPlaybackRate;
+            changed = true;
+        }
+
         if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
         {
             SpatialAudioSilentRadiusMeters = SpatialAudioFullVolumeRadiusMeters + 0.1f;
@@ -566,6 +611,16 @@ public sealed class BrowserScreenProfile
             LoopDailymotion = LoopDailymotion,
             DailymotionAudioEnabled = DailymotionAudioEnabled,
             DailymotionVolume = DailymotionVolume,
+            VimeoUrl = VimeoUrl,
+            VimeoBrowserWidth = VimeoBrowserWidth,
+            VimeoBrowserHeight = VimeoBrowserHeight,
+            VimeoCaptureFps = VimeoCaptureFps,
+            VimeoCaptureFpsManual = VimeoCaptureFpsManual,
+            VimeoAutoplay = VimeoAutoplay,
+            LoopVimeo = LoopVimeo,
+            VimeoAudioEnabled = VimeoAudioEnabled,
+            VimeoVolume = VimeoVolume,
+            VimeoPlaybackRate = VimeoPlaybackRate,
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,

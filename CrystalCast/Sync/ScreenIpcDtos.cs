@@ -14,6 +14,7 @@ public sealed class ScreenIpcMutationRequest
     public YouTubeScreenPatchDto? YouTube { get; set; }
     public TwitchScreenPatchDto? Twitch { get; set; }
     public DailymotionScreenPatchDto? Dailymotion { get; set; }
+    public VimeoScreenPatchDto? Vimeo { get; set; }
 }
 
 public sealed class ScreenIpcSourceLockRequest
@@ -32,6 +33,7 @@ public sealed class ScreenIpcSourceUpdateRequest
     public YouTubeScreenPatchDto? YouTube { get; set; }
     public TwitchScreenPatchDto? Twitch { get; set; }
     public DailymotionScreenPatchDto? Dailymotion { get; set; }
+    public VimeoScreenPatchDto? Vimeo { get; set; }
 }
 
 public sealed class ScreenIpcMutationResponse
@@ -62,6 +64,7 @@ public sealed class ScreenIpcSourceStateResponse
     public YouTubeSourceStateDto? YouTube { get; set; }
     public TwitchSourceStateDto? Twitch { get; set; }
     public DailymotionSourceStateDto? Dailymotion { get; set; }
+    public VimeoSourceStateDto? Vimeo { get; set; }
 }
 
 public sealed class ScreenIpcScreenSummary
@@ -206,6 +209,40 @@ public sealed class DailymotionSourceStateDto
     public string CanonicalUrl { get; set; } = string.Empty;
     public string VideoId { get; set; } = string.Empty;
     public string PlaylistId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
+    public long PositionMs { get; set; }
+    public long DurationMs { get; set; }
+    public float Rate { get; set; } = 1.0f;
+    public long HostTimestampUnixMs { get; set; }
+}
+
+public sealed class VimeoScreenPatchDto
+{
+    public string? Url { get; set; }
+    public bool? PlaybackPaused { get; set; }
+    public long? PositionMs { get; set; }
+    public bool Restart { get; set; }
+    public bool? Autoplay { get; set; }
+    public bool? Loop { get; set; }
+    public float? PlaybackRate { get; set; }
+    public int? BrowserWidth { get; set; }
+    public int? BrowserHeight { get; set; }
+    public float? CaptureFps { get; set; }
+    public bool? CaptureFpsManual { get; set; }
+    public bool? AudioEnabled { get; set; }
+    public float? Volume { get; set; }
+    public bool? SpatialAudioEnabled { get; set; }
+    public float? SpatialAudioFullVolumeRadiusMeters { get; set; }
+    public float? SpatialAudioSilentRadiusMeters { get; set; }
+}
+
+public sealed class VimeoSourceStateDto
+{
+    public string Url { get; set; } = string.Empty;
+    public string CanonicalUrl { get; set; } = string.Empty;
+    public string VideoId { get; set; } = string.Empty;
+    public string Hash { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
     public long PositionMs { get; set; }

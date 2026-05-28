@@ -8,6 +8,7 @@ internal static class BrowserSourceProviderRegistry
             [BrowserSourceProviderKind.YouTube] = new YouTubeBrowserSourceProvider(),
             [BrowserSourceProviderKind.Twitch] = new TwitchBrowserSourceProvider(),
             [BrowserSourceProviderKind.Dailymotion] = new DailymotionBrowserSourceProvider(),
+            [BrowserSourceProviderKind.Vimeo] = new VimeoBrowserSourceProvider(),
         };
 
     public static bool IsSupported(BrowserSourceProviderKind provider)
@@ -234,6 +235,58 @@ internal static class BrowserSourceProviderRegistry
             BrowserSourceProviderRegistry.ApplyCaptureFps(
                 screen.DailymotionCaptureFpsManual,
                 screen.DailymotionCaptureFps,
+                source.DetectedVideoFps,
+                source.UpdateCaptureFps);
+        }
+    }
+
+    private sealed class VimeoBrowserSourceProvider : IBrowserSourceProvider
+    {
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        {
+            return new BrowserFrameSource(
+                BrowserSourceDescriptors.Vimeo,
+                screen.VimeoUrl,
+                screen.VimeoBrowserWidth,
+                screen.VimeoBrowserHeight,
+                screen.VimeoCaptureFps,
+                enginePreference,
+                screen.VimeoAutoplay,
+                screen.LoopVimeo,
+                true,
+                screen.VimeoAudioEnabled,
+                screen.VimeoVolume,
+                screen.VimeoPlaybackRate);
+        }
+
+        public string GetUrl(BrowserScreenProfile screen)
+        {
+            return screen.VimeoUrl;
+        }
+
+        public BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceDimensions(screen.VimeoBrowserWidth, screen.VimeoBrowserHeight);
+        }
+
+        public BrowserSourceRuntimeSettings GetRuntimeSettings(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceRuntimeSettings(
+                screen.VimeoAudioEnabled,
+                screen.VimeoVolume,
+                screen.VimeoPlaybackRate,
+                screen.LoopVimeo,
+                true);
+        }
+
+        public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
+        {
+            if (frameSource is not IBrowserFrameSourceRuntime { ProviderKind: BrowserSourceProviderKind.Vimeo } source)
+                return;
+
+            BrowserSourceProviderRegistry.ApplyCaptureFps(
+                screen.VimeoCaptureFpsManual,
+                screen.VimeoCaptureFps,
                 source.DetectedVideoFps,
                 source.UpdateCaptureFps);
         }

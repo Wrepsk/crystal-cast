@@ -31,6 +31,7 @@ internal static class BrowserSourceIpcAdapters
         CreateYouTubeAdapter(),
         CreateTwitchAdapter(),
         CreateDailymotionAdapter(),
+        CreateVimeoAdapter(),
     ];
 
     private static readonly IReadOnlyDictionary<BrowserSourceProviderKind, IBrowserSourceIpcAdapter> Adapters =
@@ -351,6 +352,81 @@ internal static class BrowserSourceIpcAdapters
                 screen?.DailymotionBrowserHeight,
                 screen?.DailymotionCaptureFps,
                 screen?.DailymotionCaptureFpsManual,
+            ],
+        };
+    }
+
+    private static BrowserSourceIpcAdapter<VimeoScreenPatchDto, VimeoSourceReference> CreateVimeoAdapter()
+    {
+        return new BrowserSourceIpcAdapter<VimeoScreenPatchDto, VimeoSourceReference>
+        {
+            ProviderKind = BrowserSourceProviderKind.Vimeo,
+            Descriptor = BrowserSourceDescriptors.Vimeo,
+            InvalidPatchSourceMessage = "Vimeo URL or video ID is invalid.",
+            InvalidIdentity = "vimeo:invalid",
+            InvalidTitle = "Invalid Vimeo source",
+            DefaultTitle = "Vimeo",
+            GetMutationPatch = request => request.Vimeo,
+            GetSourceUpdatePatch = request => request.Vimeo,
+            GetUrl = screen => screen.VimeoUrl,
+            SetUrl = (screen, value) => screen.VimeoUrl = value,
+            GetAutoplay = screen => screen.VimeoAutoplay,
+            SetAutoplay = (screen, value) => screen.VimeoAutoplay = value,
+            GetLoop = screen => screen.LoopVimeo,
+            SetLoop = (screen, value) => screen.LoopVimeo = value,
+            GetPlaybackRate = screen => screen.VimeoPlaybackRate,
+            SetPlaybackRate = (screen, value) => screen.VimeoPlaybackRate = value,
+            GetPatchUrl = patch => patch.Url,
+            GetPatchPlaybackPaused = patch => patch.PlaybackPaused,
+            GetPatchPositionMs = patch => patch.PositionMs,
+            GetPatchRestart = patch => patch.Restart,
+            GetPatchAutoplay = patch => patch.Autoplay,
+            GetPatchLoop = patch => patch.Loop,
+            GetPatchPlaybackRate = patch => patch.PlaybackRate,
+            GetPatchBrowserWidth = patch => patch.BrowserWidth,
+            SetBrowserWidth = (screen, value) => screen.VimeoBrowserWidth = value,
+            GetPatchBrowserHeight = patch => patch.BrowserHeight,
+            SetBrowserHeight = (screen, value) => screen.VimeoBrowserHeight = value,
+            GetPatchCaptureFps = patch => patch.CaptureFps,
+            SetCaptureFps = (screen, value) => screen.VimeoCaptureFps = value,
+            GetPatchCaptureFpsManual = patch => patch.CaptureFpsManual,
+            SetCaptureFpsManual = (screen, value) => screen.VimeoCaptureFpsManual = value,
+            GetPatchAudioEnabled = patch => patch.AudioEnabled,
+            SetAudioEnabled = (screen, value) => screen.VimeoAudioEnabled = value,
+            GetPatchVolume = patch => patch.Volume,
+            SetVolume = (screen, value) => screen.VimeoVolume = value,
+            GetPatchSpatialAudioEnabled = patch => patch.SpatialAudioEnabled,
+            GetPatchSpatialAudioFullVolumeRadiusMeters = patch => patch.SpatialAudioFullVolumeRadiusMeters,
+            GetPatchSpatialAudioSilentRadiusMeters = patch => patch.SpatialAudioSilentRadiusMeters,
+            BuildIdentity = source => string.IsNullOrWhiteSpace(source.Hash)
+                ? $"vimeo:video:{source.VideoId}"
+                : $"vimeo:video:{source.VideoId}:h:{source.Hash}",
+            PopulateSourceStateDto = (response, screen, source, playback) =>
+            {
+                response.Vimeo = new VimeoSourceStateDto
+                {
+                    Url = screen.VimeoUrl,
+                    CanonicalUrl = source.Url,
+                    VideoId = source.VideoId,
+                    Hash = VimeoVideoId.TryParseSource(screen.VimeoUrl, out var parsed) ? parsed.Hash : string.Empty,
+                    Title = source.Title,
+                    State = playback.State,
+                    PositionMs = playback.PositionMs,
+                    DurationMs = playback.DurationMs,
+                    Rate = playback.Rate,
+                    HostTimestampUnixMs = playback.HostTimestampUnixMs,
+                };
+            },
+            BuildFingerprintParts = screen =>
+            [
+                screen?.VimeoUrl,
+                screen?.VimeoAutoplay,
+                screen?.LoopVimeo,
+                screen?.VimeoPlaybackRate,
+                screen?.VimeoBrowserWidth,
+                screen?.VimeoBrowserHeight,
+                screen?.VimeoCaptureFps,
+                screen?.VimeoCaptureFpsManual,
             ],
         };
     }

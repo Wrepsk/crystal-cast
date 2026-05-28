@@ -133,11 +133,36 @@ internal static class BrowserSourceDescriptors
         FormatStatusSuffix = FormatDailymotionStatusSuffix,
     };
 
+    public static readonly BrowserSourceDescriptor Vimeo = new()
+    {
+        ProviderKind = BrowserSourceProviderKind.Vimeo,
+        DisplayName = "Vimeo",
+        InvalidSourceMessage = "invalid Vimeo URL or video ID",
+        LoadReason = "new source",
+        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
+        TryParse = TryParseVimeo,
+        BuildHtml = (source, settings) => VimeoPlayerPage.BuildHtml(
+            (VimeoSourceReference)source,
+            settings.Autoplay,
+            settings.Loop,
+            settings.AudioEnabled,
+            settings.Volume,
+            settings.PlaybackRate),
+        BuildCanonicalSourceUrl = (source, currentVideoId) => VimeoVideoId.BuildCanonicalSourceUrl((VimeoSourceReference)source, currentVideoId),
+        IsValidVideoId = VimeoVideoId.IsValidVideoId,
+        DescribeError = root => DescribeProviderError(root, "Vimeo", "Player SDK"),
+        JsonOptions = VimeoPlayerPage.JsonOptions,
+        WebView2UserDataFolderName = "WebView2Vimeo",
+        WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
+        FailCefWhenReadyTimeoutExhausted = true,
+    };
+
     public static IReadOnlyList<BrowserSourceDescriptor> All { get; } =
     [
         YouTube,
         Twitch,
         Dailymotion,
+        Vimeo,
     ];
 
     public static BrowserSourceDescriptor Get(BrowserSourceProviderKind provider)
@@ -146,6 +171,7 @@ internal static class BrowserSourceDescriptors
         {
             BrowserSourceProviderKind.Twitch => Twitch,
             BrowserSourceProviderKind.Dailymotion => Dailymotion,
+            BrowserSourceProviderKind.Vimeo => Vimeo,
             _ => YouTube,
         };
     }
@@ -177,6 +203,18 @@ internal static class BrowserSourceDescriptors
     private static bool TryParseDailymotion(string input, out IBrowserSourceReference source)
     {
         if (DailymotionVideoId.TryParseSource(input, out var parsed))
+        {
+            source = parsed;
+            return true;
+        }
+
+        source = default!;
+        return false;
+    }
+
+    private static bool TryParseVimeo(string input, out IBrowserSourceReference source)
+    {
+        if (VimeoVideoId.TryParseSource(input, out var parsed))
         {
             source = parsed;
             return true;

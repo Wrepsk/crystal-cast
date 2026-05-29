@@ -211,16 +211,16 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             return CreateCefSource();
         }
 
-        fallbackStatus = $"CEF unavailable, using WebView2 fallback: {status}";
-        return CreateWebView2Source();
+        fallbackStatus = $"CEF unavailable, using WebView2 window capture fallback: {status}";
+        return CreateWebView2WindowCaptureSource();
     }
 
     private IVideoFrameSource CreateAutoWebView2FirstSource()
     {
         if (WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var webView2Status))
         {
-            fallbackStatus = $"using WebView2 for {descriptor.DisplayName}: {runtimeVersion}";
-            return CreateWebView2Source();
+            fallbackStatus = $"using WebView2 window capture for {descriptor.DisplayName}: {runtimeVersion}";
+            return CreateWebView2WindowCaptureSource();
         }
 
         if (CefRuntimeManager.CanInitialize(out var cefStatus))
@@ -239,8 +239,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         {
             if (enginePreference == BrowserMediaEngine.Auto)
             {
-                fallbackStatus = $"CEF unavailable, using WebView2 fallback: {cefStatus}";
-                return CreateWebView2Source();
+            fallbackStatus = $"CEF unavailable, using WebView2 window capture fallback: {cefStatus}";
+            return CreateWebView2WindowCaptureSource();
             }
 
             fallbackStatus = $"CEF unavailable: {cefStatus}";
@@ -310,14 +310,14 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
         if (activeEngine == BrowserMediaEngine.CefOffScreen && enginePreference == BrowserMediaEngine.Auto)
         {
-            fallbackStatus = $"CEF failed, using WebView2 fallback: {baseMessage}";
+            fallbackStatus = $"CEF failed, using WebView2 window capture fallback: {baseMessage}";
             try
             {
-                return CreateWebView2Source();
+                return CreateWebView2WindowCaptureSource();
             }
             catch (Exception webViewEx)
             {
-                Plugin.Log.Warning(webViewEx, "Failed to create CrystalCast WebView2 fallback source.");
+                Plugin.Log.Warning(webViewEx, "Failed to create CrystalCast WebView2 window capture fallback source.");
                 return CreateUnavailableSource(webViewEx);
             }
         }
@@ -347,8 +347,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             return;
 
         activeSource.Dispose();
-        activeSource = CreateWebView2Source();
-        fallbackStatus = $"CEF failed, using WebView2 fallback: {cefStatus}";
+        activeSource = CreateWebView2WindowCaptureSource();
+        fallbackStatus = $"CEF failed, using WebView2 window capture fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
             controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
@@ -367,8 +367,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
         var cefStatus = cefSource.Status;
         activeSource.Dispose();
-        activeSource = CreateWebView2Source();
-        fallbackStatus = $"CEF {descriptor.DisplayName} playback failed, using WebView2 fallback: {cefStatus}";
+        activeSource = CreateWebView2WindowCaptureSource();
+        fallbackStatus = $"CEF {descriptor.DisplayName} playback failed, using WebView2 window capture fallback: {cefStatus}";
 
         if (activeSource is IMediaPlaybackController controller)
             controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);

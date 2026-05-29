@@ -307,7 +307,7 @@ internal static class BrowserSourceProviderRegistry
                 screen.GenericWebAudioEnabled,
                 screen.GenericWebVolume,
                 screen.GenericWebPlaybackRate,
-                enginePreference == BrowserMediaEngine.WebView2WindowCapture
+                enginePreference is BrowserMediaEngine.Auto or BrowserMediaEngine.WebView2WindowCapture
                     ? WebView2CaptureMode.WindowGraphicsCapture
                     : WebView2CaptureMode.PreviewJpeg);
         }

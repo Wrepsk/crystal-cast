@@ -1,6 +1,6 @@
 namespace CrystalCast.Video;
 
-internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
+internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -85,6 +85,17 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTele
 
         if (activeSource != null)
             return activeSource.TryGetLatestFrame(out frame);
+
+        frame = null!;
+        return false;
+    }
+
+    public bool TryGetLatestNativeFrame(out NativeVideoFrame frame)
+    {
+        TryFallbackFromCefPlayerFailure();
+
+        if (activeSource is INativeVideoFrameSource nativeSource)
+            return nativeSource.TryGetLatestNativeFrame(out frame);
 
         frame = null!;
         return false;
@@ -180,6 +191,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTele
         {
             BrowserMediaEngine.CefOffScreen => CreateCefSource(),
             BrowserMediaEngine.WebView2Capture => CreateWebView2Source(),
+            BrowserMediaEngine.WebView2WindowCapture => CreateWebView2WindowCaptureSource(),
             _ => CreateAutoSource(),
         };
     }
@@ -244,6 +256,24 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTele
     {
         activeEngine = BrowserMediaEngine.WebView2Capture;
         return new WebView2BrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
+    }
+
+    private IVideoFrameSource CreateWebView2WindowCaptureSource()
+    {
+        activeEngine = BrowserMediaEngine.WebView2WindowCapture;
+        return new WebView2BrowserFrameSource(
+            descriptor,
+            input,
+            width,
+            height,
+            captureFps,
+            autoplay,
+            currentLoop,
+            currentPlaylistAutoplayNext,
+            currentAudioEnabled,
+            currentVolume,
+            currentPlaybackRate,
+            WebView2CaptureMode.WindowGraphicsCapture);
     }
 
     private void StartActiveSource()
@@ -351,7 +381,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, IMediaPlaybackTele
         return engine switch
         {
             BrowserMediaEngine.CefOffScreen => "CEF offscreen",
-            BrowserMediaEngine.WebView2Capture => "WebView2 capture",
+            BrowserMediaEngine.WebView2Capture => "WebView2 JPEG capture",
+            BrowserMediaEngine.WebView2WindowCapture => "WebView2 window capture",
             _ => "auto",
         };
     }

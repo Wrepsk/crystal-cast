@@ -32,6 +32,7 @@ internal static class BrowserSourceIpcAdapters
         CreateTwitchAdapter(),
         CreateDailymotionAdapter(),
         CreateVimeoAdapter(),
+        CreateGenericWebAdapter(),
     ];
 
     private static readonly IReadOnlyDictionary<BrowserSourceProviderKind, IBrowserSourceIpcAdapter> Adapters =
@@ -431,6 +432,77 @@ internal static class BrowserSourceIpcAdapters
         };
     }
 
+    private static BrowserSourceIpcAdapter<GenericWebScreenPatchDto, GenericWebSourceReference> CreateGenericWebAdapter()
+    {
+        return new BrowserSourceIpcAdapter<GenericWebScreenPatchDto, GenericWebSourceReference>
+        {
+            ProviderKind = BrowserSourceProviderKind.GenericWeb,
+            Descriptor = BrowserSourceDescriptors.GenericWeb,
+            InvalidPatchSourceMessage = "Generic Web URL is invalid.",
+            InvalidIdentity = "generic-web:invalid",
+            InvalidTitle = "Invalid Generic Web source",
+            DefaultTitle = "Generic Web",
+            GetMutationPatch = request => request.GenericWeb,
+            GetSourceUpdatePatch = request => request.GenericWeb,
+            GetUrl = screen => screen.GenericWebUrl,
+            SetUrl = (screen, value) => screen.GenericWebUrl = value,
+            GetAutoplay = screen => screen.GenericWebAutoplay,
+            SetAutoplay = (screen, value) => screen.GenericWebAutoplay = value,
+            GetLoop = screen => screen.LoopGenericWeb,
+            SetLoop = (screen, value) => screen.LoopGenericWeb = value,
+            GetPlaybackRate = screen => screen.GenericWebPlaybackRate,
+            SetPlaybackRate = (screen, value) => screen.GenericWebPlaybackRate = value,
+            GetPatchUrl = patch => patch.Url,
+            GetPatchPlaybackPaused = patch => patch.PlaybackPaused,
+            GetPatchPositionMs = patch => patch.PositionMs,
+            GetPatchRestart = patch => patch.Restart,
+            GetPatchAutoplay = patch => patch.Autoplay,
+            GetPatchLoop = patch => patch.Loop,
+            GetPatchPlaybackRate = patch => patch.PlaybackRate,
+            GetPatchBrowserWidth = patch => patch.BrowserWidth,
+            SetBrowserWidth = (screen, value) => screen.GenericWebBrowserWidth = value,
+            GetPatchBrowserHeight = patch => patch.BrowserHeight,
+            SetBrowserHeight = (screen, value) => screen.GenericWebBrowserHeight = value,
+            GetPatchCaptureFps = patch => patch.CaptureFps,
+            SetCaptureFps = (screen, value) => screen.GenericWebCaptureFps = value,
+            GetPatchCaptureFpsManual = patch => patch.CaptureFpsManual,
+            SetCaptureFpsManual = (screen, value) => screen.GenericWebCaptureFpsManual = value,
+            GetPatchAudioEnabled = patch => patch.AudioEnabled,
+            SetAudioEnabled = (screen, value) => screen.GenericWebAudioEnabled = value,
+            GetPatchVolume = patch => patch.Volume,
+            SetVolume = (screen, value) => screen.GenericWebVolume = value,
+            GetPatchSpatialAudioEnabled = patch => patch.SpatialAudioEnabled,
+            GetPatchSpatialAudioFullVolumeRadiusMeters = patch => patch.SpatialAudioFullVolumeRadiusMeters,
+            GetPatchSpatialAudioSilentRadiusMeters = patch => patch.SpatialAudioSilentRadiusMeters,
+            BuildIdentity = source => $"generic-web:{source.Url}",
+            PopulateSourceStateDto = (response, screen, source, playback) =>
+            {
+                response.GenericWeb = new GenericWebSourceStateDto
+                {
+                    Url = screen.GenericWebUrl,
+                    CanonicalUrl = source.Url,
+                    Title = source.Title,
+                    State = playback.State,
+                    PositionMs = playback.PositionMs,
+                    DurationMs = playback.DurationMs,
+                    Rate = playback.Rate,
+                    HostTimestampUnixMs = playback.HostTimestampUnixMs,
+                };
+            },
+            BuildFingerprintParts = screen =>
+            [
+                screen?.GenericWebUrl,
+                screen?.GenericWebAutoplay,
+                screen?.LoopGenericWeb,
+                screen?.GenericWebPlaybackRate,
+                screen?.GenericWebBrowserWidth,
+                screen?.GenericWebBrowserHeight,
+                screen?.GenericWebCaptureFps,
+                screen?.GenericWebCaptureFpsManual,
+            ],
+        };
+    }
+
     private sealed class BrowserSourceIpcAdapter<TPatch, TSource> : IBrowserSourceIpcAdapter
         where TPatch : class
         where TSource : struct, IBrowserSourceReference
@@ -562,8 +634,9 @@ internal static class BrowserSourceIpcAdapters
                 };
             }
 
-            var currentVideoId = Descriptor.IsValidVideoId(telemetry?.VideoId ?? string.Empty)
-                ? telemetry!.VideoId
+            var telemetryVideoId = telemetry?.VideoId ?? string.Empty;
+            var currentVideoId = telemetry != null && Descriptor.IsValidVideoId(telemetryVideoId)
+                ? telemetryVideoId
                 : source.VideoId;
             var canonicalUrl = Descriptor.BuildCanonicalSourceUrl(source, currentVideoId);
             return new ScreenSourceState

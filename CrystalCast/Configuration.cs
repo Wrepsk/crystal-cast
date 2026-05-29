@@ -299,6 +299,7 @@ public enum BrowserSourceProviderKind
     Twitch = 2,
     Dailymotion = 3,
     Vimeo = 4,
+    GenericWeb = 5,
 }
 
 public enum ScreenPlacementMode
@@ -404,6 +405,17 @@ public sealed class BrowserScreenProfile
     public bool VimeoAudioEnabled { get; set; }
     public float VimeoVolume { get; set; } = 0.7f;
     public float VimeoPlaybackRate { get; set; } = 1.0f;
+
+    public string GenericWebUrl { get; set; } = string.Empty;
+    public int GenericWebBrowserWidth { get; set; } = 1280;
+    public int GenericWebBrowserHeight { get; set; } = 720;
+    public float GenericWebCaptureFps { get; set; } = 60.0f;
+    public bool GenericWebCaptureFpsManual { get; set; }
+    public bool GenericWebAutoplay { get; set; } = true;
+    public bool LoopGenericWeb { get; set; }
+    public bool GenericWebAudioEnabled { get; set; }
+    public float GenericWebVolume { get; set; } = 0.7f;
+    public float GenericWebPlaybackRate { get; set; } = 1.0f;
 
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
@@ -558,6 +570,39 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
+        if (GenericWebBrowserWidth <= 0)
+        {
+            GenericWebBrowserWidth = 1280;
+            changed = true;
+        }
+
+        if (GenericWebBrowserHeight <= 0)
+        {
+            GenericWebBrowserHeight = 720;
+            changed = true;
+        }
+
+        var genericWebCaptureFps = Math.Clamp(GenericWebCaptureFps, 1.0f, 60.0f);
+        if (Math.Abs(GenericWebCaptureFps - genericWebCaptureFps) > 0.0001f)
+        {
+            GenericWebCaptureFps = genericWebCaptureFps;
+            changed = true;
+        }
+
+        var genericWebVolume = Math.Clamp(GenericWebVolume, 0.0f, 1.0f);
+        if (Math.Abs(GenericWebVolume - genericWebVolume) > 0.0001f)
+        {
+            GenericWebVolume = genericWebVolume;
+            changed = true;
+        }
+
+        var genericWebPlaybackRate = Math.Clamp(GenericWebPlaybackRate, 0.25f, 2.0f);
+        if (Math.Abs(GenericWebPlaybackRate - genericWebPlaybackRate) > 0.0001f)
+        {
+            GenericWebPlaybackRate = genericWebPlaybackRate;
+            changed = true;
+        }
+
         if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
         {
             SpatialAudioSilentRadiusMeters = SpatialAudioFullVolumeRadiusMeters + 0.1f;
@@ -621,6 +666,16 @@ public sealed class BrowserScreenProfile
             VimeoAudioEnabled = VimeoAudioEnabled,
             VimeoVolume = VimeoVolume,
             VimeoPlaybackRate = VimeoPlaybackRate,
+            GenericWebUrl = GenericWebUrl,
+            GenericWebBrowserWidth = GenericWebBrowserWidth,
+            GenericWebBrowserHeight = GenericWebBrowserHeight,
+            GenericWebCaptureFps = GenericWebCaptureFps,
+            GenericWebCaptureFpsManual = GenericWebCaptureFpsManual,
+            GenericWebAutoplay = GenericWebAutoplay,
+            LoopGenericWeb = LoopGenericWeb,
+            GenericWebAudioEnabled = GenericWebAudioEnabled,
+            GenericWebVolume = GenericWebVolume,
+            GenericWebPlaybackRate = GenericWebPlaybackRate,
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,

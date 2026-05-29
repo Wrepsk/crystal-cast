@@ -9,6 +9,7 @@ internal static class BrowserSourceProviderRegistry
             [BrowserSourceProviderKind.Twitch] = new TwitchBrowserSourceProvider(),
             [BrowserSourceProviderKind.Dailymotion] = new DailymotionBrowserSourceProvider(),
             [BrowserSourceProviderKind.Vimeo] = new VimeoBrowserSourceProvider(),
+            [BrowserSourceProviderKind.GenericWeb] = new GenericWebBrowserSourceProvider(),
         };
 
     public static bool IsSupported(BrowserSourceProviderKind provider)
@@ -287,6 +288,55 @@ internal static class BrowserSourceProviderRegistry
             BrowserSourceProviderRegistry.ApplyCaptureFps(
                 screen.VimeoCaptureFpsManual,
                 screen.VimeoCaptureFps,
+                source.DetectedVideoFps,
+                source.UpdateCaptureFps);
+        }
+    }
+
+    private sealed class GenericWebBrowserSourceProvider : IBrowserSourceProvider
+    {
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        {
+            return new GenericWebBrowserFrameSource(
+                screen.GenericWebUrl,
+                screen.GenericWebBrowserWidth,
+                screen.GenericWebBrowserHeight,
+                screen.GenericWebCaptureFps,
+                screen.GenericWebAutoplay,
+                screen.LoopGenericWeb,
+                screen.GenericWebAudioEnabled,
+                screen.GenericWebVolume,
+                screen.GenericWebPlaybackRate);
+        }
+
+        public string GetUrl(BrowserScreenProfile screen)
+        {
+            return screen.GenericWebUrl;
+        }
+
+        public BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceDimensions(screen.GenericWebBrowserWidth, screen.GenericWebBrowserHeight);
+        }
+
+        public BrowserSourceRuntimeSettings GetRuntimeSettings(BrowserScreenProfile screen)
+        {
+            return new BrowserSourceRuntimeSettings(
+                screen.GenericWebAudioEnabled,
+                screen.GenericWebVolume,
+                screen.GenericWebPlaybackRate,
+                screen.LoopGenericWeb,
+                true);
+        }
+
+        public void ApplyCaptureFps(IVideoFrameSource? frameSource, BrowserScreenProfile screen)
+        {
+            if (frameSource is not IBrowserFrameSourceRuntime { ProviderKind: BrowserSourceProviderKind.GenericWeb } source)
+                return;
+
+            BrowserSourceProviderRegistry.ApplyCaptureFps(
+                screen.GenericWebCaptureFpsManual,
+                screen.GenericWebCaptureFps,
                 source.DetectedVideoFps,
                 source.UpdateCaptureFps);
         }

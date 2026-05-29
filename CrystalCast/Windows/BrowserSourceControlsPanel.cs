@@ -14,6 +14,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             [BrowserSourceProviderKind.Twitch] = CreateTwitchDescriptor(),
             [BrowserSourceProviderKind.Dailymotion] = CreateDailymotionDescriptor(),
             [BrowserSourceProviderKind.Vimeo] = CreateVimeoDescriptor(),
+            [BrowserSourceProviderKind.GenericWeb] = CreateGenericWebDescriptor(),
         };
 
     private readonly Dictionary<string, BrowserSourceUiState> uiStates = new(StringComparer.Ordinal);
@@ -416,6 +417,42 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             SetLoop = (screen, value) => screen.LoopVimeo = value,
             GetPlaybackRate = screen => screen.VimeoPlaybackRate,
             SetPlaybackRate = (screen, value) => screen.VimeoPlaybackRate = value,
+        };
+    }
+
+    private static BrowserSourceUiDescriptor CreateGenericWebDescriptor()
+    {
+        return new BrowserSourceUiDescriptor
+        {
+            ProviderKind = BrowserSourceProviderKind.GenericWeb,
+            SourceDescriptor = BrowserSourceDescriptors.GenericWeb,
+            InputLabel = "Generic Web URL",
+            InvalidText = "Generic Web URL: invalid",
+            EmptyText = "Generic Web URL: empty",
+            LoopLabel = "Loop media",
+            SupportsLoop = true,
+            SupportsPlaybackRate = true,
+            SupportsPlaylistAutoplayNext = false,
+            RequireDurationForSeek = true,
+            GetUrl = screen => screen.GenericWebUrl,
+            SetUrl = (screen, value) => screen.GenericWebUrl = value,
+            GetBrowserWidth = screen => screen.GenericWebBrowserWidth,
+            GetBrowserHeight = screen => screen.GenericWebBrowserHeight,
+            SetBrowserResolution = (screen, width, height) =>
+            {
+                screen.GenericWebBrowserWidth = width;
+                screen.GenericWebBrowserHeight = height;
+            },
+            GetCaptureFps = screen => screen.GenericWebCaptureFps,
+            SetCaptureFps = (screen, value) => screen.GenericWebCaptureFps = value,
+            GetCaptureFpsManual = screen => screen.GenericWebCaptureFpsManual,
+            SetCaptureFpsManual = (screen, value) => screen.GenericWebCaptureFpsManual = value,
+            GetAutoplay = screen => screen.GenericWebAutoplay,
+            SetAutoplay = (screen, value) => screen.GenericWebAutoplay = value,
+            GetLoop = screen => screen.LoopGenericWeb,
+            SetLoop = (screen, value) => screen.LoopGenericWeb = value,
+            GetPlaybackRate = screen => screen.GenericWebPlaybackRate,
+            SetPlaybackRate = (screen, value) => screen.GenericWebPlaybackRate = value,
         };
     }
 

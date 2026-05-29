@@ -157,12 +157,29 @@ internal static class BrowserSourceDescriptors
         FailCefWhenReadyTimeoutExhausted = true,
     };
 
+    public static readonly BrowserSourceDescriptor GenericWeb = new()
+    {
+        ProviderKind = BrowserSourceProviderKind.GenericWeb,
+        DisplayName = "Generic Web",
+        InvalidSourceMessage = "invalid Generic Web URL",
+        LoadReason = "new page",
+        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
+        TryParse = TryParseGenericWeb,
+        BuildHtml = (_, _) => string.Empty,
+        BuildCanonicalSourceUrl = (source, _) => ((GenericWebSourceReference)source).Url,
+        IsValidVideoId = _ => true,
+        DescribeError = root => DescribeProviderError(root, "Generic Web", "media controller"),
+        WebView2UserDataFolderName = "WebView2GenericWeb",
+        WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
+    };
+
     public static IReadOnlyList<BrowserSourceDescriptor> All { get; } =
     [
         YouTube,
         Twitch,
         Dailymotion,
         Vimeo,
+        GenericWeb,
     ];
 
     public static BrowserSourceDescriptor Get(BrowserSourceProviderKind provider)
@@ -172,6 +189,7 @@ internal static class BrowserSourceDescriptors
             BrowserSourceProviderKind.Twitch => Twitch,
             BrowserSourceProviderKind.Dailymotion => Dailymotion,
             BrowserSourceProviderKind.Vimeo => Vimeo,
+            BrowserSourceProviderKind.GenericWeb => GenericWeb,
             _ => YouTube,
         };
     }
@@ -215,6 +233,18 @@ internal static class BrowserSourceDescriptors
     private static bool TryParseVimeo(string input, out IBrowserSourceReference source)
     {
         if (VimeoVideoId.TryParseSource(input, out var parsed))
+        {
+            source = parsed;
+            return true;
+        }
+
+        source = default!;
+        return false;
+    }
+
+    private static bool TryParseGenericWeb(string input, out IBrowserSourceReference source)
+    {
+        if (GenericWebUrl.TryParseSource(input, out var parsed))
         {
             source = parsed;
             return true;

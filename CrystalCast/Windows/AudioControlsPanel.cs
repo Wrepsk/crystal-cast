@@ -20,6 +20,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
                     BrowserSourceProviderKind.Twitch => DrawTwitchAudio(activeScreen),
                     BrowserSourceProviderKind.Dailymotion => DrawDailymotionAudio(activeScreen),
                     BrowserSourceProviderKind.Vimeo => DrawVimeoAudio(activeScreen),
+                    BrowserSourceProviderKind.GenericWeb => DrawGenericWebAudio(activeScreen),
                     _ => DrawYouTubeAudio(activeScreen),
                 };
                 changed |= DrawSpatialAudio(activeScreen);
@@ -133,6 +134,28 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         if (screen.VimeoAudioEnabled && ImGui.SliderFloat("Vimeo volume", ref volume, 0.0f, 1.0f))
         {
             screen.VimeoVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool DrawGenericWebAudio(BrowserScreenProfile screen)
+    {
+        var changed = false;
+        var audioEnabled = screen.GenericWebAudioEnabled;
+        var volume = screen.GenericWebVolume;
+
+        ImGui.TextUnformatted("Playback audio");
+        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        {
+            screen.GenericWebAudioEnabled = audioEnabled;
+            changed = true;
+        }
+
+        if (screen.GenericWebAudioEnabled && ImGui.SliderFloat("Generic Web volume", ref volume, 0.0f, 1.0f))
+        {
+            screen.GenericWebVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
         }
 

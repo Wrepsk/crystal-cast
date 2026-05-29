@@ -12,6 +12,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         (BrowserSourceProviderKind.Twitch, "Twitch"),
         (BrowserSourceProviderKind.Dailymotion, "Dailymotion"),
         (BrowserSourceProviderKind.Vimeo, "Vimeo"),
+        (BrowserSourceProviderKind.GenericWeb, "Generic Web"),
     ];
 
     private string renamingScreenId = string.Empty;

@@ -21,6 +21,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     private readonly bool isValidSource;
     private readonly bool autoplay;
     private readonly WebView2CaptureMode captureMode;
+    private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
     private BrowserThread? browserThread;
     private VideoFrame? latestFrame;
@@ -93,7 +94,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             var frameAge = lastFrameUnixMs == 0
                 ? "no captured frame"
                 : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
-            return $"{browserStatus}; {playerStatus}; capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {lastCaptureMilliseconds:0.#} ms; {frameAge}";
+            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}; {playerStatus}";
         }
     }
 
@@ -254,6 +255,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             captureWindowStartUnixMs = now;
 
         lastFrameUnixMs = now;
+        cadenceDiagnostics.Record(FramesPerSecond);
         captureWindowFrames++;
         var elapsedMs = now - captureWindowStartUnixMs;
         if (elapsedMs >= 1000)

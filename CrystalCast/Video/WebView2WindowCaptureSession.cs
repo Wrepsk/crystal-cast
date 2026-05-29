@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
@@ -38,6 +39,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private readonly Action<IntPtr, int, int> publishSharedTexture;
     private readonly Action<double> reportCaptureMilliseconds;
     private readonly Action<string> reportStatus;
+    private readonly object frameProcessingLock = new();
     private readonly D3D11Device d3dDevice;
     private readonly DeviceContext d3dContext;
     private readonly bool uninitializeWinRt;
@@ -47,13 +49,18 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private IntPtr session;
     private CancellationTokenSource? captureCancellation;
     private Task? captureTask;
+    private FrameArrivedEventHandler? frameArrivedHandler;
+    private EventRegistrationToken frameArrivedToken;
     private D3D11Texture2D? sharedTexture;
     private D3D11Texture2D? diagnosticStagingTexture;
     private IntPtr sharedTextureHandle;
     private SizeInt32 captureSize;
     private long lastPublishedTicks;
     private long lastDiagnosticTicks;
+    private long lastEventErrorTicks;
     private string lastDiagnosticStatus = "diagnostic pending";
+    private string capturePumpStatus = "starting";
+    private bool frameArrivedRegistered;
     private bool disposed;
 
     [SupportedOSPlatform("windows10.0.19041")]
@@ -121,10 +128,19 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     public void Start()
     {
         ThrowIfDisposed();
+        var eventDriven = TryRegisterFrameArrivedHandler();
         StartCapture(session);
+        if (eventDriven)
+        {
+            capturePumpStatus = "frame event";
+            reportStatus("WebView2 window capture running (frame event)");
+            return;
+        }
+
+        capturePumpStatus = "poll fallback";
         captureCancellation = new CancellationTokenSource();
         captureTask = Task.Run(() => CaptureLoopAsync(captureCancellation.Token));
-        reportStatus("WebView2 window capture running");
+        reportStatus("WebView2 window capture running (poll fallback)");
     }
 
     public void Dispose()
@@ -146,6 +162,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         captureCancellation?.Dispose();
         captureCancellation = null;
         captureTask = null;
+        UnregisterFrameArrivedHandler();
         CloseAndRelease(ref session);
         CloseAndRelease(ref framePool);
         Release(ref item);
@@ -174,17 +191,13 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             }
 
             var sw = Stopwatch.StartNew();
-            var frame = IntPtr.Zero;
             try
             {
-                frame = TryGetLatestFrameFromPool(framePool);
-                if (frame == IntPtr.Zero)
+                if (!TryProcessLatestFrame(sw))
                 {
                     await DelayAsync(1, token);
                     continue;
                 }
-
-                ProcessFrame(frame, sw);
             }
             catch (Exception ex) when (!token.IsCancellationRequested)
             {
@@ -193,12 +206,93 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
                 reportStatus($"WebView2 window capture failed: {ex.GetBaseException().Message}");
                 await DelayAsync(250, token);
             }
+            await Task.Yield();
+        }
+    }
+
+    private bool TryRegisterFrameArrivedHandler()
+    {
+        try
+        {
+            frameArrivedHandler = new FrameArrivedEventHandler(OnFrameArrived);
+            frameArrivedToken = AddFrameArrivedHandler(framePool, frameArrivedHandler.Pointer);
+            frameArrivedRegistered = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            frameArrivedRegistered = false;
+            frameArrivedHandler?.Dispose();
+            frameArrivedHandler = null;
+            reportStatus($"WebView2 frame event unavailable, polling: {ex.GetBaseException().Message}");
+            return false;
+        }
+    }
+
+    private void UnregisterFrameArrivedHandler()
+    {
+        if (frameArrivedRegistered)
+        {
+            try
+            {
+                RemoveFrameArrivedHandler(framePool, frameArrivedToken);
+            }
+            catch
+            {
+                // The frame pool is already closing; removing the event is best effort.
+            }
+        }
+
+        frameArrivedRegistered = false;
+        frameArrivedHandler?.Dispose();
+        frameArrivedHandler = null;
+        frameArrivedToken = default;
+    }
+
+    private void OnFrameArrived()
+    {
+        if (disposed || !shouldCapture())
+            return;
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            TryProcessLatestFrame(sw);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
+            var now = Stopwatch.GetTimestamp();
+            if (now - Interlocked.Read(ref lastEventErrorTicks) < Stopwatch.Frequency / 4)
+                return;
+
+            Interlocked.Exchange(ref lastEventErrorTicks, now);
+            reportStatus($"WebView2 window capture failed: {ex.GetBaseException().Message}");
+        }
+    }
+
+    private bool TryProcessLatestFrame(Stopwatch sw)
+    {
+        lock (frameProcessingLock)
+        {
+            if (disposed)
+                return false;
+
+            var frame = IntPtr.Zero;
+            try
+            {
+                frame = TryGetLatestFrameFromPool(framePool);
+                if (frame == IntPtr.Zero)
+                    return false;
+
+                ProcessFrame(frame, sw);
+                return true;
+            }
             finally
             {
                 CloseAndRelease(ref frame);
             }
-
-            await Task.Yield();
         }
     }
 
@@ -245,7 +339,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             sw.Stop();
             reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
             publishSharedTexture(sharedTextureHandle, contentSize.Width, contentSize.Height);
-            reportStatus($"GPU; {diagnosticStatus}");
+            reportStatus($"GPU {capturePumpStatus}; {diagnosticStatus}");
         }
         finally
         {
@@ -604,6 +698,25 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         return frame;
     }
 
+    private static unsafe EventRegistrationToken AddFrameArrivedHandler(IntPtr currentFramePool, IntPtr handler)
+    {
+        var token = default(EventRegistrationToken);
+        var vtable = *(IntPtr**)currentFramePool;
+        var addFrameArrived = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, EventRegistrationToken*, int>)vtable[8];
+        Marshal.ThrowExceptionForHR(addFrameArrived(currentFramePool, handler, &token));
+        return token;
+    }
+
+    private static unsafe void RemoveFrameArrivedHandler(IntPtr currentFramePool, EventRegistrationToken token)
+    {
+        if (currentFramePool == IntPtr.Zero)
+            return;
+
+        var vtable = *(IntPtr**)currentFramePool;
+        var removeFrameArrived = (delegate* unmanaged[Stdcall]<IntPtr, EventRegistrationToken, int>)vtable[9];
+        Marshal.ThrowExceptionForHR(removeFrameArrived(currentFramePool, token));
+    }
+
     private static unsafe IntPtr CreateCaptureSession(IntPtr currentFramePool, IntPtr captureItem)
     {
         var captureSession = IntPtr.Zero;
@@ -706,5 +819,101 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
         public readonly int Width;
         public readonly int Height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly struct EventRegistrationToken
+    {
+        public readonly long Value;
+    }
+
+    private sealed unsafe class FrameArrivedEventHandler : IDisposable
+    {
+        private static readonly IntPtr Vtable = CreateVtable();
+        private readonly Action callback;
+        private readonly GCHandle handle;
+        private readonly IntPtr instance;
+        private bool disposed;
+
+        public FrameArrivedEventHandler(Action callback)
+        {
+            this.callback = callback;
+            handle = GCHandle.Alloc(this);
+            instance = Marshal.AllocHGlobal(IntPtr.Size * 2);
+            Marshal.WriteIntPtr(instance, Vtable);
+            Marshal.WriteIntPtr(instance, IntPtr.Size, GCHandle.ToIntPtr(handle));
+        }
+
+        public IntPtr Pointer => instance;
+
+        public void Dispose()
+        {
+            if (disposed)
+                return;
+
+            disposed = true;
+            if (instance != IntPtr.Zero)
+                Marshal.FreeHGlobal(instance);
+            if (handle.IsAllocated)
+                handle.Free();
+        }
+
+        private static IntPtr CreateVtable()
+        {
+            var vtable = Marshal.AllocHGlobal(IntPtr.Size * 4);
+            Marshal.WriteIntPtr(vtable, IntPtr.Size * 0, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, Guid*, IntPtr*, int>)&QueryInterface);
+            Marshal.WriteIntPtr(vtable, IntPtr.Size * 1, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, uint>)&AddRef);
+            Marshal.WriteIntPtr(vtable, IntPtr.Size * 2, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, uint>)&Release);
+            Marshal.WriteIntPtr(vtable, IntPtr.Size * 3, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, IntPtr, IntPtr, int>)&Invoke);
+            return vtable;
+        }
+
+        private static FrameArrivedEventHandler? FromThis(IntPtr thisPtr)
+        {
+            if (thisPtr == IntPtr.Zero)
+                return null;
+
+            var handlePtr = Marshal.ReadIntPtr(thisPtr, IntPtr.Size);
+            if (handlePtr == IntPtr.Zero)
+                return null;
+
+            return GCHandle.FromIntPtr(handlePtr).Target as FrameArrivedEventHandler;
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+        private static int QueryInterface(IntPtr thisPtr, Guid* iid, IntPtr* obj)
+        {
+            if (obj == null)
+                return unchecked((int)0x80004003);
+
+            *obj = thisPtr;
+            return 0;
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+        private static uint AddRef(IntPtr thisPtr)
+        {
+            return 1;
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+        private static uint Release(IntPtr thisPtr)
+        {
+            return 1;
+        }
+
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+        private static int Invoke(IntPtr thisPtr, IntPtr sender, IntPtr args)
+        {
+            try
+            {
+                FromThis(thisPtr)?.callback();
+                return 0;
+            }
+            catch
+            {
+                return unchecked((int)0x80004005);
+            }
+        }
     }
 }

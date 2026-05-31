@@ -7,10 +7,12 @@ internal sealed class WebView2HostWindow : IDisposable
 {
     private const string ClassName = "CrystalCastWebView2HostWindow";
     private const uint WsPopup = 0x80000000;
+    private const uint WsCaption = 0x00C00000;
     private const uint WsClipChildren = 0x02000000;
     private const uint WsClipSiblings = 0x04000000;
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExNoActivate = 0x08000000;
+    private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
     private const int SwShow = 5;
     private const int SwShowNoActivate = 4;
@@ -27,6 +29,8 @@ internal sealed class WebView2HostWindow : IDisposable
     private const uint SwpNoOwnerZOrder = 0x0200;
     private static readonly IntPtr HwndTop = IntPtr.Zero;
     private static readonly IntPtr HwndBottom = new(1);
+    private const uint CaptureWindowStyle = WsPopup | WsClipChildren | WsClipSiblings;
+    private const uint InteractionWindowStyle = WsPopup | WsCaption | WsClipChildren | WsClipSiblings;
 
     private static readonly object RegisterLock = new();
     private static readonly WndProcDelegate WindowProcDelegate = WindowProc;
@@ -56,7 +60,7 @@ internal sealed class WebView2HostWindow : IDisposable
             WsExToolWindow | WsExNoActivate,
             ClassName,
             "CrystalCast WebView2 capture",
-            WsPopup | WsClipChildren | WsClipSiblings,
+            CaptureWindowStyle,
             x,
             y,
             Math.Max(1, width),
@@ -81,6 +85,7 @@ internal sealed class WebView2HostWindow : IDisposable
         if ((exStyle & WsExNoActivate) == 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
 
+        SetWindowLongPtr(hwnd, GwlStyle, WindowStyleToIntPtr(CaptureWindowStyle));
         var x = GetSystemMetrics(SmXVirtualScreen);
         var y = GetSystemMetrics(SmYVirtualScreen);
         ShowWindow(hwnd, SwShowNoActivate);
@@ -97,13 +102,17 @@ internal sealed class WebView2HostWindow : IDisposable
         if ((exStyle & WsExNoActivate) != 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle & ~WsExNoActivate));
 
+        SetWindowLongPtr(hwnd, GwlStyle, WindowStyleToIntPtr(InteractionWindowStyle));
+        var windowRect = GetWindowRectForClient(width, height, InteractionWindowStyle, (uint)GetWindowLongPtr(hwnd, GwlExStyle));
         var screenWidth = Math.Max(1, GetSystemMetrics(SmCxScreen));
         var screenHeight = Math.Max(1, GetSystemMetrics(SmCyScreen));
-        var x = Math.Max(0, (screenWidth - width) / 2);
-        var y = Math.Max(0, (screenHeight - height) / 2);
+        var windowWidth = Math.Max(1, windowRect.Right - windowRect.Left);
+        var windowHeight = Math.Max(1, windowRect.Bottom - windowRect.Top);
+        var x = Math.Max(0, (screenWidth - windowWidth) / 2);
+        var y = Math.Max(0, (screenHeight - windowHeight) / 2);
 
         ShowWindow(hwnd, SwShow);
-        SetWindowPos(hwnd, HwndTop, x, y, width, height, SwpShowWindow | SwpFrameChanged);
+        SetWindowPos(hwnd, HwndTop, x, y, windowWidth, windowHeight, SwpShowWindow | SwpFrameChanged);
         SetForegroundWindow(hwnd);
         SetFocus(hwnd);
         UpdateWindow(hwnd);
@@ -120,6 +129,7 @@ internal sealed class WebView2HostWindow : IDisposable
         if ((exStyle & WsExNoActivate) == 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
 
+        SetWindowLongPtr(hwnd, GwlStyle, WindowStyleToIntPtr(CaptureWindowStyle));
         SetWindowPos(hwnd, HwndTop, x, y, width, height, SwpNoActivate | SwpNoOwnerZOrder | SwpShowWindow | SwpFrameChanged);
         SetWindowPos(hwnd, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
         UpdateWindow(hwnd);
@@ -177,6 +187,25 @@ internal sealed class WebView2HostWindow : IDisposable
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
 
+    private static Rect GetWindowRectForClient(int clientWidth, int clientHeight, uint style, uint exStyle)
+    {
+        var rect = new Rect
+        {
+            Left = 0,
+            Top = 0,
+            Right = Math.Max(1, clientWidth),
+            Bottom = Math.Max(1, clientHeight),
+        };
+
+        AdjustWindowRectEx(ref rect, style, false, exStyle);
+        return rect;
+    }
+
+    private static IntPtr WindowStyleToIntPtr(uint style)
+    {
+        return new IntPtr(unchecked((int)style));
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr GetModuleHandle(string? moduleName);
 
@@ -222,6 +251,9 @@ internal sealed class WebView2HostWindow : IDisposable
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
 
+    [DllImport("user32.dll")]
+    private static extern bool AdjustWindowRectEx(ref Rect rect, uint style, bool menu, uint exStyle);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyWindow(IntPtr hwnd);
 
@@ -229,6 +261,15 @@ internal sealed class WebView2HostWindow : IDisposable
     private static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
 
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WndClassEx

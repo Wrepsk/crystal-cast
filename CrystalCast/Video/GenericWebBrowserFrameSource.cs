@@ -8,7 +8,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace CrystalCast.Video;
 
-internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
+internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
 {
     private const string PlaybackUnavailableStatus = "Playback sync unavailable for this page";
 
@@ -21,9 +21,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
     private readonly GenericWebSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
+    private readonly WebView2CaptureMode captureMode;
+    private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
     private BrowserThread? browserThread;
     private VideoFrame? latestFrame;
+    private NativeVideoFrame? latestNativeFrame;
     private MediaPlaybackTelemetry telemetry = new();
     private bool loop;
     private bool audioEnabled;
@@ -49,7 +52,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
         bool loop,
         bool audioEnabled,
         float volume,
-        float playbackRate)
+        float playbackRate,
+        WebView2CaptureMode captureMode = WebView2CaptureMode.PreviewJpeg)
     {
         this.input = input;
         isValidSource = GenericWebUrl.TryParseSource(input, out source);
@@ -61,6 +65,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
         this.audioEnabled = audioEnabled;
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
+        this.captureMode = captureMode;
 
         if (!isValidSource)
             browserStatus = BrowserSourceDescriptors.GenericWeb.InvalidSourceMessage;
@@ -69,7 +74,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
     }
 
     public BrowserSourceProviderKind ProviderKind => BrowserSourceProviderKind.GenericWeb;
-    public string Name => "Generic Web browser (WebView2 capture)";
+    public string Name => captureMode == WebView2CaptureMode.WindowGraphicsCapture
+        ? "Generic Web browser (WebView2 window capture)"
+        : "Generic Web browser (WebView2 JPEG capture)";
     public int Width { get; }
     public int Height { get; }
     public float FramesPerSecond { get; private set; }
@@ -83,7 +90,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
             var frameAge = lastFrameUnixMs == 0
                 ? "no captured frame"
                 : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
-            return $"{browserStatus}; {playerStatus}; capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {lastCaptureMilliseconds:0.#} ms; {frameAge}";
+            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}; {playerStatus}";
         }
     }
 
@@ -118,6 +125,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
     public bool TryGetLatestFrame(out VideoFrame frame)
     {
         frame = latestFrame!;
+        return frame != null;
+    }
+
+    public bool TryGetLatestNativeFrame(out NativeVideoFrame frame)
+    {
+        frame = latestNativeFrame!;
         return frame != null;
     }
 
@@ -224,11 +237,24 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var frame = new VideoFrame(pixels, width, height, Interlocked.Increment(ref sequence), now);
         Interlocked.Exchange(ref latestFrame, frame);
-        lastFrameUnixMs = now;
+        RecordCapturedFrame(now);
+    }
 
+    private void PublishNativeFrame(IntPtr sharedHandle, int width, int height)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var frame = new NativeVideoFrame(sharedHandle, width, height, Interlocked.Increment(ref sequence), now);
+        Interlocked.Exchange(ref latestNativeFrame, frame);
+        RecordCapturedFrame(now);
+    }
+
+    private void RecordCapturedFrame(long now)
+    {
         if (captureWindowStartUnixMs == 0)
             captureWindowStartUnixMs = now;
 
+        lastFrameUnixMs = now;
+        cadenceDiagnostics.Record(FramesPerSecond);
         captureWindowFrames++;
         var elapsedMs = now - captureWindowStartUnixMs;
         if (elapsedMs >= 1000)
@@ -381,6 +407,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
         private BrowserSynchronizationContext? synchronizationContext;
         private CoreWebView2Controller? controller;
         private CoreWebView2? webView;
+        private WebView2HostWindow? hostWindow;
+        private WebView2WindowCaptureSession? windowCaptureSession;
         private volatile bool disposed;
 
         public BrowserThread(GenericWebBrowserFrameSource owner)
@@ -529,8 +557,11 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
                 try
                 {
                     webView = null;
+                    DisposeWindowCaptureSession();
                     controller?.Close();
                     controller = null;
+                    hostWindow?.Dispose();
+                    hostWindow = null;
                 }
                 catch
                 {
@@ -554,9 +585,17 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
                     additionalBrowserArguments: "--autoplay-policy=no-user-gesture-required");
                 var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
 
-                controller = await environment.CreateCoreWebView2ControllerAsync(BrowserNative.HwndMessage);
+                var parentHwnd = BrowserNative.HwndMessage;
+                if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture)
+                {
+                    hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
+                    parentHwnd = hostWindow.Hwnd;
+                }
+
+                controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
+                hostWindow?.Show();
 
                 webView = controller.CoreWebView2;
                 ConfigureWebView(webView);
@@ -567,12 +606,68 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
                 await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript());
                 owner.browserStatus = "WebView2 loading Generic Web page";
                 webView.Navigate(owner.source.Url);
-                _ = CaptureLoopAsync();
+
+                if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture)
+                    StartWindowCaptureOrFallback();
+                else
+                    _ = CaptureLoopAsync();
             }
             catch (Exception ex)
             {
                 owner.browserStatus = $"WebView2 init failed: {ex.Message}";
             }
+        }
+
+        private void StartWindowCaptureOrFallback()
+        {
+            try
+            {
+                if (TryStartWindowCapture())
+                    return;
+            }
+            catch (Exception ex)
+            {
+                DisposeWindowCaptureSession();
+                Plugin.Log.Warning(ex, "Failed to start CrystalCast Generic Web window capture.");
+                owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
+            }
+
+            _ = CaptureLoopAsync();
+        }
+
+        private bool TryStartWindowCapture()
+        {
+            if (hostWindow == null)
+            {
+                owner.browserStatus = "WebView2 window capture unavailable, using JPEG fallback: host window was not created";
+                return false;
+            }
+
+            if (!WebView2WindowCaptureSession.IsSupported(out var captureStatus))
+            {
+                owner.browserStatus = $"{captureStatus}; using JPEG fallback";
+                return false;
+            }
+
+            windowCaptureSession = new WebView2WindowCaptureSession(
+                hostWindow.Hwnd,
+                owner.Width,
+                owner.Height,
+                () => owner.captureEnabled,
+                () => owner.FramesPerSecond,
+                (sharedHandle, width, height) => owner.PublishNativeFrame(sharedHandle, width, height),
+                value => owner.lastCaptureMilliseconds = value,
+                value => owner.browserStatus = value);
+            windowCaptureSession.Start();
+            return true;
+        }
+
+        private void DisposeWindowCaptureSession()
+        {
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+                windowCaptureSession?.Dispose();
+
+            windowCaptureSession = null;
         }
 
         private static void ConfigureWebView(CoreWebView2 webView)
@@ -618,9 +713,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, IMediaPl
                     await CaptureOnceAsync(webView);
                     sw.Stop();
                     owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
-                    owner.browserStatus = owner.FramesPerSecond > 30.0f
-                        ? "WebView2 JPEG capture running; high FPS is best effort"
+                    var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                        ? "WebView2 JPEG fallback capture running"
                         : "WebView2 JPEG capture running";
+                    owner.browserStatus = owner.FramesPerSecond > 30.0f
+                        ? $"{captureStatus}; high FPS is best effort"
+                        : captureStatus;
                 }
                 catch (Exception ex)
                 {

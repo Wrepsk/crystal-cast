@@ -37,11 +37,12 @@ CrystalCast's intended render output is Pictomancy `SceneComposite`, which compo
 CrystalCast supports two browser capture paths:
 
 - CEF offscreen capture, preferred when compatible.
-- WebView2 capture, a Windows fallback for sources that need the Microsoft Edge media stack.
+- WebView2 JPEG capture, a Windows fallback for sources that need the Microsoft Edge media stack.
+- WebView2 window capture, an experimental Windows Graphics Capture path that can avoid the JPEG readback path when supported.
 
 CrystalCast does not ship a proprietary-codec CEF build. Some streaming sources, especially Twitch and YouTube Live, may require codecs not included in the bundled CEF runtime. In Auto mode, CrystalCast uses each provider's preferred browser path and falls back between CEF offscreen capture and WebView2 capture on Windows when needed.
 
-WebView2 capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than CEF offscreen capture.
+WebView2 JPEG capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than CEF offscreen capture. WebView2 window capture uses Windows Graphics Capture and falls back to JPEG capture if the OS or capture session is unavailable.
 
 | Source | Windows CEF | Windows WebView2 | Notes |
 |---|---:|---:|---|

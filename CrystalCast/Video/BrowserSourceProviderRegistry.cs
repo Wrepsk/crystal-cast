@@ -306,7 +306,10 @@ internal static class BrowserSourceProviderRegistry
                 screen.LoopGenericWeb,
                 screen.GenericWebAudioEnabled,
                 screen.GenericWebVolume,
-                screen.GenericWebPlaybackRate);
+                screen.GenericWebPlaybackRate,
+                enginePreference is BrowserMediaEngine.Auto or BrowserMediaEngine.WebView2WindowCapture
+                    ? WebView2CaptureMode.WindowGraphicsCapture
+                    : WebView2CaptureMode.PreviewJpeg);
         }
 
         public string GetUrl(BrowserScreenProfile screen)

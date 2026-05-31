@@ -18,6 +18,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private readonly bool isValidSource;
     private readonly bool autoplay;
     private readonly object telemetryLock = new();
+    private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly Dictionary<string, Delegate> browserEventHandlers = new(StringComparer.Ordinal);
     private object? browser;
     private VideoFrame? latestFrame;
@@ -93,7 +94,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             var frameAge = lastFrameUnixMs == 0
                 ? "no painted frame"
                 : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
-            return $"{browserStatus}; {playerStatus}; paint {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {lastPaintMilliseconds:0.#} ms; {frameAge}; {CefRuntimeManager.Status}";
+            return $"paint {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastPaintMilliseconds:0.#} ms; {frameAge}; {browserStatus}; {playerStatus}; {CefRuntimeManager.Status}";
         }
     }
 
@@ -721,6 +722,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         var frame = new VideoFrame(pixels, width, height, Interlocked.Increment(ref sequence), now);
         Interlocked.Exchange(ref latestFrame, frame);
         lastFrameUnixMs = now;
+        cadenceDiagnostics.Record(FramesPerSecond);
 
         if (captureWindowStartUnixMs == 0)
             captureWindowStartUnixMs = now;

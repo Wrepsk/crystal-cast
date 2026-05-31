@@ -11,13 +11,21 @@ internal sealed class WebView2HostWindow : IDisposable
     private const uint WsClipSiblings = 0x04000000;
     private const uint WsExToolWindow = 0x00000080;
     private const uint WsExNoActivate = 0x08000000;
+    private const int GwlExStyle = -20;
+    private const int SwShow = 5;
     private const int SwShowNoActivate = 4;
     private const int SmXVirtualScreen = 76;
     private const int SmYVirtualScreen = 77;
+    private const int SmCxScreen = 0;
+    private const int SmCyScreen = 1;
     private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private static readonly IntPtr HwndTop = IntPtr.Zero;
     private static readonly IntPtr HwndBottom = new(1);
 
     private static readonly object RegisterLock = new();
@@ -25,10 +33,14 @@ internal sealed class WebView2HostWindow : IDisposable
     private static bool registered;
 
     private IntPtr hwnd;
+    private readonly int width;
+    private readonly int height;
 
-    private WebView2HostWindow(IntPtr hwnd)
+    private WebView2HostWindow(IntPtr hwnd, int width, int height)
     {
         this.hwnd = hwnd;
+        this.width = width;
+        this.height = height;
     }
 
     public IntPtr Hwnd => hwnd;
@@ -57,16 +69,59 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to create WebView2 capture host window.");
 
-        return new WebView2HostWindow(hwnd);
+        return new WebView2HostWindow(hwnd, Math.Max(1, width), Math.Max(1, height));
     }
 
-    public void Show()
+    public void ShowForCapture()
     {
         if (hwnd == IntPtr.Zero)
             return;
 
+        var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
+        if ((exStyle & WsExNoActivate) == 0)
+            SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
+
+        var x = GetSystemMetrics(SmXVirtualScreen);
+        var y = GetSystemMetrics(SmYVirtualScreen);
         ShowWindow(hwnd, SwShowNoActivate);
-        SetWindowPos(hwnd, HwndBottom, 0, 0, 0, 0, SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder | SwpShowWindow);
+        SetWindowPos(hwnd, HwndBottom, x, y, width, height, SwpNoActivate | SwpNoOwnerZOrder | SwpShowWindow | SwpFrameChanged);
+        UpdateWindow(hwnd);
+    }
+
+    public void ShowForInteraction()
+    {
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
+        if ((exStyle & WsExNoActivate) != 0)
+            SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle & ~WsExNoActivate));
+
+        var screenWidth = Math.Max(1, GetSystemMetrics(SmCxScreen));
+        var screenHeight = Math.Max(1, GetSystemMetrics(SmCyScreen));
+        var x = Math.Max(0, (screenWidth - width) / 2);
+        var y = Math.Max(0, (screenHeight - height) / 2);
+
+        ShowWindow(hwnd, SwShow);
+        SetWindowPos(hwnd, HwndTop, x, y, width, height, SwpShowWindow | SwpFrameChanged);
+        SetForegroundWindow(hwnd);
+        SetFocus(hwnd);
+        UpdateWindow(hwnd);
+    }
+
+    public void ReturnToCapture()
+    {
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        var x = GetSystemMetrics(SmXVirtualScreen);
+        var y = GetSystemMetrics(SmYVirtualScreen);
+        var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
+        if ((exStyle & WsExNoActivate) == 0)
+            SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
+
+        SetWindowPos(hwnd, HwndTop, x, y, width, height, SwpNoActivate | SwpNoOwnerZOrder | SwpShowWindow | SwpFrameChanged);
+        SetWindowPos(hwnd, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
         UpdateWindow(hwnd);
     }
 
@@ -148,6 +203,18 @@ internal sealed class WebView2HostWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool UpdateWindow(IntPtr hwnd);

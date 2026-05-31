@@ -157,6 +157,24 @@ public sealed class WorldScreenManager : IDisposable
         return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryRestartDynamicSource();
     }
 
+    public bool TryShowBrowserControls(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryShowBrowserControls();
+    }
+
+    public bool TryHideBrowserControls(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryHideBrowserControls();
+    }
+
+    public bool AreBrowserControlsVisible(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.BrowserControlsVisible;
+    }
+
     public MediaPlaybackTelemetry? GetPlaybackTelemetry(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
@@ -352,6 +370,7 @@ public sealed class WorldScreenManager : IDisposable
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";
         public string AudioStatus => audioPlayer?.Status ?? "audio stopped";
         public string SourceName => frameSource?.Name ?? "no source";
+        public bool BrowserControlsVisible => frameSource is IBrowserControlsHost { BrowserControlsVisible: true };
         public double LastUploadMilliseconds => sharedTexture.NativeHandle != 0
             ? sharedTexture.LastUploadMilliseconds
             : dynamicTexture.LastUploadMilliseconds;
@@ -498,8 +517,26 @@ public sealed class WorldScreenManager : IDisposable
             return true;
         }
 
+        public bool TryShowBrowserControls()
+        {
+            EnsureFrameSource();
+            if (frameSource is not IBrowserControlsHost controlsHost)
+                return false;
+
+            return controlsHost.ShowBrowserControls();
+        }
+
+        public bool TryHideBrowserControls()
+        {
+            if (frameSource is not IBrowserControlsHost controlsHost)
+                return false;
+
+            return controlsHost.HideBrowserControls();
+        }
+
         public void Stop()
         {
+            TryHideBrowserControls();
             frameSource?.Stop();
             StopAudio();
             ResetEffectiveAudioVolume();

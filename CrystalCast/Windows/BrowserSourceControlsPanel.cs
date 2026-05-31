@@ -29,6 +29,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
         changed |= DrawUrlControls(screen, descriptor, uiState);
         changed |= DrawPlaybackControls(screen, descriptor, uiState);
+        DrawBrowserControlWindow(screen, descriptor);
         changed |= DrawResolutionPreset(screen, descriptor);
         changed |= DrawCaptureFps(screen, descriptor);
         changed |= DrawSourceOptions(screen, descriptor);
@@ -173,6 +174,28 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             ImGui.SetTooltip(sourceLocked ? "Locked by IPC" : "Restart");
 
         return changed;
+    }
+
+    private void DrawBrowserControlWindow(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
+    {
+        if (descriptor.ProviderKind != BrowserSourceProviderKind.GenericWeb)
+            return;
+
+        var visible = renderer.AreBrowserControlsVisible(screen);
+        var label = visible
+            ? $"Hide browser controls##{descriptor.ProviderKind}BrowserControls"
+            : $"Show browser controls##{descriptor.ProviderKind}BrowserControls";
+        var width = Math.Min(Math.Max(ImGui.CalcTextSize("Show browser controls").X + (ImGui.GetStyle().FramePadding.X * 2.0f), 150.0f), ImGui.GetContentRegionAvail().X);
+        if (ImGui.Button(label, new Vector2(width, 0.0f)))
+        {
+            if (visible)
+                renderer.TryHideBrowserControls(screen);
+            else
+                renderer.TryShowBrowserControls(screen);
+        }
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(visible ? "Return the WebView2 page to capture mode" : "Bring the Generic Web page forward for mouse and keyboard input");
     }
 
     private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)

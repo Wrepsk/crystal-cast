@@ -63,6 +63,13 @@ internal interface IBrowserFrameSourceRuntime
     void UpdateCaptureFps(float fps);
 }
 
+internal interface IBrowserControlsHost
+{
+    bool BrowserControlsVisible { get; }
+    bool ShowBrowserControls();
+    bool HideBrowserControls();
+}
+
 internal static class BrowserSourceDescriptors
 {
     public static readonly BrowserSourceDescriptor YouTube = new()

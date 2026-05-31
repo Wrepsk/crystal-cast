@@ -632,7 +632,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
                 controller.DefaultBackgroundColor = System.Drawing.Color.Black;
-                hostWindow?.Show();
+                hostWindow?.ShowForCapture();
 
                 webView = controller.CoreWebView2;
                 ConfigureWebView(webView);

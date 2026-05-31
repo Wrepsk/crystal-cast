@@ -186,6 +186,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         {
             if (!shouldCapture())
             {
+                DrainFramePool();
                 await DelayAsync(200, token);
                 continue;
             }
@@ -251,8 +252,14 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
     private void OnFrameArrived()
     {
-        if (disposed || !shouldCapture())
+        if (disposed)
             return;
+
+        if (!shouldCapture())
+        {
+            DrainFramePool();
+            return;
+        }
 
         var sw = Stopwatch.StartNew();
         try
@@ -269,6 +276,29 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
             Interlocked.Exchange(ref lastEventErrorTicks, now);
             reportStatus($"WebView2 window capture failed: {ex.GetBaseException().Message}");
+        }
+    }
+
+    private void DrainFramePool()
+    {
+        lock (frameProcessingLock)
+        {
+            if (disposed)
+                return;
+
+            var frame = IntPtr.Zero;
+            try
+            {
+                frame = TryGetLatestFrameFromPool(framePool);
+            }
+            catch
+            {
+                // Draining while paused is best effort; the active capture path reports real failures.
+            }
+            finally
+            {
+                CloseAndRelease(ref frame);
+            }
         }
     }
 

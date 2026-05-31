@@ -332,6 +332,7 @@ public sealed class WorldScreenManager : IDisposable
         private string lastNativeTextureError = string.Empty;
         private long lastNativeTextureErrorUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
+        private long lastPauseCommandUnixMs;
         private long fallbackFrameSequence = -1_000_000_000;
         private float smoothedEffectiveAudioVolume;
         private ResolvedScreenPlacement resolvedPlacement;
@@ -454,6 +455,7 @@ public sealed class WorldScreenManager : IDisposable
         public bool TryPlayDynamicSource()
         {
             SetPlaybackPaused(false);
+            lastPauseCommandUnixMs = 0;
             if (frameSource is not IMediaPlaybackController controller)
                 return false;
 
@@ -464,11 +466,7 @@ public sealed class WorldScreenManager : IDisposable
         public bool TryPauseDynamicSource()
         {
             SetPlaybackPaused(true);
-            if (frameSource is not IMediaPlaybackController controller)
-                return false;
-
-            controller.Pause();
-            return true;
+            return TrySendPauseCommand(force: true);
         }
 
         public bool TrySeekDynamicSourceBy(double seconds)
@@ -492,6 +490,7 @@ public sealed class WorldScreenManager : IDisposable
         public bool TryRestartDynamicSource()
         {
             SetPlaybackPaused(false);
+            lastPauseCommandUnixMs = 0;
             if (frameSource is not IMediaPlaybackController controller)
                 return false;
 
@@ -532,10 +531,11 @@ public sealed class WorldScreenManager : IDisposable
             if (IsPlaybackPaused())
             {
                 frameSource.Stop();
+                TrySendPauseCommand(force: false);
                 StopAudio();
                 CalculateEffectiveAudioVolume(0.0f, smooth: false);
                 UpdatePlaybackTelemetry();
-                return ToPreparedTexture(dynamicTexture.TextureWrap) ?? ResolveFallbackTexture();
+                return ResolveCurrentTexture() ?? ResolveFallbackTexture();
             }
 
             frameSource.Start();
@@ -581,6 +581,14 @@ public sealed class WorldScreenManager : IDisposable
             }
 
             return ToPreparedTexture(dynamicTexture.TextureWrap) ?? ResolveFallbackTexture();
+        }
+
+        private PreparedScreenTexture? ResolveCurrentTexture()
+        {
+            if (sharedTexture.NativeHandle != 0)
+                return new PreparedScreenTexture(sharedTexture.NativeHandle, sharedTexture.Width, sharedTexture.Height);
+
+            return ToPreparedTexture(dynamicTexture.TextureWrap);
         }
 
         private PreparedScreenTexture? ResolveFallbackTexture()
@@ -637,6 +645,7 @@ public sealed class WorldScreenManager : IDisposable
             lastFrameUnixMs = 0;
             lastNativeTextureError = string.Empty;
             lastNativeTextureErrorUnixMs = 0;
+            lastPauseCommandUnixMs = 0;
 
             switch (GetSourceKind())
             {
@@ -654,6 +663,20 @@ public sealed class WorldScreenManager : IDisposable
                     frameSource = BrowserSourceProviderRegistry.CreateFrameSource(browserScreen, configuration.YouTubeBrowserEngine);
                     break;
             }
+        }
+
+        private bool TrySendPauseCommand(bool force)
+        {
+            if (frameSource is not IMediaPlaybackController controller)
+                return false;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (!force && now - lastPauseCommandUnixMs < 1000)
+                return true;
+
+            controller.Pause();
+            lastPauseCommandUnixMs = now;
+            return true;
         }
 
         private string BuildFrameSourceSignature()

@@ -49,6 +49,18 @@ internal sealed class WebView2HostWindow : IDisposable
 
     public IntPtr Hwnd => hwnd;
 
+    public (int Width, int Height) GetInteractionClientSize()
+    {
+        var screenWidth = Math.Max(1, GetSystemMetrics(SmCxScreen));
+        var screenHeight = Math.Max(1, GetSystemMetrics(SmCyScreen));
+        var maxWidth = Math.Min(width, Math.Max(320, (int)(screenWidth * 0.75)));
+        var maxHeight = Math.Min(height, Math.Max(180, (int)(screenHeight * 0.75)));
+        var scale = Math.Min(1.0, Math.Min(maxWidth / (double)width, maxHeight / (double)height));
+        return (
+            Math.Max(1, (int)Math.Round(width * scale)),
+            Math.Max(1, (int)Math.Round(height * scale)));
+    }
+
     public static WebView2HostWindow Create(int width, int height)
     {
         EnsureRegistered();
@@ -93,7 +105,7 @@ internal sealed class WebView2HostWindow : IDisposable
         UpdateWindow(hwnd);
     }
 
-    public void ShowForInteraction()
+    public void ShowForInteraction(int clientWidth, int clientHeight)
     {
         if (hwnd == IntPtr.Zero)
             return;
@@ -103,7 +115,9 @@ internal sealed class WebView2HostWindow : IDisposable
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle & ~WsExNoActivate));
 
         SetWindowLongPtr(hwnd, GwlStyle, WindowStyleToIntPtr(InteractionWindowStyle));
-        var windowRect = GetWindowRectForClient(width, height, InteractionWindowStyle, (uint)GetWindowLongPtr(hwnd, GwlExStyle));
+        clientWidth = Math.Clamp(clientWidth, 1, width);
+        clientHeight = Math.Clamp(clientHeight, 1, height);
+        var windowRect = GetWindowRectForClient(clientWidth, clientHeight, InteractionWindowStyle, (uint)GetWindowLongPtr(hwnd, GwlExStyle));
         var screenWidth = Math.Max(1, GetSystemMetrics(SmCxScreen));
         var screenHeight = Math.Max(1, GetSystemMetrics(SmCyScreen));
         var windowWidth = Math.Max(1, windowRect.Right - windowRect.Left);

@@ -524,7 +524,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             browserControlsVisible = true;
             Post(() =>
             {
-                hostWindow?.ShowForInteraction();
+                if (hostWindow != null && controller != null)
+                {
+                    var (width, height) = hostWindow.GetInteractionClientSize();
+                    controller.Bounds = new System.Drawing.Rectangle(0, 0, width, height);
+                    hostWindow.ShowForInteraction(width, height);
+                }
+
                 owner.browserStatus = "WebView2 browser controls visible";
                 return Task.CompletedTask;
             });
@@ -535,7 +541,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             browserControlsVisible = false;
             Post(() =>
             {
-                hostWindow?.ReturnToCapture();
+                if (hostWindow != null && controller != null)
+                {
+                    controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
+                    hostWindow.ReturnToCapture();
+                }
+
                 owner.browserStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
                     ? "WebView2 window capture controls hidden"
                     : "WebView2 JPEG capture controls hidden";

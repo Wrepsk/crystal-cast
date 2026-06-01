@@ -270,8 +270,14 @@ public sealed class WorldScreenManager : IDisposable
             return;
         }
 
+#if DEBUG
+        var showDebugMarker = configuration.ShowDebugMarker;
+#else
+        const bool showDebugMarker = false;
+#endif
+
         foreach (var (screen, texture) in prepared)
-            screen.DrawPrepared(drawList, texture, configuration.ShowDebugMarker);
+            screen.DrawPrepared(drawList, texture, showDebugMarker);
 
         LastDrawStatus = $"{DescribeDrawMode(autoDraw)} drawn {prepared.Count} screen{(prepared.Count == 1 ? string.Empty : "s")}";
     }

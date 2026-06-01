@@ -89,7 +89,6 @@ public sealed class ConfigWindow : Window, IDisposable
         var activeBrowserScreen = config.GetActiveBrowserScreen();
         var browserVisual = config.SourceKind == ScreenSourceKind.YouTubeBrowser;
         var placement = activeBrowserScreen.Placement;
-        var showMarker = config.ShowDebugMarker;
         var occludedAlpha = browserVisual ? placement.OccludedAlpha : config.OccludedAlpha;
         var tolerance = browserVisual ? placement.OcclusionTolerance : config.OcclusionTolerance;
         var distanceFade = browserVisual ? placement.EnableDistanceFade : config.EnableDistanceFade;
@@ -122,11 +121,14 @@ public sealed class ConfigWindow : Window, IDisposable
 
         ImGui.TextDisabled("UI mask: disabled");
 
+#if DEBUG
+        var showMarker = config.ShowDebugMarker;
         if (ImGui.Checkbox("Debug marker", ref showMarker))
         {
             config.ShowDebugMarker = showMarker;
             changed = true;
         }
+#endif
 
         ImGui.TextDisabled(browserVisual
             ? $"Visual settings: {activeBrowserScreen.Name}"

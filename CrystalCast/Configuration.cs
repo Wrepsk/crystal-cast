@@ -42,7 +42,7 @@ public class Configuration : IPluginConfiguration
     public float FadeStopMeters { get; set; } = 60.0f;
     public int OutputMode { get; set; } = DefaultOutputMode;
     public int UiMaskMode { get; set; }
-    public bool ShowDebugMarker { get; set; } = true;
+    public bool ShowDebugMarker { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
 

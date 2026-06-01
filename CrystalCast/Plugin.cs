@@ -53,6 +53,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+        ClientState.TerritoryChanged += OnTerritoryChanged;
 
         Log.Information("CrystalCast loaded.");
     }
@@ -64,6 +65,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw -= OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
+        ClientState.TerritoryChanged -= OnTerritoryChanged;
 
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(SettingsCommandName);
@@ -84,5 +86,39 @@ public sealed class Plugin : IDalamudPlugin
     {
         windowSystem.Draw();
         renderer.DrawWorld();
+    }
+
+    private void OnTerritoryChanged(uint territoryId)
+    {
+        if (!PauseOwnedWorldScreensOnZoneChange())
+            return;
+
+        Configuration.Save();
+        ipc.PublishLocalState();
+    }
+
+    private bool PauseOwnedWorldScreensOnZoneChange()
+    {
+        var changed = false;
+        if (Configuration.SourceKind == ScreenSourceKind.LocalVideo
+            && Configuration.LocalVideoPlacementMode == ScreenPlacementMode.World
+            && !Configuration.PlaybackPaused)
+        {
+            Configuration.PlaybackPaused = true;
+            changed = true;
+        }
+
+        Configuration.Normalize();
+        foreach (var screen in Configuration.BrowserScreens.Where(screen => !screen.CreatedByIpc && screen.Placement.Mode == ScreenPlacementMode.World))
+        {
+            if (screen.PlaybackPaused)
+                continue;
+
+            screen.PlaybackPaused = true;
+            renderer.TryPauseDynamicSource(screen);
+            changed = true;
+        }
+
+        return changed;
     }
 }

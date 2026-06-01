@@ -178,7 +178,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
     private void DrawBrowserControlWindow(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
     {
-        if (descriptor.ProviderKind != BrowserSourceProviderKind.GenericWeb)
+        if (!renderer.AreBrowserControlsAvailable(screen))
             return;
 
         var visible = renderer.AreBrowserControlsVisible(screen);
@@ -195,7 +195,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(visible ? "Return the WebView2 page to capture mode" : "Bring the Generic Web page forward for mouse and keyboard input");
+            ImGui.SetTooltip(visible ? "Return the WebView2 page to capture mode" : "Bring the WebView2 page forward for mouse and keyboard input");
     }
 
     private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)

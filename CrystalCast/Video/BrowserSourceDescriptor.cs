@@ -65,6 +65,7 @@ internal interface IBrowserFrameSourceRuntime
 
 internal interface IBrowserControlsHost
 {
+    bool BrowserControlsAvailable { get; }
     bool BrowserControlsVisible { get; }
     bool ShowBrowserControls();
     bool HideBrowserControls();

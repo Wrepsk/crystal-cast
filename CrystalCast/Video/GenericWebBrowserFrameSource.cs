@@ -82,6 +82,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
     public float DetectedVideoFps => 0.0f;
+    public bool BrowserControlsAvailable => isValidSource;
     public bool BrowserControlsVisible => browserThread?.BrowserControlsVisible == true;
 
     public string Status

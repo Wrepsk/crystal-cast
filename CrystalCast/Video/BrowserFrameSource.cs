@@ -1,6 +1,6 @@
 namespace CrystalCast.Video;
 
-internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
+internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -55,6 +55,9 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     public string Status => string.IsNullOrWhiteSpace(fallbackStatus)
         ? activeSource?.Status ?? "browser source not started"
         : $"{activeSource?.Status ?? "browser source not started"}; {fallbackStatus}";
+    public bool BrowserControlsAvailable => activeSource is IBrowserControlsHost { BrowserControlsAvailable: true }
+        || (activeSource == null && CanInitialSourceUseBrowserControls());
+    public bool BrowserControlsVisible => activeSource is IBrowserControlsHost { BrowserControlsVisible: true };
 
     public float DetectedVideoFps
     {
@@ -161,6 +164,17 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             runtime.UpdateCaptureFps(fps);
     }
 
+    public bool ShowBrowserControls()
+    {
+        EnsureSource();
+        return activeSource is IBrowserControlsHost controlsHost && controlsHost.ShowBrowserControls();
+    }
+
+    public bool HideBrowserControls()
+    {
+        return activeSource is IBrowserControlsHost controlsHost && controlsHost.HideBrowserControls();
+    }
+
     public void Dispose()
     {
         activeSource?.Dispose();
@@ -194,6 +208,12 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             BrowserMediaEngine.WebView2WindowCapture => CreateWebView2WindowCaptureSource(),
             _ => CreateAutoSource(),
         };
+    }
+
+    private bool CanInitialSourceUseBrowserControls()
+    {
+        return enginePreference is BrowserMediaEngine.WebView2Capture or BrowserMediaEngine.WebView2WindowCapture
+            || (enginePreference == BrowserMediaEngine.Auto && descriptor.PreferredAutoEngine == BrowserMediaEngine.WebView2Capture);
     }
 
     private IVideoFrameSource CreateAutoSource()

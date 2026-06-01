@@ -8,7 +8,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace CrystalCast.Video;
 
-internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime
+internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -86,6 +86,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
     public float DetectedVideoFps => detectedVideoFps;
+    public bool BrowserControlsAvailable => isValidSource;
+    public bool BrowserControlsVisible => browserThread?.BrowserControlsVisible == true;
 
     public string Status
     {
@@ -101,27 +103,12 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     public void Start()
     {
         var wasCaptureEnabled = captureEnabled;
-        if (!isValidSource)
-        {
-            browserStatus = descriptor.ParseInvalidInputStatus(input);
+        if (!EnsureBrowserThread())
             return;
-        }
-
-        if (browserThread == null)
-        {
-            if (!TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError))
-            {
-                browserStatus = runtimeError;
-                return;
-            }
-
-            browserStatus = $"starting WebView2 {runtimeVersion}";
-            browserThread = new BrowserThread(this);
-        }
 
         captureEnabled = true;
         if (!wasCaptureEnabled)
-            browserThread.Play();
+            browserThread?.Play();
     }
 
     public void Stop()
@@ -158,6 +145,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
     public void Play()
     {
+        EnsureBrowserThread();
         captureEnabled = true;
         browserThread?.Play();
     }
@@ -181,6 +169,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
     public void Restart()
     {
+        EnsureBrowserThread();
         captureEnabled = true;
         browserThread?.Restart();
     }
@@ -223,6 +212,46 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             return;
 
         FramesPerSecond = clamped;
+    }
+
+    public bool ShowBrowserControls()
+    {
+        if (!EnsureBrowserThread())
+            return false;
+
+        browserThread?.ShowBrowserControls();
+        return true;
+    }
+
+    public bool HideBrowserControls()
+    {
+        if (browserThread == null)
+            return false;
+
+        browserThread.HideBrowserControls();
+        return true;
+    }
+
+    private bool EnsureBrowserThread()
+    {
+        if (!isValidSource)
+        {
+            browserStatus = descriptor.ParseInvalidInputStatus(input);
+            return false;
+        }
+
+        if (browserThread != null)
+            return true;
+
+        if (!TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError))
+        {
+            browserStatus = runtimeError;
+            return false;
+        }
+
+        browserStatus = $"starting WebView2 {runtimeVersion}";
+        browserThread = new BrowserThread(this);
+        return true;
     }
 
     private string WritePlayerPage(string contentFolder)
@@ -432,6 +461,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         private WebView2HostWindow? hostWindow;
         private WebView2WindowCaptureSession? windowCaptureSession;
         private bool windowCaptureStartRequested;
+        private volatile bool browserControlsVisible;
         private volatile bool disposed;
 
         public BrowserThread(WebView2BrowserFrameSource owner)
@@ -445,6 +475,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
         }
+
+        public bool BrowserControlsVisible => browserControlsVisible;
 
         public void Play()
         {
@@ -511,6 +543,41 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             {
                 if (webView != null)
                     await webView.ExecuteScriptAsync("window.crystalCastRestart && window.crystalCastRestart();");
+            });
+        }
+
+        public void ShowBrowserControls()
+        {
+            browserControlsVisible = true;
+            Post(() =>
+            {
+                if (hostWindow != null && controller != null)
+                {
+                    var (width, height) = hostWindow.GetInteractionClientSize();
+                    controller.Bounds = new System.Drawing.Rectangle(0, 0, width, height);
+                    hostWindow.ShowForInteraction(width, height);
+                }
+
+                owner.browserStatus = "WebView2 browser controls visible";
+                return Task.CompletedTask;
+            });
+        }
+
+        public void HideBrowserControls()
+        {
+            browserControlsVisible = false;
+            Post(() =>
+            {
+                if (hostWindow != null && controller != null)
+                {
+                    controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
+                    hostWindow.ReturnToCapture();
+                }
+
+                owner.browserStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                    ? "WebView2 window capture controls hidden"
+                    : "WebView2 JPEG capture controls hidden";
+                return Task.CompletedTask;
             });
         }
 
@@ -609,12 +676,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 Directory.CreateDirectory(contentFolder);
                 var playerPageName = owner.WritePlayerPage(contentFolder);
 
-                var parentHwnd = BrowserNative.HwndMessage;
-                if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture)
-                {
-                    hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
-                    parentHwnd = hostWindow.Hwnd;
-                }
+                hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
+                var parentHwnd = hostWindow.Hwnd;
 
                 CoreWebView2Environment environment;
                 if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))
@@ -632,7 +695,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
                 controller.DefaultBackgroundColor = System.Drawing.Color.Black;
-                hostWindow?.ShowForCapture();
+                hostWindow.ShowForCapture();
 
                 webView = controller.CoreWebView2;
                 ConfigureWebView(webView);

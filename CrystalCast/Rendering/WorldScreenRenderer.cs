@@ -175,6 +175,12 @@ public sealed class WorldScreenManager : IDisposable
         return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.BrowserControlsVisible;
     }
 
+    public bool AreBrowserControlsAvailable(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.BrowserControlsAvailable;
+    }
+
     public MediaPlaybackTelemetry? GetPlaybackTelemetry(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
@@ -370,6 +376,14 @@ public sealed class WorldScreenManager : IDisposable
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";
         public string AudioStatus => audioPlayer?.Status ?? "audio stopped";
         public string SourceName => frameSource?.Name ?? "no source";
+        public bool BrowserControlsAvailable
+        {
+            get
+            {
+                EnsureFrameSource();
+                return frameSource is IBrowserControlsHost { BrowserControlsAvailable: true };
+            }
+        }
         public bool BrowserControlsVisible => frameSource is IBrowserControlsHost { BrowserControlsVisible: true };
         public double LastUploadMilliseconds => sharedTexture.NativeHandle != 0
             ? sharedTexture.LastUploadMilliseconds

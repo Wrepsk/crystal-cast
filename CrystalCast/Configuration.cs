@@ -22,6 +22,7 @@ public class Configuration : IPluginConfiguration
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
     public string OwnerSessionId { get; set; } = Guid.NewGuid().ToString("N");
     public long LocalSequence { get; set; }
+    public bool IpcEnabled { get; set; } = true;
 
     public ScreenPlacementMode LocalVideoPlacementMode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }

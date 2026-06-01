@@ -22,6 +22,7 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, string> sourceLockProvider;
     private readonly ICallGateProvider<string, string> sourceStateProvider;
     private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
+    private bool registered;
 
     public ScreenStateIpc(Configuration configuration, WorldScreenManager renderer)
     {
@@ -42,6 +43,47 @@ public sealed class ScreenStateIpc : IDisposable
         sourceLockProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.SetSourceLock");
         sourceStateProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.GetSourceState");
 
+        UpdateRegistration();
+    }
+
+    public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.Values;
+
+    public bool Enabled => configuration.IpcEnabled;
+
+    public void SetEnabled(bool enabled)
+    {
+        if (configuration.IpcEnabled == enabled)
+            return;
+
+        configuration.IpcEnabled = enabled;
+        if (!enabled)
+        {
+            SendUnavailableForKnownLocalScreens();
+            RemoveIpcCreatedScreens();
+            remoteScreens.Clear();
+            changePublisher.Clear();
+        }
+
+        UpdateRegistration();
+        configuration.Save();
+    }
+
+    public void UpdateRegistration()
+    {
+        if (configuration.IpcEnabled)
+        {
+            Register();
+            return;
+        }
+
+        Unregister();
+    }
+
+    private void Register()
+    {
+        if (registered)
+            return;
+
         apiVersionProvider.RegisterFunc(() => ApiVersion);
         snapshotProvider.RegisterFunc(GetSnapshotJson);
         applyStateProvider.RegisterFunc(ApplyStateJson);
@@ -51,9 +93,40 @@ public sealed class ScreenStateIpc : IDisposable
         updateSourceProvider.RegisterFunc(mutationService.UpdateSourceJson);
         sourceLockProvider.RegisterFunc(mutationService.SetSourceLockJson);
         sourceStateProvider.RegisterFunc(mutationService.GetSourceStateJson);
+        registered = true;
     }
 
-    public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.Values;
+    private void Unregister()
+    {
+        if (!registered)
+            return;
+
+        apiVersionProvider.UnregisterFunc();
+        snapshotProvider.UnregisterFunc();
+        applyStateProvider.UnregisterFunc();
+        removeProvider.UnregisterFunc();
+        createScreenProvider.UnregisterFunc();
+        updateScreenProvider.UnregisterFunc();
+        updateSourceProvider.UnregisterFunc();
+        sourceLockProvider.UnregisterFunc();
+        sourceStateProvider.UnregisterFunc();
+        registered = false;
+    }
+
+    private void SendUnavailableForKnownLocalScreens()
+    {
+        changePublisher.SendUnavailableEventsForMissingLocalScreens([]);
+    }
+
+    private void RemoveIpcCreatedScreens()
+    {
+        configuration.Normalize();
+        var removed = configuration.BrowserScreens.RemoveAll(screen => screen.CreatedByIpc);
+        if (removed <= 0)
+            return;
+
+        configuration.Normalize();
+    }
 
     public string PublishLocalState()
     {
@@ -63,6 +136,11 @@ public sealed class ScreenStateIpc : IDisposable
     private string PublishLocalState(string? changedScreenId, IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)
     {
         configuration.Normalize();
+        configuration.Save();
+        UpdateRegistration();
+        if (!configuration.IpcEnabled)
+            return string.Empty;
+
         var states = new List<ScreenStateEnvelope>();
         if (configuration.Enabled && configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
         {
@@ -90,7 +168,6 @@ public sealed class ScreenStateIpc : IDisposable
             }
         }
 
-        configuration.Save();
         var publishedScreenIds = states.Select(state => state.ScreenId).ToHashSet(StringComparer.Ordinal);
         changePublisher.RememberKnownLocalScreens(publishedScreenIds);
 
@@ -130,15 +207,7 @@ public sealed class ScreenStateIpc : IDisposable
 
     public void Dispose()
     {
-        apiVersionProvider.UnregisterFunc();
-        snapshotProvider.UnregisterFunc();
-        applyStateProvider.UnregisterFunc();
-        removeProvider.UnregisterFunc();
-        createScreenProvider.UnregisterFunc();
-        updateScreenProvider.UnregisterFunc();
-        updateSourceProvider.UnregisterFunc();
-        sourceLockProvider.UnregisterFunc();
-        sourceStateProvider.UnregisterFunc();
+        Unregister();
         remoteScreens.Clear();
         changePublisher.Clear();
     }

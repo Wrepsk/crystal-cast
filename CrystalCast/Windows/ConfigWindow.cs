@@ -270,16 +270,11 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawIpc(Configuration config)
     {
-        var activeBrowserScreen = config.GetActiveBrowserScreen();
-        var screenId = config.SourceKind == ScreenSourceKind.YouTubeBrowser ? activeBrowserScreen.ScreenId : config.ScreenId;
-        ImGui.TextUnformatted($"Active screen ID: {screenId}");
-        ImGui.TextUnformatted($"Remote screens in IPC store: {ipc.RemoteScreens.Count}");
-
-        if (ImGui.Button("Save"))
-            config.Save();
-
-        ImGui.SameLine();
-        if (ImGui.Button("Broadcast state"))
-            ipc.PublishLocalState();
+        var enabled = config.IpcEnabled;
+        if (ImGui.Checkbox("IPC enabled", ref enabled))
+        {
+            ipc.SetEnabled(enabled);
+            config.IpcEnabled = enabled;
+        }
     }
 }

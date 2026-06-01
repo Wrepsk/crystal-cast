@@ -169,12 +169,14 @@ public class Configuration : IPluginConfiguration
         return BrowserScreens.FirstOrDefault(screen => screen.ScreenId == ActiveBrowserScreenId) ?? BrowserScreens[0];
     }
 
-    public BrowserScreenProfile CreateDefaultBrowserScreen(string name)
+    public BrowserScreenProfile CreateDefaultBrowserScreen(string name, bool createdByIpc = false)
     {
         var screen = new BrowserScreenProfile
         {
             Name = name,
+            CreatedByIpc = createdByIpc,
             Placement = new ScreenPlacementSettings(),
+            SpatialAudioEnabled = createdByIpc,
         };
         screen.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
         return screen;
@@ -373,7 +375,7 @@ public sealed class BrowserScreenProfile
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
     public bool YouTubePlaylistAutoplayNext { get; set; } = true;
-    public bool YouTubeAudioEnabled { get; set; }
+    public bool YouTubeAudioEnabled { get; set; } = true;
     public float YouTubeVolume { get; set; } = 0.7f;
     public float YouTubePlaybackRate { get; set; } = 1.0f;
 
@@ -383,7 +385,7 @@ public sealed class BrowserScreenProfile
     public float TwitchCaptureFps { get; set; } = 60.0f;
     public bool TwitchCaptureFpsManual { get; set; }
     public bool TwitchAutoplay { get; set; } = true;
-    public bool TwitchAudioEnabled { get; set; }
+    public bool TwitchAudioEnabled { get; set; } = true;
     public float TwitchVolume { get; set; } = 0.7f;
 
     public string DailymotionUrl { get; set; } = string.Empty;
@@ -393,7 +395,7 @@ public sealed class BrowserScreenProfile
     public bool DailymotionCaptureFpsManual { get; set; }
     public bool DailymotionAutoplay { get; set; } = true;
     public bool LoopDailymotion { get; set; }
-    public bool DailymotionAudioEnabled { get; set; }
+    public bool DailymotionAudioEnabled { get; set; } = true;
     public float DailymotionVolume { get; set; } = 0.7f;
 
     public string VimeoUrl { get; set; } = string.Empty;
@@ -403,7 +405,7 @@ public sealed class BrowserScreenProfile
     public bool VimeoCaptureFpsManual { get; set; }
     public bool VimeoAutoplay { get; set; } = true;
     public bool LoopVimeo { get; set; }
-    public bool VimeoAudioEnabled { get; set; }
+    public bool VimeoAudioEnabled { get; set; } = true;
     public float VimeoVolume { get; set; } = 0.7f;
     public float VimeoPlaybackRate { get; set; } = 1.0f;
 
@@ -414,11 +416,11 @@ public sealed class BrowserScreenProfile
     public bool GenericWebCaptureFpsManual { get; set; }
     public bool GenericWebAutoplay { get; set; } = true;
     public bool LoopGenericWeb { get; set; }
-    public bool GenericWebAudioEnabled { get; set; }
+    public bool GenericWebAudioEnabled { get; set; } = true;
     public float GenericWebVolume { get; set; } = 0.7f;
     public float GenericWebPlaybackRate { get; set; } = 1.0f;
 
-    public bool SpatialAudioEnabled { get; set; } = true;
+    public bool SpatialAudioEnabled { get; set; }
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
     public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
 

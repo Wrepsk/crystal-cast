@@ -65,11 +65,10 @@ internal sealed class ScreenIpcMutationService
             if (string.IsNullOrWhiteSpace(name))
                 name = GetNextIpcScreenName();
 
-            var screen = configuration.CreateDefaultBrowserScreen(name);
+            var screen = configuration.CreateDefaultBrowserScreen(name, createdByIpc: true);
             if (!string.IsNullOrWhiteSpace(requestedScreenId))
                 screen.ScreenId = requestedScreenId;
 
-            screen.CreatedByIpc = true;
             screen.IpcOwnerId = IpcJsonService.NormalizeText(request.OwnerId);
             screen.SourceControlsOwnerId = IpcJsonService.NormalizeText(request.SourceControlsOwnerId);
             if (request.SourceControlsLocked == true && string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId))

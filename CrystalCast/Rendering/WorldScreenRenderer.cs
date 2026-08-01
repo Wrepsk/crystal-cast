@@ -78,14 +78,14 @@ public sealed class WorldScreenManager : IDisposable
         if (pictomancyContext == null)
         {
             LastDrawStatus = "Pictomancy is not initialized";
-            StopAllScreens();
+            ReleaseAllBrowserRuntimes();
             return;
         }
 
         if (!configuration.Enabled)
         {
             LastDrawStatus = "disabled";
-            StopAllScreens();
+            ReleaseAllBrowserRuntimes();
             return;
         }
 
@@ -197,7 +197,9 @@ public sealed class WorldScreenManager : IDisposable
 
     private bool IsWithinBrowserResourceBudget(BrowserScreenProfile screen)
     {
-        return ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens)
+        return configuration.Enabled
+            && screen.Enabled
+            && ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens)
             .Any(active => string.Equals(active.ScreenId, screen.ScreenId, StringComparison.Ordinal));
     }
 
@@ -406,9 +408,7 @@ public sealed class WorldScreenManager : IDisposable
         var activeIds = allowedScreens
             .Select(screen => screen.ScreenId)
             .ToHashSet(StringComparer.Ordinal);
-        var runningIds = ScreenLimitPolicy.GetActiveScreens(allowedScreens)
-            .Select(screen => screen.ScreenId)
-            .ToHashSet(StringComparer.Ordinal);
+        var runningIds = BrowserRuntimeRetentionPolicy.GetRetainedScreenIds(configuration.Enabled, allowedScreens);
 
         foreach (var screen in allowedScreens)
         {
@@ -435,30 +435,25 @@ public sealed class WorldScreenManager : IDisposable
         foreach (var screen in allowedScreens.Where(screen => !runningIds.Contains(screen.ScreenId)))
         {
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
-                TryStopScreen(screen.ScreenId, instance);
+                TryReleaseBrowserRuntime(screen.ScreenId, instance);
         }
     }
 
-    private void StopAllScreens()
-    {
-        StopBrowserScreens();
-    }
-
-    private void StopBrowserScreens()
+    private void ReleaseAllBrowserRuntimes()
     {
         foreach (var (screenId, instance) in browserScreens)
-            TryStopScreen(screenId, instance);
+            TryReleaseBrowserRuntime(screenId, instance);
     }
 
-    private void TryStopScreen(string screenId, WorldScreenInstance instance)
+    private void TryReleaseBrowserRuntime(string screenId, WorldScreenInstance instance)
     {
         try
         {
-            instance.Stop();
+            instance.ReleaseBrowserRuntime();
         }
         catch (Exception ex)
         {
-            services.Log.Debug(ex, "Failed to stop CrystalCast screen {ScreenId}.", screenId);
+            services.Log.Debug(ex, "Failed to release the browser runtime for CrystalCast screen {ScreenId}.", screenId);
         }
     }
 
@@ -704,15 +699,62 @@ public sealed class WorldScreenManager : IDisposable
             hasResolvedPlacement = false;
         }
 
+        public void ReleaseBrowserRuntime()
+        {
+            if (frameSource == null && string.IsNullOrEmpty(frameSourceSignature))
+                return;
+
+            var source = frameSource;
+            frameSource = null;
+            frameSourceSignature = string.Empty;
+
+            try
+            {
+                source?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                services.Log.Debug(ex, "Failed to dispose the browser frame source for screen {ScreenId}.", browserScreen.ScreenId);
+            }
+
+            try
+            {
+                dynamicTexture.Dispose();
+            }
+            catch (Exception ex)
+            {
+                services.Log.Debug(ex, "Failed to dispose the dynamic browser texture for screen {ScreenId}.", browserScreen.ScreenId);
+            }
+
+            try
+            {
+                sharedTexture.Dispose();
+            }
+            catch (Exception ex)
+            {
+                services.Log.Debug(ex, "Failed to dispose the shared browser texture for screen {ScreenId}.", browserScreen.ScreenId);
+            }
+
+            fallbackPixels = null;
+            fallbackPixelsWidth = 0;
+            fallbackPixelsHeight = 0;
+            lastFrameUnixMs = 0;
+            lastNativeTextureError = string.Empty;
+            lastNativeTextureErrorUnixMs = 0;
+            lastPauseCommandUnixMs = 0;
+            ResetEffectiveAudioVolume();
+            Volatile.Write(ref playbackTelemetry, null);
+            hasResolvedPlacement = false;
+        }
+
         public void Dispose()
         {
             try
             {
-                frameSource?.Dispose();
+                ReleaseBrowserRuntime();
             }
             finally
             {
-                frameSource = null;
                 try
                 {
                     dynamicTexture.Dispose();

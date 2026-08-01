@@ -76,4 +76,14 @@ public sealed class BrowserPlayerPageResourceTests
         Assert.True(settings.GetProperty("loop").GetBoolean());
         Assert.False(settings.GetProperty("playlistAutoplayNext").GetBoolean());
     }
+
+    [Fact]
+    public void CommandBridgeIsLoadedFromPackagedAssetAndBindsNonce()
+    {
+        var bridge = BrowserPageMessaging.BuildCommandBridge("asset-test-nonce");
+
+        Assert.Contains("window.chrome.webview.addEventListener", bridge, StringComparison.Ordinal);
+        Assert.Contains("asset-test-nonce", bridge, StringComparison.Ordinal);
+        Assert.DoesNotContain("__CRYSTALCAST_NONCE__", bridge, StringComparison.Ordinal);
+    }
 }

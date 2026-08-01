@@ -1,4 +1,6 @@
 using CrystalCast.Rendering;
+using CrystalCast.Video;
+using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Sync;
 
@@ -7,12 +9,21 @@ internal sealed class ScreenStateBuilder
     private readonly Configuration configuration;
     private readonly WorldScreenManager renderer;
     private readonly string ownerSessionId;
+    private readonly IClientState clientState;
+    private readonly ScreenPlacementResolver placementResolver;
 
-    public ScreenStateBuilder(Configuration configuration, WorldScreenManager renderer, string ownerSessionId)
+    public ScreenStateBuilder(
+        Configuration configuration,
+        WorldScreenManager renderer,
+        string ownerSessionId,
+        IClientState clientState,
+        ScreenPlacementResolver placementResolver)
     {
         this.configuration = configuration;
         this.renderer = renderer;
         this.ownerSessionId = ownerSessionId;
+        this.clientState = clientState;
+        this.placementResolver = placementResolver;
     }
 
     public ScreenStateEnvelope BuildLocalState()
@@ -20,7 +31,7 @@ internal sealed class ScreenStateBuilder
         return BuildLocalStates().FirstOrDefault() ?? new ScreenStateEnvelope
         {
             OwnerSessionId = ownerSessionId,
-            TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
+            TerritoryId = (ushort)clientState.TerritoryType,
         };
     }
 
@@ -63,16 +74,18 @@ internal sealed class ScreenStateBuilder
             resolved.YawRadians,
             resolved.PitchRadians,
             resolved.RollRadians);
+        var dimensions = BrowserSourceProviderRegistry.GetSnapshot(screen).Dimensions;
+        var panelSize = ScreenPanelSizeResolver.Resolve(placement, dimensions.Width, dimensions.Height);
 
         return new ScreenStateEnvelope
         {
             SchemaVersion = 1,
             ScreenId = screen.ScreenId,
             OwnerSessionId = ownerSessionId,
-            TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
+            TerritoryId = (ushort)clientState.TerritoryType,
             Position = Vector3Dto.FromVector3(resolved.Position),
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),
-            SizeMeters = new Vector2Dto(placement.WidthMeters, placement.HeightMeters),
+            SizeMeters = new Vector2Dto(panelSize.X, panelSize.Y),
             Source = BuildBrowserSourceState(screen),
             Playback = BuildBrowserPlaybackState(screen),
             Visual = new ScreenVisualState
@@ -115,9 +128,9 @@ internal sealed class ScreenStateBuilder
         return response;
     }
 
-    public static bool TryResolveForIpc(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
+    public bool TryResolveForIpc(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
     {
-        if (ScreenPlacementResolver.TryResolve(placement, out resolved))
+        if (placementResolver.TryResolve(placement, out resolved))
             return true;
 
         resolved = default;

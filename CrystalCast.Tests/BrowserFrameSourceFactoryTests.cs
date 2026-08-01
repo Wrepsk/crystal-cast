@@ -89,6 +89,38 @@ public sealed class BrowserFrameSourceFactoryTests
         Assert.Equal(42.0f, factory.Source.LastUpdatedCaptureFps);
     }
 
+    [Fact]
+    public void RegistryDefinesEverySupportedProviderOnce()
+    {
+        var expected = Enum.GetValues<BrowserSourceProviderKind>();
+        var options = BrowserSourceProviderRegistry.Options;
+
+        Assert.Equal(expected.Length, options.Count);
+        Assert.Equal(expected.Order(), options.Select(option => option.Kind).Order());
+        Assert.Equal(options.Count, options.Select(option => option.Kind).Distinct().Count());
+    }
+
+    [Fact]
+    public void RegistryNormalizationUsesTheRuntimeFpsRange()
+    {
+        var screen = new BrowserScreenProfile
+        {
+            ProviderKind = BrowserSourceProviderKind.YouTube,
+            YouTubeBrowserWidth = 10,
+            YouTubeBrowserHeight = 10_000,
+            YouTubeCaptureFps = 240.0f,
+            YouTubeVolume = -1.0f,
+            YouTubePlaybackRate = 8.0f,
+        };
+
+        Assert.True(BrowserSourceProviderRegistry.NormalizeProviderSettings(screen));
+        Assert.Equal(320, screen.YouTubeBrowserWidth);
+        Assert.Equal(2160, screen.YouTubeBrowserHeight);
+        Assert.Equal(120.0f, screen.YouTubeCaptureFps);
+        Assert.Equal(0.0f, screen.YouTubeVolume);
+        Assert.Equal(2.0f, screen.YouTubePlaybackRate);
+    }
+
     private sealed class RecordingBrowserFrameSourceFactory : IBrowserFrameSourceFactory
     {
         public BrowserFrameSourceRequest? Request { get; private set; }

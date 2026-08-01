@@ -1,5 +1,7 @@
 namespace CrystalCast.Video;
 
+using Dalamud.Plugin.Services;
+
 internal sealed record BrowserFrameSourceRequest(
     BrowserSourceProviderKind ProviderKind,
     BrowserSourceDescriptor? Descriptor,
@@ -23,10 +25,13 @@ internal interface IBrowserFrameSourceFactory
 
 internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
 {
-    public static readonly BrowserFrameSourceFactory Instance = new();
+    private readonly IPluginLog log;
+    private readonly string? pluginDirectory;
 
-    private BrowserFrameSourceFactory()
+    public BrowserFrameSourceFactory(IPluginLog log, string? pluginDirectory)
     {
+        this.log = log;
+        this.pluginDirectory = pluginDirectory;
     }
 
     public IVideoFrameSource Create(BrowserFrameSourceRequest request)
@@ -43,7 +48,8 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
                 request.AudioEnabled,
                 request.Volume,
                 request.PlaybackRate,
-                request.GenericWebCaptureMode);
+                request.GenericWebCaptureMode,
+                log);
         }
 
         if (request.Descriptor == null)
@@ -61,6 +67,8 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
             request.PlaylistAutoplayNext,
             request.AudioEnabled,
             request.Volume,
-            request.PlaybackRate);
+            request.PlaybackRate,
+            log,
+            pluginDirectory);
     }
 }

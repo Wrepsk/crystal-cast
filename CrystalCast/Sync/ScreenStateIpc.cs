@@ -10,6 +10,7 @@ public sealed class ScreenStateIpc : IDisposable
     private const int MaxStatePayloadBytes = 64 * 1024;
 
     private readonly Configuration configuration;
+    private readonly CrystalCastServices services;
     private readonly string ownerSessionId;
     private readonly ScreenStateBuilder stateBuilder;
     private readonly ScreenChangePublisher changePublisher;
@@ -28,26 +29,32 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly RemoteScreenStateStore remoteScreens = new();
     private bool registered;
 
-    public ScreenStateIpc(Configuration configuration, WorldScreenManager renderer)
+    internal ScreenStateIpc(Configuration configuration, WorldScreenManager renderer, CrystalCastServices services)
     {
         this.configuration = configuration;
+        this.services = services;
         ownerSessionId = Guid.NewGuid().ToString("N");
-        stateBuilder = new ScreenStateBuilder(configuration, renderer, ownerSessionId);
+        stateBuilder = new ScreenStateBuilder(
+            configuration,
+            renderer,
+            ownerSessionId,
+            services.ClientState,
+            services.PlacementResolver);
 
-        apiVersionProvider = Plugin.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
-        snapshotProvider = Plugin.PluginInterface.GetIpcProvider<string>("CrystalCast.Screen.GetSnapshot");
-        applyStateProvider = Plugin.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.ApplyState");
-        applyStateDetailedProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.ApplyStateDetailed");
-        removeProvider = Plugin.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.Remove");
-        localStateChangedProvider = Plugin.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.LocalStateChanged");
-        var screenChangedProvider = Plugin.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.Changed");
+        apiVersionProvider = services.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
+        snapshotProvider = services.PluginInterface.GetIpcProvider<string>("CrystalCast.Screen.GetSnapshot");
+        applyStateProvider = services.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.ApplyState");
+        applyStateDetailedProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.ApplyStateDetailed");
+        removeProvider = services.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.Remove");
+        localStateChangedProvider = services.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.LocalStateChanged");
+        var screenChangedProvider = services.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.Changed");
         changePublisher = new ScreenChangePublisher(configuration, screenChangedProvider, ownerSessionId);
-        mutationService = new ScreenIpcMutationService(configuration, renderer, stateBuilder, changePublisher, PublishLocalState);
-        createScreenProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Create");
-        updateScreenProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Update");
-        updateSourceProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.UpdateSource");
-        sourceLockProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.SetSourceLock");
-        sourceStateProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.GetSourceState");
+        mutationService = new ScreenIpcMutationService(configuration, renderer, stateBuilder, changePublisher, PublishLocalState, services.Log);
+        createScreenProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Create");
+        updateScreenProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Update");
+        updateSourceProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.UpdateSource");
+        sourceLockProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.SetSourceLock");
+        sourceStateProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.GetSourceState");
 
         UpdateRegistration();
     }
@@ -160,7 +167,7 @@ public sealed class ScreenStateIpc : IDisposable
 
             foreach (var screen in screensToPublish)
             {
-                if (!ScreenStateBuilder.TryResolveForIpc(screen.Placement, out var resolved))
+                if (!stateBuilder.TryResolveForIpc(screen.Placement, out var resolved))
                     continue;
 
                 screen.LocalSequence++;
@@ -284,7 +291,7 @@ public sealed class ScreenStateIpc : IDisposable
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to apply CrystalCast screen state IPC payload.");
+            services.Log.Warning(ex, "Failed to apply CrystalCast screen state IPC payload.");
             return new ScreenIpcApplyStateResponse
             {
                 Success = false,

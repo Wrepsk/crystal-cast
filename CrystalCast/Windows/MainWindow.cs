@@ -18,7 +18,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly PlacementPanel placementPanel;
     private readonly SourceControlsPanel sourceControlsPanel;
 
-    public MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
+    internal MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc, ScreenPlacementResolver placementResolver)
         : base("CrystalCast###CrystalCastMain")
     {
         this.plugin = plugin;
@@ -26,7 +26,7 @@ public sealed class MainWindow : Window, IDisposable
         this.ipc = ipc;
         screenListPanel = new ScreenListPanel(renderer);
         audioControlsPanel = new AudioControlsPanel(renderer);
-        placementPanel = new PlacementPanel(renderer, placementUndoService);
+        placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         sourceControlsPanel = new SourceControlsPanel(renderer);
 
         Size = new Vector2(520, 560);

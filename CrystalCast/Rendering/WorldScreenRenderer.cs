@@ -12,14 +12,16 @@ public sealed class WorldScreenManager : IDisposable
     private readonly record struct PreparedScreenTexture(nint NativeHandle, int Width, int Height);
 
     private readonly Configuration configuration;
+    private readonly CrystalCastServices services;
     private readonly Dictionary<string, WorldScreenInstance> browserScreens = new(StringComparer.Ordinal);
     private PctContext? pictomancyContext;
     private long lastGraphicsInitializationAttemptUnixMs;
     private long lastGlobalDrawErrorUnixMs;
 
-    public WorldScreenManager(Configuration configuration)
+    internal WorldScreenManager(Configuration configuration, CrystalCastServices services)
     {
         this.configuration = configuration;
+        this.services = services;
 
         TryInitializePictomancy(force: true);
     }
@@ -112,7 +114,7 @@ public sealed class WorldScreenManager : IDisposable
         SyncBrowserScreens();
         return browserScreens.TryGetValue(screen.ScreenId, out var instance)
             ? instance.PlaceInFrontOfPlayer(distanceMeters)
-            : WorldScreenInstance.PlacePlacementInFrontOfPlayer(screen.Placement, distanceMeters);
+            : services.PlacementResolver.PlaceInFrontOfPlayer(screen.Placement, distanceMeters);
     }
 
     public bool TryPlayDynamicSource()
@@ -241,7 +243,7 @@ public sealed class WorldScreenManager : IDisposable
             }
             catch (Exception ex)
             {
-                Plugin.Log.Debug(ex, "Failed to dispose a CrystalCast screen instance.");
+                services.Log.Debug(ex, "Failed to dispose a CrystalCast screen instance.");
             }
         }
         browserScreens.Clear();
@@ -251,7 +253,7 @@ public sealed class WorldScreenManager : IDisposable
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Failed to dispose the CrystalCast Pictomancy context.");
+            services.Log.Debug(ex, "Failed to dispose the CrystalCast Pictomancy context.");
         }
         pictomancyContext = null;
     }
@@ -268,7 +270,7 @@ public sealed class WorldScreenManager : IDisposable
         lastGraphicsInitializationAttemptUnixMs = now;
         try
         {
-            pictomancyContext = PctService.Initialize(Plugin.PluginInterface, new PctOptions
+            pictomancyContext = PctService.Initialize(services.PluginInterface, new PctOptions
             {
                 EnableVfxRenderer = false,
                 EnableKtkOutput = true,
@@ -279,7 +281,7 @@ public sealed class WorldScreenManager : IDisposable
         catch (Exception ex)
         {
             Status = $"Pictomancy init failed: {ex.Message}";
-            Plugin.Log.Error(ex, "Failed to initialize Pictomancy.");
+            services.Log.Error(ex, "Failed to initialize Pictomancy.");
         }
     }
 
@@ -303,7 +305,7 @@ public sealed class WorldScreenManager : IDisposable
             }
             catch (Exception resetException)
             {
-                Plugin.Log.Debug(resetException, "Failed to reset a CrystalCast screen after device loss.");
+                services.Log.Debug(resetException, "Failed to reset a CrystalCast screen after device loss.");
             }
         }
         LogGlobalDrawFailure(exception);
@@ -316,7 +318,7 @@ public sealed class WorldScreenManager : IDisposable
             return;
 
         lastGlobalDrawErrorUnixMs = now;
-        Plugin.Log.Warning(exception, "CrystalCast graphics pipeline failed; rendering will retry.");
+        services.Log.Warning(exception, "CrystalCast graphics pipeline failed; rendering will retry.");
     }
 
     private void DrawBrowserScreens()
@@ -411,7 +413,7 @@ public sealed class WorldScreenManager : IDisposable
         foreach (var screen in allowedScreens)
         {
             if (!browserScreens.ContainsKey(screen.ScreenId))
-                browserScreens[screen.ScreenId] = new WorldScreenInstance(configuration, screen);
+                browserScreens[screen.ScreenId] = new WorldScreenInstance(configuration, screen, services);
         }
 
         foreach (var (screenId, instance) in browserScreens.ToArray())
@@ -425,7 +427,7 @@ public sealed class WorldScreenManager : IDisposable
             }
             catch (Exception ex)
             {
-                Plugin.Log.Debug(ex, "Failed to dispose CrystalCast screen {ScreenId}.", screenId);
+                services.Log.Debug(ex, "Failed to dispose CrystalCast screen {ScreenId}.", screenId);
             }
             browserScreens.Remove(screenId);
         }
@@ -448,7 +450,7 @@ public sealed class WorldScreenManager : IDisposable
             TryStopScreen(screenId, instance);
     }
 
-    private static void TryStopScreen(string screenId, WorldScreenInstance instance)
+    private void TryStopScreen(string screenId, WorldScreenInstance instance)
     {
         try
         {
@@ -456,7 +458,7 @@ public sealed class WorldScreenManager : IDisposable
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Failed to stop CrystalCast screen {ScreenId}.", screenId);
+            services.Log.Debug(ex, "Failed to stop CrystalCast screen {ScreenId}.", screenId);
         }
     }
 
@@ -464,8 +466,8 @@ public sealed class WorldScreenManager : IDisposable
     {
         return configuration.OutputMode switch
         {
-            Configuration.OutputModeNativeOverlay => AutoDraw.NativeOverlay,
-            Configuration.OutputModeSceneComposite or 3 => AutoDraw.SceneComposite,
+            ScreenOutputMode.NativeOverlay => AutoDraw.NativeOverlay,
+            ScreenOutputMode.SceneComposite => AutoDraw.SceneComposite,
             _ => AutoDraw.ImGuiOverlay,
         };
     }
@@ -488,6 +490,7 @@ public sealed class WorldScreenManager : IDisposable
 
         private readonly Configuration configuration;
         private readonly BrowserScreenProfile browserScreen;
+        private readonly CrystalCastServices services;
         private readonly DynamicVideoTexture dynamicTexture;
         private readonly SharedVideoTexture sharedTexture;
         private IVideoFrameSource? frameSource;
@@ -507,16 +510,19 @@ public sealed class WorldScreenManager : IDisposable
         private int fallbackPixelsWidth;
         private int fallbackPixelsHeight;
 
-        public WorldScreenInstance(Configuration configuration, BrowserScreenProfile browserScreen)
+        public WorldScreenInstance(Configuration configuration, BrowserScreenProfile browserScreen, CrystalCastServices services)
         {
             this.configuration = configuration;
             this.browserScreen = browserScreen;
-            dynamicTexture = new DynamicVideoTexture(Plugin.TextureProvider);
+            this.services = services;
+            dynamicTexture = new DynamicVideoTexture(services.TextureProvider);
             sharedTexture = new SharedVideoTexture();
         }
 
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";
-        public string AudioStatus => GetBrowserAudioEnabled() ? "browser audio enabled" : "browser audio muted";
+        public string AudioStatus => BrowserSourceProviderRegistry.GetSnapshot(browserScreen).RuntimeSettings.AudioEnabled
+            ? "browser audio enabled"
+            : "browser audio muted";
         public string SourceName => frameSource?.Name ?? "no source";
         public bool IsBrowserRuntimeActive => frameSource?.IsRunning == true;
         public bool BrowserControlsAvailable
@@ -607,17 +613,12 @@ public sealed class WorldScreenManager : IDisposable
                 return;
 
             lastDrawFailureLogUnixMs = now;
-            Plugin.Log.Warning(exception, "CrystalCast screen {ScreenId} failed during {Stage}; other screens will continue.", browserScreen.ScreenId, stage);
+            services.Log.Warning(exception, "CrystalCast screen {ScreenId} failed during {Stage}; other screens will continue.", browserScreen.ScreenId, stage);
         }
 
         public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
         {
-            return ScreenPlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
-        }
-
-        public static bool PlacePlacementInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
-        {
-            return ScreenPlacementResolver.PlaceInFrontOfPlayer(placement, distanceMeters);
+            return services.PlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
         }
 
         public bool TryProjectCenter(out Vector2 screenPosition)
@@ -628,7 +629,7 @@ public sealed class WorldScreenManager : IDisposable
                 return false;
             }
 
-            return Plugin.GameGui.WorldToScreen(placement.Position, out screenPosition);
+            return services.GameGui.WorldToScreen(placement.Position, out screenPosition);
         }
 
         public bool TryPlayDynamicSource()
@@ -781,7 +782,7 @@ public sealed class WorldScreenManager : IDisposable
                         if (now - lastNativeTextureErrorUnixMs >= 5000)
                         {
                             lastNativeTextureErrorUnixMs = now;
-                            Plugin.Log.Warning(ex, "Failed to open CrystalCast shared video texture.");
+                            services.Log.Warning(ex, "Failed to open CrystalCast shared video texture.");
                         }
                     }
                 }
@@ -812,8 +813,9 @@ public sealed class WorldScreenManager : IDisposable
 
         private PreparedScreenTexture? ResolveFallbackTexture()
         {
-            var width = Math.Clamp(GetBrowserWidth(), 320, 3840);
-            var height = Math.Clamp(GetBrowserHeight(), 180, 2160);
+            var dimensions = BrowserSourceProviderRegistry.GetSnapshot(browserScreen).Dimensions;
+            var width = Math.Clamp(dimensions.Width, 320, 3840);
+            var height = Math.Clamp(dimensions.Height, 180, 2160);
             if (dynamicTexture.TextureWrap != null && dynamicTexture.Width == width && dynamicTexture.Height == height)
                 return ToPreparedTexture(dynamicTexture.TextureWrap);
 
@@ -859,7 +861,7 @@ public sealed class WorldScreenManager : IDisposable
             }
             catch (Exception ex)
             {
-                Plugin.Log.Debug(ex, "Failed to dispose the previous frame source for screen {ScreenId}.", browserScreen.ScreenId);
+                services.Log.Debug(ex, "Failed to dispose the previous frame source for screen {ScreenId}.", browserScreen.ScreenId);
             }
             frameSource = null;
             frameSourceSignature = signature;
@@ -870,7 +872,10 @@ public sealed class WorldScreenManager : IDisposable
             lastNativeTextureErrorUnixMs = 0;
             lastPauseCommandUnixMs = 0;
 
-            frameSource = BrowserSourceProviderRegistry.CreateFrameSource(browserScreen, configuration.YouTubeBrowserEngine);
+            frameSource = BrowserSourceProviderRegistry.CreateFrameSource(
+                browserScreen,
+                configuration.YouTubeBrowserEngine,
+                services.BrowserFrameSourceFactory);
         }
 
         private bool TrySendPauseCommand(bool force)
@@ -899,16 +904,17 @@ public sealed class WorldScreenManager : IDisposable
             if (frameSource is not IMediaPlaybackController controller)
                 return;
 
-            var audioEnabled = GetBrowserAudioEnabled();
+            var runtime = BrowserSourceProviderRegistry.GetSnapshot(browserScreen).RuntimeSettings;
+            var audioEnabled = runtime.AudioEnabled;
             var effectiveVolume = audioEnabled
-                ? CalculateEffectiveAudioVolume(GetBrowserVolume())
+                ? CalculateEffectiveAudioVolume(runtime.Volume)
                 : CalculateEffectiveAudioVolume(0.0f, smooth: false);
             controller.ApplyPlaybackSettings(
                 audioEnabled,
                 effectiveVolume,
-                GetBrowserPlaybackRate(),
-                GetBrowserLoop(),
-                GetBrowserPlaylistAutoplayNext());
+                runtime.PlaybackRate,
+                runtime.Loop,
+                runtime.PlaylistAutoplayNext);
 
             ApplyBrowserCaptureFps();
         }
@@ -970,7 +976,7 @@ public sealed class WorldScreenManager : IDisposable
                 return 1.0f;
             }
 
-            var player = Plugin.ObjectTable.LocalPlayer;
+            var player = services.ObjectTable.LocalPlayer;
             if (player == null)
             {
                 AudioDistanceMeters = 0.0f;
@@ -1099,22 +1105,15 @@ public sealed class WorldScreenManager : IDisposable
 
         private Vector2 GetPanelSize(PreparedScreenTexture texture)
         {
-            var width = Math.Max(0.01f, GetWidthMeters());
-            var height = Math.Max(0.01f, GetHeightMeters());
-            if (texture.Width > 0 && texture.Height > 0)
-                height = width * texture.Height / texture.Width;
-
-            return new Vector2(width, height);
+            return ScreenPanelSizeResolver.Resolve(GetPlacementSettings(), texture.Width, texture.Height);
         }
 
         private Vector2 GetPanelSizeForSource()
         {
-            var width = Math.Max(0.01f, GetWidthMeters());
-            var height = Math.Max(0.01f, GetHeightMeters());
-            if (frameSource is { Width: > 0, Height: > 0 })
-                height = width * frameSource.Height / frameSource.Width;
-
-            return new Vector2(width, height);
+            return ScreenPanelSizeResolver.Resolve(
+                GetPlacementSettings(),
+                frameSource?.Width ?? 0,
+                frameSource?.Height ?? 0);
         }
 
         private float GetScreenCurveAmount(float width)
@@ -1177,41 +1176,6 @@ public sealed class WorldScreenManager : IDisposable
             return (outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ);
         }
 
-        private int GetBrowserWidth()
-        {
-            return BrowserSourceProviderRegistry.GetDimensions(browserScreen).Width;
-        }
-
-        private int GetBrowserHeight()
-        {
-            return BrowserSourceProviderRegistry.GetDimensions(browserScreen).Height;
-        }
-
-        private bool GetBrowserAudioEnabled()
-        {
-            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).AudioEnabled;
-        }
-
-        private float GetBrowserVolume()
-        {
-            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Volume;
-        }
-
-        private float GetBrowserPlaybackRate()
-        {
-            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaybackRate;
-        }
-
-        private bool GetBrowserLoop()
-        {
-            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Loop;
-        }
-
-        private bool GetBrowserPlaylistAutoplayNext()
-        {
-            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaylistAutoplayNext;
-        }
-
         private void ApplyBrowserCaptureFps()
         {
             BrowserSourceProviderRegistry.ApplyCaptureFps(frameSource, browserScreen);
@@ -1240,7 +1204,7 @@ public sealed class WorldScreenManager : IDisposable
 
         private bool TryResolvePlacement(out ResolvedScreenPlacement placement)
         {
-            return ScreenPlacementResolver.TryResolve(GetPlacementSettings(), GetFollowPredictionFrames(), out placement);
+            return services.PlacementResolver.TryResolve(GetPlacementSettings(), GetFollowPredictionFrames(), out placement);
         }
 
         private float GetFollowPredictionFrames()
@@ -1250,8 +1214,8 @@ public sealed class WorldScreenManager : IDisposable
 
             return configuration.OutputMode switch
             {
-                Configuration.OutputModeNativeOverlay => 1.0f,
-                Configuration.OutputModeSceneComposite or 3 => 1.0f,
+                ScreenOutputMode.NativeOverlay => 1.0f,
+                ScreenOutputMode.SceneComposite => 1.0f,
                 _ => 0.0f,
             };
         }

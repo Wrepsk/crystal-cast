@@ -1,20 +1,15 @@
 using Dalamud.Configuration;
 using CrystalCast.Video;
 using System;
-using System.Diagnostics;
 
 namespace CrystalCast;
 
 [Serializable]
 public class Configuration : IPluginConfiguration
 {
-    private const int SaveDebounceMilliseconds = 300;
-    [NonSerialized] private long lastSaveRequestTicks;
-    [NonSerialized] private int savePending;
+    private static readonly TimeSpan SaveDebounce = TimeSpan.FromMilliseconds(300);
+    [NonSerialized] private ConfigurationSaveCoordinator? saveCoordinator;
 
-    public const int OutputModeImGuiOverlay = 0;
-    public const int OutputModeNativeOverlay = 1;
-    public const int OutputModeSceneComposite = 2;
     public const int MaxBrowserScreens = 8;
     public const int MaxIpcBrowserScreens = 56;
     public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
@@ -46,8 +41,7 @@ public class Configuration : IPluginConfiguration
     public bool EnableDistanceFade { get; set; }
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
-    public int OutputMode { get; set; } = DefaultOutputMode;
-    public int UiMaskMode { get; set; }
+    public ScreenOutputMode OutputMode { get; set; } = DefaultOutputMode;
     public bool ShowDebugMarker { get; set; }
     public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
@@ -75,102 +69,13 @@ public class Configuration : IPluginConfiguration
     public List<ScreenPlacementPreset> PlacementPresets { get; set; } = [];
     public string ActivePlacementPresetId { get; set; } = string.Empty;
 
-    public static int DefaultOutputMode => OperatingSystem.IsWindows()
-        ? OutputModeSceneComposite
-        : OutputModeNativeOverlay;
+    public static ScreenOutputMode DefaultOutputMode => OperatingSystem.IsWindows()
+        ? ScreenOutputMode.SceneComposite
+        : ScreenOutputMode.NativeOverlay;
 
     public bool Normalize()
     {
-        var changed = false;
-        var migratingFromLocalVideo = (int)SourceKind == 2;
-
-        if (string.IsNullOrWhiteSpace(ScreenId))
-        {
-            ScreenId = Guid.NewGuid().ToString("N");
-            changed = true;
-        }
-
-        if (SourceKind != ScreenSourceKind.Browser)
-        {
-            SourceKind = ScreenSourceKind.Browser;
-            changed = true;
-        }
-
-        if (LocalVideoPlacementMode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
-        {
-            LocalVideoPlacementMode = ScreenPlacementMode.World;
-            changed = true;
-        }
-
-        if (PlacementGizmoOperation is not (ScreenPlacementGizmoOperation.Translate or ScreenPlacementGizmoOperation.Rotate))
-        {
-            PlacementGizmoOperation = ScreenPlacementGizmoOperation.Translate;
-            changed = true;
-        }
-
-        if (BrowserScreens == null)
-        {
-            BrowserScreens = [];
-            changed = true;
-        }
-        if (BrowserScreens.Count == 0)
-        {
-            BrowserScreens.Add(CreateBrowserScreenFromLegacySettings("Browser screen 1"));
-            changed = true;
-        }
-
-        var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < BrowserScreens.Count; i++)
-            changed |= BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);
-
-        changed |= ScreenLimitPolicy.DisableScreensOutsideLimits(BrowserScreens);
-
-        if (migratingFromLocalVideo)
-        {
-            foreach (var screen in BrowserScreens.Where(screen => screen.Enabled))
-            {
-                screen.Enabled = false;
-                changed = true;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(ActiveBrowserScreenId) || BrowserScreens.All(screen => screen.ScreenId != ActiveBrowserScreenId))
-        {
-            ActiveBrowserScreenId = BrowserScreens[0].ScreenId;
-            changed = true;
-        }
-
-        if (PlacementPresets == null)
-        {
-            PlacementPresets = [];
-            changed = true;
-        }
-
-        var usedPresetIds = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < PlacementPresets.Count; i++)
-            changed |= PlacementPresets[i].Normalize($"Placement {i + 1}", usedPresetIds);
-
-        if (PlacementPresets.Count == 0)
-        {
-            if (!string.IsNullOrWhiteSpace(ActivePlacementPresetId))
-            {
-                ActivePlacementPresetId = string.Empty;
-                changed = true;
-            }
-        }
-        else if (string.IsNullOrWhiteSpace(ActivePlacementPresetId) || PlacementPresets.All(preset => preset.PresetId != ActivePlacementPresetId))
-        {
-            ActivePlacementPresetId = PlacementPresets[0].PresetId;
-            changed = true;
-        }
-
-        if (Version < 2)
-        {
-            Version = 2;
-            changed = true;
-        }
-
-        return changed;
+        return ConfigurationMigration.Normalize(this);
     }
 
     public BrowserScreenProfile GetActiveBrowserScreen()
@@ -209,7 +114,7 @@ public class Configuration : IPluginConfiguration
         return preset;
     }
 
-    private BrowserScreenProfile CreateBrowserScreenFromLegacySettings(string name)
+    internal BrowserScreenProfile CreateBrowserScreenFromLegacySettings(string name)
     {
         var screen = new BrowserScreenProfile
         {
@@ -255,31 +160,16 @@ public class Configuration : IPluginConfiguration
         return screen;
     }
 
-    public void Save()
+    internal void AttachPersistence(Action<Configuration> persist)
     {
-        Interlocked.Exchange(ref lastSaveRequestTicks, Stopwatch.GetTimestamp());
-        Interlocked.Exchange(ref savePending, 1);
+        saveCoordinator = new ConfigurationSaveCoordinator(() => persist(this), SaveDebounce);
     }
 
-    internal void ProcessPendingSave()
-    {
-        if (Volatile.Read(ref savePending) == 0)
-            return;
+    public void Save() => saveCoordinator?.Request();
 
-        var elapsed = Stopwatch.GetElapsedTime(Interlocked.Read(ref lastSaveRequestTicks));
-        if (elapsed.TotalMilliseconds < SaveDebounceMilliseconds)
-            return;
+    internal void ProcessPendingSave() => saveCoordinator?.Process();
 
-        FlushPendingSave();
-    }
-
-    internal void FlushPendingSave()
-    {
-        if (Interlocked.Exchange(ref savePending, 0) == 0)
-            return;
-
-        Plugin.PluginInterface.SavePluginConfig(this);
-    }
+    internal void FlushPendingSave() => saveCoordinator?.Flush();
 }
 
 public enum BrowserSourceProviderKind
@@ -441,156 +331,7 @@ public sealed class BrowserScreenProfile
             changed = true;
         }
 
-        if (YouTubeBrowserWidth <= 0)
-        {
-            YouTubeBrowserWidth = 1280;
-            changed = true;
-        }
-
-        if (YouTubeBrowserHeight <= 0)
-        {
-            YouTubeBrowserHeight = 720;
-            changed = true;
-        }
-
-        var captureFps = Math.Clamp(YouTubeCaptureFps, 1.0f, 60.0f);
-        if (Math.Abs(YouTubeCaptureFps - captureFps) > 0.0001f)
-        {
-            YouTubeCaptureFps = captureFps;
-            changed = true;
-        }
-
-        var volume = Math.Clamp(YouTubeVolume, 0.0f, 1.0f);
-        if (Math.Abs(YouTubeVolume - volume) > 0.0001f)
-        {
-            YouTubeVolume = volume;
-            changed = true;
-        }
-
-        var playbackRate = Math.Clamp(YouTubePlaybackRate, 0.25f, 2.0f);
-        if (Math.Abs(YouTubePlaybackRate - playbackRate) > 0.0001f)
-        {
-            YouTubePlaybackRate = playbackRate;
-            changed = true;
-        }
-
-        if (TwitchBrowserWidth <= 0)
-        {
-            TwitchBrowserWidth = 1920;
-            changed = true;
-        }
-
-        if (TwitchBrowserHeight <= 0)
-        {
-            TwitchBrowserHeight = 1080;
-            changed = true;
-        }
-
-        var twitchCaptureFps = Math.Clamp(TwitchCaptureFps, 1.0f, 60.0f);
-        if (Math.Abs(TwitchCaptureFps - twitchCaptureFps) > 0.0001f)
-        {
-            TwitchCaptureFps = twitchCaptureFps;
-            changed = true;
-        }
-
-        var twitchVolume = Math.Clamp(TwitchVolume, 0.0f, 1.0f);
-        if (Math.Abs(TwitchVolume - twitchVolume) > 0.0001f)
-        {
-            TwitchVolume = twitchVolume;
-            changed = true;
-        }
-
-        if (DailymotionBrowserWidth <= 0)
-        {
-            DailymotionBrowserWidth = 1280;
-            changed = true;
-        }
-
-        if (DailymotionBrowserHeight <= 0)
-        {
-            DailymotionBrowserHeight = 720;
-            changed = true;
-        }
-
-        var dailymotionCaptureFps = Math.Clamp(DailymotionCaptureFps, 1.0f, 60.0f);
-        if (Math.Abs(DailymotionCaptureFps - dailymotionCaptureFps) > 0.0001f)
-        {
-            DailymotionCaptureFps = dailymotionCaptureFps;
-            changed = true;
-        }
-
-        var dailymotionVolume = Math.Clamp(DailymotionVolume, 0.0f, 1.0f);
-        if (Math.Abs(DailymotionVolume - dailymotionVolume) > 0.0001f)
-        {
-            DailymotionVolume = dailymotionVolume;
-            changed = true;
-        }
-
-        if (VimeoBrowserWidth <= 0)
-        {
-            VimeoBrowserWidth = 1280;
-            changed = true;
-        }
-
-        if (VimeoBrowserHeight <= 0)
-        {
-            VimeoBrowserHeight = 720;
-            changed = true;
-        }
-
-        var vimeoCaptureFps = Math.Clamp(VimeoCaptureFps, 1.0f, 60.0f);
-        if (Math.Abs(VimeoCaptureFps - vimeoCaptureFps) > 0.0001f)
-        {
-            VimeoCaptureFps = vimeoCaptureFps;
-            changed = true;
-        }
-
-        var vimeoVolume = Math.Clamp(VimeoVolume, 0.0f, 1.0f);
-        if (Math.Abs(VimeoVolume - vimeoVolume) > 0.0001f)
-        {
-            VimeoVolume = vimeoVolume;
-            changed = true;
-        }
-
-        var vimeoPlaybackRate = Math.Clamp(VimeoPlaybackRate, 0.25f, 2.0f);
-        if (Math.Abs(VimeoPlaybackRate - vimeoPlaybackRate) > 0.0001f)
-        {
-            VimeoPlaybackRate = vimeoPlaybackRate;
-            changed = true;
-        }
-
-        if (GenericWebBrowserWidth <= 0)
-        {
-            GenericWebBrowserWidth = 1280;
-            changed = true;
-        }
-
-        if (GenericWebBrowserHeight <= 0)
-        {
-            GenericWebBrowserHeight = 720;
-            changed = true;
-        }
-
-        var genericWebCaptureFps = Math.Clamp(GenericWebCaptureFps, 1.0f, 60.0f);
-        if (Math.Abs(GenericWebCaptureFps - genericWebCaptureFps) > 0.0001f)
-        {
-            GenericWebCaptureFps = genericWebCaptureFps;
-            changed = true;
-        }
-
-        var genericWebVolume = Math.Clamp(GenericWebVolume, 0.0f, 1.0f);
-        if (Math.Abs(GenericWebVolume - genericWebVolume) > 0.0001f)
-        {
-            GenericWebVolume = genericWebVolume;
-            changed = true;
-        }
-
-        var genericWebPlaybackRate = Math.Clamp(GenericWebPlaybackRate, 0.25f, 2.0f);
-        if (Math.Abs(GenericWebPlaybackRate - genericWebPlaybackRate) > 0.0001f)
-        {
-            GenericWebPlaybackRate = genericWebPlaybackRate;
-            changed = true;
-        }
+        changed |= BrowserSourceProviderRegistry.NormalizeProviderSettings(this);
 
         if (SpatialAudioSilentRadiusMeters <= SpatialAudioFullVolumeRadiusMeters)
         {

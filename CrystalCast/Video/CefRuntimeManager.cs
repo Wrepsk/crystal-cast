@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Loader;
+using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
@@ -28,12 +29,7 @@ internal static class CefRuntimeManager
         }
     }
 
-    public static bool CanInitialize(out string currentStatus)
-    {
-        return TryInitialize(out currentStatus);
-    }
-
-    public static bool TryInitialize(out string currentStatus)
+    public static bool TryInitialize(IPluginLog log, string? pluginDirectory, out string currentStatus)
     {
         lock (Gate)
         {
@@ -52,16 +48,16 @@ internal static class CefRuntimeManager
 
             try
             {
-                if (TryDescribeUnsafeHostHook(out var unsafeHookStatus))
+                if (TryDescribeUnsafeHostHook(log, out var unsafeHookStatus))
                 {
                     failed = true;
                     status = unsafeHookStatus;
                     currentStatus = status;
-                    Plugin.Log.Warning("Skipping CEF initialization for CrystalCast: {Status}", status);
+                    log.Warning("Skipping CEF initialization for CrystalCast: {Status}", status);
                     return false;
                 }
 
-                var paths = ResolveCefRuntimePaths();
+                var paths = ResolveCefRuntimePaths(pluginDirectory);
                 ValidateCefFiles(paths);
                 var assemblies = PreloadCefSharpAssemblies(paths.ManagedDir, paths.CefDir);
                 cefAssemblies = assemblies;
@@ -113,13 +109,13 @@ internal static class CefRuntimeManager
                 failed = true;
                 status = $"CEF init failed: {cause.Message}";
                 currentStatus = status;
-                Plugin.Log.Warning(ex, "Failed to initialize CEF for CrystalCast.");
+                log.Warning(ex, "Failed to initialize CEF for CrystalCast.");
                 return false;
             }
         }
     }
 
-    private static bool TryDescribeUnsafeHostHook(out string unsafeHookStatus)
+    private static bool TryDescribeUnsafeHostHook(IPluginLog log, out string unsafeHookStatus)
     {
         unsafeHookStatus = string.Empty;
 
@@ -138,16 +134,16 @@ internal static class CefRuntimeManager
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Could not inspect process modules before CEF initialization.");
+            log.Debug(ex, "Could not inspect process modules before CEF initialization.");
         }
 
         return false;
     }
 
-    private static CefRuntimePaths ResolveCefRuntimePaths()
+    private static CefRuntimePaths ResolveCefRuntimePaths(string? pluginDirectory)
     {
         var searched = new List<string>();
-        foreach (var root in GetRuntimeSearchRoots())
+        foreach (var root in GetRuntimeSearchRoots(pluginDirectory))
         {
             foreach (var cefDir in GetCefCandidateDirectories(root))
             {
@@ -173,10 +169,10 @@ internal static class CefRuntimeManager
         throw new FileNotFoundException($"Missing CEF runtime file: libcef.dll. Searched: {string.Join("; ", searched)}");
     }
 
-    private static IEnumerable<string> GetRuntimeSearchRoots()
+    private static IEnumerable<string> GetRuntimeSearchRoots(string? pluginDirectory)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var directory in GetRuntimeSearchRootCandidates())
+        foreach (var directory in GetRuntimeSearchRootCandidates(pluginDirectory))
         {
             if (string.IsNullOrWhiteSpace(directory))
                 continue;
@@ -196,12 +192,18 @@ internal static class CefRuntimeManager
         }
     }
 
-    public static bool TryGetLoadedType(string assemblyName, string typeName, out Type? type, out string currentStatus)
+    public static bool TryGetLoadedType(
+        string assemblyName,
+        string typeName,
+        IPluginLog log,
+        string? pluginDirectory,
+        out Type? type,
+        out string currentStatus)
     {
         lock (Gate)
         {
             type = null;
-            if (!TryInitialize(out currentStatus))
+            if (!TryInitialize(log, pluginDirectory, out currentStatus))
                 return false;
 
             try
@@ -220,9 +222,9 @@ internal static class CefRuntimeManager
         }
     }
 
-    private static IEnumerable<string?> GetRuntimeSearchRootCandidates()
+    private static IEnumerable<string?> GetRuntimeSearchRootCandidates(string? pluginDirectory)
     {
-        yield return Plugin.PluginInterface.AssemblyLocation.Directory?.FullName;
+        yield return pluginDirectory;
 
         var assemblyLocation = typeof(CefRuntimeManager).Assembly.Location;
         if (!string.IsNullOrWhiteSpace(assemblyLocation))

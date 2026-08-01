@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
@@ -50,6 +51,8 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private bool playerFailed;
     private volatile bool disposed;
     private volatile bool browserStartupFailed;
+    private readonly IPluginLog log;
+    private readonly string? pluginDirectory;
 
     public CefBrowserFrameSource(
         BrowserSourceDescriptor descriptor,
@@ -62,7 +65,9 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
-        float playbackRate)
+        float playbackRate,
+        IPluginLog log,
+        string? pluginDirectory)
     {
         this.descriptor = descriptor;
         this.input = input;
@@ -76,6 +81,8 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         this.audioEnabled = audioEnabled;
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
+        this.log = log;
+        this.pluginDirectory = pluginDirectory;
 
         if (!isValidSource)
             browserStatus = descriptor.InvalidSourceMessage;
@@ -235,7 +242,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     private void CreateBrowser()
     {
-        if (!CefRuntimeManager.TryInitialize(out var cefStatus))
+        if (!CefRuntimeManager.TryInitialize(log, pluginDirectory, out var cefStatus))
         {
             browserStatus = cefStatus;
             browserStartupFailed = true;
@@ -280,7 +287,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             browserStartupFailed = true;
             captureEnabled = false;
             browserStatus = $"CEF browser failed: {ex.Message}";
-            Plugin.Log.Warning(ex, "Failed to create CEF {Provider} browser.", descriptor.DisplayName);
+            log.Warning(ex, "Failed to create CEF {Provider} browser.", descriptor.DisplayName);
         }
     }
 
@@ -311,7 +318,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
                     browserStartupFailed = true;
                     captureEnabled = false;
                     browserStatus = $"CEF startup failed: {ex.GetBaseException().Message}";
-                    Plugin.Log.Warning(ex, "CrystalCast CEF startup task failed.");
+                    log.Warning(ex, "CrystalCast CEF startup task failed.");
                 }
             });
         }
@@ -423,7 +430,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         {
             playerFailed = true;
             browserStatus = $"CEF player reload failed: {ex.Message}";
-            Plugin.Log.Debug(ex, "Failed to reload CEF {Provider} player after ready timeout.", descriptor.DisplayName);
+            log.Debug(ex, "Failed to reload CEF {Provider} player after ready timeout.", descriptor.DisplayName);
         }
     }
 
@@ -581,11 +588,11 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         catch (Exception ex)
         {
             browserStatus = $"CEF activation click failed: {ex.Message}";
-            Plugin.Log.Debug(ex, "Failed to send CEF activation click.");
+            log.Debug(ex, "Failed to send CEF activation click.");
         }
     }
 
-    private static void CloseBrowserHost(object currentBrowser)
+    private void CloseBrowserHost(object currentBrowser)
     {
         try
         {
@@ -595,13 +602,13 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Failed to close CEF browser host before disposal.");
+            log.Debug(ex, "Failed to close CEF browser host before disposal.");
         }
     }
 
-    private static Type GetCefType(string assemblyName, string typeName)
+    private Type GetCefType(string assemblyName, string typeName)
     {
-        if (CefRuntimeManager.TryGetLoadedType(assemblyName, typeName, out var type, out var cefStatus) && type != null)
+        if (CefRuntimeManager.TryGetLoadedType(assemblyName, typeName, log, pluginDirectory, out var type, out var cefStatus) && type != null)
             return type;
 
         throw new InvalidOperationException(cefStatus);
@@ -685,7 +692,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         return Expression.Lambda(eventHandlerType, call, parameters).Compile();
     }
 
-    private static object? InvokeWebBrowserExtension(string methodName, object browser, params object?[] arguments)
+    private object? InvokeWebBrowserExtension(string methodName, object browser, params object?[] arguments)
     {
         var extensionsType = GetCefType("CefSharp", "CefSharp.WebBrowserExtensions");
         var callArguments = new object?[arguments.Length + 1];
@@ -1033,7 +1040,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Failed to update CEF WindowlessFrameRate.");
+            log.Debug(ex, "Failed to update CEF WindowlessFrameRate.");
         }
     }
 

@@ -8,9 +8,9 @@ namespace CrystalCast.Rendering;
 
 internal static class ScreenPlacementGizmo
 {
-    public static bool Draw(ScreenPlacementSettings placement, ScreenPlacementGizmoOperation operation)
+    public static bool Draw(ScreenPlacementSettings placement, ScreenPlacementGizmoOperation operation, ScreenPlacementResolver placementResolver)
     {
-        if (!ScreenPlacementResolver.TryResolve(placement, out var resolved))
+        if (!placementResolver.TryResolve(placement, out var resolved))
             return false;
 
         if (!TryGetCameraMatrices(out var view, out var projection))
@@ -39,7 +39,7 @@ internal static class ScreenPlacementGizmo
 
                 var io = ImGui.GetIO();
                 ImGui.SetWindowSize(io.DisplaySize);
-                changed = DrawGizmo(placement, operation, resolved, ImGui.GetWindowPos(), io.DisplaySize, ref view, ref projection);
+                changed = DrawGizmo(placement, operation, resolved, ImGui.GetWindowPos(), io.DisplaySize, ref view, ref projection, placementResolver);
             }
             finally
             {
@@ -61,7 +61,8 @@ internal static class ScreenPlacementGizmo
         Vector2 position,
         Vector2 size,
         ref Matrix4x4 view,
-        ref Matrix4x4 projection)
+        ref Matrix4x4 projection,
+        ScreenPlacementResolver placementResolver)
     {
         ImGuizmo.BeginFrame();
         ImGuizmo.SetDrawlist();
@@ -82,10 +83,10 @@ internal static class ScreenPlacementGizmo
             if (operation == ScreenPlacementGizmoOperation.Rotate)
             {
                 return Matrix4x4.Decompose(matrix, out _, out var worldRotation, out _)
-                    && ScreenPlacementResolver.TryApplyWorldRotationPreservingMode(placement, worldRotation);
+                    && placementResolver.TryApplyWorldRotationPreservingMode(placement, worldRotation);
             }
 
-            return ScreenPlacementResolver.TryApplyWorldPositionPreservingMode(placement, matrix.Translation);
+            return placementResolver.TryApplyWorldPositionPreservingMode(placement, matrix.Translation);
         }
         finally
         {

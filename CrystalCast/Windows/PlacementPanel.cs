@@ -4,7 +4,10 @@ using Dalamud.Bindings.ImGui;
 
 namespace CrystalCast.Windows;
 
-internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoService undoService)
+internal sealed class PlacementPanel(
+    WorldScreenManager renderer,
+    PlacementUndoService undoService,
+    ScreenPlacementResolver placementResolver)
 {
     private static readonly string[] PlacementModeNames =
         ["World", "Follow player", "Follow camera"];
@@ -35,7 +38,7 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
             return false;
 
         var before = activeScreen.Placement.Clone();
-        if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation))
+        if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation, placementResolver))
             return false;
 
         undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
@@ -90,7 +93,7 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
             : "Place in front of player";
         if (ImGui.Button(placeButtonLabel))
         {
-            if (ScreenPlacementResolver.PlaceInFrontOfPlayer(placement))
+            if (placementResolver.PlaceInFrontOfPlayer(placement))
                 changed = true;
             else
                 ImGui.TextColored(
@@ -280,7 +283,7 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
             renamingPresetId = string.Empty;
     }
 
-    private static bool DrawPlacementMode(ScreenPlacementSettings placement)
+    private bool DrawPlacementMode(ScreenPlacementSettings placement)
     {
         var changed = false;
         var current = FindPlacementModeIndex(placement.Mode);
@@ -291,7 +294,7 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
                 var mode = PlacementModes[i];
                 var selected = i == current;
                 if (ImGui.Selectable(PlacementModeNames[i], selected) && mode != placement.Mode)
-                    changed |= ScreenPlacementResolver.TryConvertModePreservingWorld(placement, mode);
+                    changed |= placementResolver.TryConvertModePreservingWorld(placement, mode);
 
                 if (selected)
                     ImGui.SetItemDefaultFocus();

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 
 namespace CrystalCast.Rendering;
@@ -13,7 +14,7 @@ public readonly record struct ResolvedScreenPlacement(
     public Quaternion Rotation => Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(YawRadians, PitchRadians, RollRadians));
 }
 
-public static class ScreenPlacementResolver
+internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientState clientState)
 {
     private const float MinPredictionSampleSeconds = 0.002f;
     private const float MaxPredictionSampleSeconds = 0.25f;
@@ -21,17 +22,17 @@ public static class ScreenPlacementResolver
     private const float MaxPredictionStepMeters = 20.0f;
     private const float VelocityBlend = 0.65f;
 
-    private static FramePredictionState playerPrediction;
-    private static FramePredictionState cameraPrediction;
-    private static readonly PlacementPredictionContext PredictionContext = new();
-    private static readonly object PredictionGate = new();
+    private FramePredictionState playerPrediction;
+    private FramePredictionState cameraPrediction;
+    private readonly PlacementPredictionContext predictionContext = new();
+    private readonly object predictionGate = new();
 
-    public static bool TryResolve(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
+    public bool TryResolve(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
     {
         return TryResolve(placement, 0.0f, out resolved);
     }
 
-    public static bool TryResolve(ScreenPlacementSettings placement, float predictionFrames, out ResolvedScreenPlacement resolved)
+    public bool TryResolve(ScreenPlacementSettings placement, float predictionFrames, out ResolvedScreenPlacement resolved)
     {
         if (placement.Mode != ScreenPlacementMode.World)
         {
@@ -62,7 +63,7 @@ public static class ScreenPlacementResolver
         return true;
     }
 
-    public static bool TryConvertModePreservingWorld(ScreenPlacementSettings placement, ScreenPlacementMode targetMode)
+    public bool TryConvertModePreservingWorld(ScreenPlacementSettings placement, ScreenPlacementMode targetMode)
     {
         if (placement.Mode == targetMode)
             return true;
@@ -92,7 +93,7 @@ public static class ScreenPlacementResolver
         return true;
     }
 
-    public static bool TryApplyWorldPositionPreservingMode(ScreenPlacementSettings placement, Vector3 worldPosition)
+    public bool TryApplyWorldPositionPreservingMode(ScreenPlacementSettings placement, Vector3 worldPosition)
     {
         if (!IsFinite(worldPosition))
             return false;
@@ -117,7 +118,7 @@ public static class ScreenPlacementResolver
         return true;
     }
 
-    public static bool TryApplyWorldRotationPreservingMode(ScreenPlacementSettings placement, Quaternion worldRotation)
+    public bool TryApplyWorldRotationPreservingMode(ScreenPlacementSettings placement, Quaternion worldRotation)
     {
         if (!TryGetYawPitchRoll(worldRotation, out var yawRadians, out var pitchRadians, out var rollRadians))
             return false;
@@ -137,7 +138,7 @@ public static class ScreenPlacementResolver
         return true;
     }
 
-    public static bool PlaceInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
+    public bool PlaceInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
     {
         if (placement.Mode != ScreenPlacementMode.World)
         {
@@ -177,7 +178,7 @@ public static class ScreenPlacementResolver
         placement.Normalize();
     }
 
-    private static bool TryGetPlacementFrame(ScreenPlacementMode mode, out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
+    private bool TryGetPlacementFrame(ScreenPlacementMode mode, out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
     {
         return mode switch
         {
@@ -187,9 +188,9 @@ public static class ScreenPlacementResolver
         };
     }
 
-    private static bool TryGetPlayerFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
+    private bool TryGetPlayerFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
     {
-        var player = Plugin.ObjectTable.LocalPlayer;
+        var player = objectTable.LocalPlayer;
         RefreshPredictionContext(player?.Address ?? nint.Zero);
         if (player == null)
             return ClearFrame(out position, out yaw, out forward, out right);
@@ -203,9 +204,9 @@ public static class ScreenPlacementResolver
         return true;
     }
 
-    private static unsafe bool TryGetCameraFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
+    private unsafe bool TryGetCameraFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
     {
-        var player = Plugin.ObjectTable.LocalPlayer;
+        var player = objectTable.LocalPlayer;
         RefreshPredictionContext(player?.Address ?? nint.Zero);
         if (player == null)
             return ClearFrame(out position, out yaw, out forward, out right);
@@ -256,12 +257,12 @@ public static class ScreenPlacementResolver
         right = new Vector3(MathF.Cos(yaw), 0.0f, -MathF.Sin(yaw));
     }
 
-    private static void ApplyFramePrediction(ScreenPlacementMode mode, ref Vector3 position, ref float yaw, float predictionFrames)
+    private void ApplyFramePrediction(ScreenPlacementMode mode, ref Vector3 position, ref float yaw, float predictionFrames)
     {
         if (mode is not (ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
             return;
 
-        lock (PredictionGate)
+        lock (predictionGate)
         {
             ref var state = ref GetPredictionState(mode);
             var now = Stopwatch.GetTimestamp();
@@ -301,7 +302,7 @@ public static class ScreenPlacementResolver
         }
     }
 
-    private static ref FramePredictionState GetPredictionState(ScreenPlacementMode mode)
+    private ref FramePredictionState GetPredictionState(ScreenPlacementMode mode)
     {
         if (mode == ScreenPlacementMode.FollowCamera)
             return ref cameraPrediction;
@@ -309,12 +310,12 @@ public static class ScreenPlacementResolver
         return ref playerPrediction;
     }
 
-    private static void RefreshPredictionContext(nint playerAddress)
+    private void RefreshPredictionContext(nint playerAddress)
     {
-        var territoryId = (ushort)Plugin.ClientState.TerritoryType;
-        lock (PredictionGate)
+        var territoryId = (ushort)clientState.TerritoryType;
+        lock (predictionGate)
         {
-            if (!PredictionContext.Update(territoryId, playerAddress))
+            if (!predictionContext.Update(territoryId, playerAddress))
                 return;
 
             playerPrediction = default;

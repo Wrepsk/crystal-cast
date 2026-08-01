@@ -1,5 +1,6 @@
 using CrystalCast.Rendering;
 using CrystalCast.Sync;
+using CrystalCast.Video;
 using CrystalCast.Windows;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
@@ -30,13 +31,24 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        var placementResolver = new ScreenPlacementResolver(ObjectTable, ClientState);
+        var services = new CrystalCastServices(
+            PluginInterface,
+            TextureProvider,
+            ClientState,
+            ObjectTable,
+            GameGui,
+            Log,
+            placementResolver,
+            new BrowserFrameSourceFactory(Log, PluginInterface.AssemblyLocation.Directory?.FullName));
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
         if (Configuration.Normalize())
             Configuration.Save();
 
-        renderer = new WorldScreenManager(Configuration);
-        ipc = new ScreenStateIpc(Configuration, renderer);
-        mainWindow = new MainWindow(this, renderer, ipc);
+        renderer = new WorldScreenManager(Configuration, services);
+        ipc = new ScreenStateIpc(Configuration, renderer, services);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver);
         configWindow = new ConfigWindow(this, renderer, ipc);
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);

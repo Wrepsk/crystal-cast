@@ -94,4 +94,35 @@ public sealed class ConfigurationTests
         Assert.Equal(duplicateId, first.ScreenId);
         Assert.NotEqual(duplicateId, second.ScreenId);
     }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(99)]
+    public void NormalizeRepairsLegacyOrInvalidOutputModes(int serializedValue)
+    {
+        var configuration = new Configuration
+        {
+            OutputMode = (ScreenOutputMode)serializedValue,
+        };
+
+        Assert.True(configuration.Normalize());
+        Assert.Equal(
+            serializedValue == 3 ? ScreenOutputMode.SceneComposite : Configuration.DefaultOutputMode,
+            configuration.OutputMode);
+    }
+
+    [Fact]
+    public void PanelSizeDerivesHeightFromSourceAspectRatio()
+    {
+        var placement = new ScreenPlacementSettings
+        {
+            WidthMeters = 4.0f,
+            HeightMeters = 9.0f,
+        };
+
+        var size = Rendering.ScreenPanelSizeResolver.Resolve(placement, 1920, 1080);
+
+        Assert.Equal(4.0f, size.X);
+        Assert.Equal(2.25f, size.Y);
+    }
 }

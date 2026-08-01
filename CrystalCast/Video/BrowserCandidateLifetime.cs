@@ -1,8 +1,14 @@
 namespace CrystalCast.Video;
 
+using Dalamud.Plugin.Services;
+
 internal static class BrowserCandidateLifetime
 {
-    public static bool TryUse(IVideoFrameSource candidate, Action action, out Exception? error)
+    public static bool TryUse(
+        IVideoFrameSource candidate,
+        Action action,
+        out Exception? error,
+        IPluginLog? log = null)
     {
         try
         {
@@ -19,7 +25,7 @@ internal static class BrowserCandidateLifetime
             }
             catch (Exception disposeException)
             {
-                Plugin.Log.Debug(disposeException, "Failed to dispose rejected CrystalCast browser candidate.");
+                log?.Debug(disposeException, "Failed to dispose rejected CrystalCast browser candidate.");
             }
 
             return false;

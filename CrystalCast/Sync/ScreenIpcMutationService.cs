@@ -1,4 +1,5 @@
 using CrystalCast.Rendering;
+using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Sync;
 
@@ -9,19 +10,22 @@ internal sealed class ScreenIpcMutationService
     private readonly ScreenStateBuilder stateBuilder;
     private readonly ScreenChangePublisher changePublisher;
     private readonly Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState;
+    private readonly IPluginLog log;
 
     public ScreenIpcMutationService(
         Configuration configuration,
         WorldScreenManager renderer,
         ScreenStateBuilder stateBuilder,
         ScreenChangePublisher changePublisher,
-        Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState)
+        Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState,
+        IPluginLog log)
     {
         this.configuration = configuration;
         this.renderer = renderer;
         this.stateBuilder = stateBuilder;
         this.changePublisher = changePublisher;
         this.publishLocalState = publishLocalState;
+        this.log = log;
     }
 
     public bool Remove(string screenId)
@@ -88,7 +92,7 @@ internal sealed class ScreenIpcMutationService
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to create CrystalCast screen through IPC.");
+            log.Warning(ex, "Failed to create CrystalCast screen through IPC.");
             return IpcJsonService.SerializeMutationError($"Failed to create screen: {ex.Message}");
         }
     }
@@ -122,7 +126,7 @@ internal sealed class ScreenIpcMutationService
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to update CrystalCast screen through IPC.");
+            log.Warning(ex, "Failed to update CrystalCast screen through IPC.");
             return IpcJsonService.SerializeMutationError($"Failed to update screen: {ex.Message}");
         }
     }
@@ -149,7 +153,7 @@ internal sealed class ScreenIpcMutationService
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to update CrystalCast source lock through IPC.");
+            log.Warning(ex, "Failed to update CrystalCast source lock through IPC.");
             return IpcJsonService.SerializeMutationError($"Failed to update source lock: {ex.Message}");
         }
     }
@@ -183,7 +187,7 @@ internal sealed class ScreenIpcMutationService
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to update CrystalCast source through IPC.");
+            log.Warning(ex, "Failed to update CrystalCast source through IPC.");
             return IpcJsonService.SerializeMutationError($"Failed to update source: {ex.Message}");
         }
     }
@@ -210,7 +214,7 @@ internal sealed class ScreenIpcMutationService
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Failed to read CrystalCast source state through IPC.");
+            log.Warning(ex, "Failed to read CrystalCast source state through IPC.");
             return IpcJsonService.Serialize(new ScreenIpcSourceStateResponse
             {
                 Success = false,

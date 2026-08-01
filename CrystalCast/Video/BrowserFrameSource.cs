@@ -1,5 +1,7 @@
 namespace CrystalCast.Video;
 
+using Dalamud.Plugin.Services;
+
 internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
     private readonly BrowserSourceDescriptor descriptor;
@@ -9,6 +11,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     private readonly float captureFps;
     private readonly BrowserMediaEngine enginePreference;
     private readonly bool autoplay;
+    private readonly IPluginLog log;
+    private readonly string? pluginDirectory;
     private bool currentLoop;
     private bool currentPlaylistAutoplayNext;
     private bool currentAudioEnabled;
@@ -30,7 +34,9 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         bool playlistAutoplayNext,
         bool audioEnabled,
         float volume,
-        float playbackRate)
+        float playbackRate,
+        IPluginLog log,
+        string? pluginDirectory)
     {
         this.descriptor = descriptor;
         this.input = input;
@@ -39,6 +45,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         this.captureFps = captureFps;
         this.enginePreference = enginePreference;
         this.autoplay = autoplay;
+        this.log = log;
+        this.pluginDirectory = pluginDirectory;
         currentLoop = loop;
         currentPlaylistAutoplayNext = playlistAutoplayNext;
         currentAudioEnabled = audioEnabled;
@@ -196,7 +204,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             candidate = CreateFallbackAfterFailure(ex);
         }
 
-        if (BrowserCandidateLifetime.TryUse(candidate, () => ApplyCurrentSettings(candidate), out var error))
+        if (BrowserCandidateLifetime.TryUse(candidate, () => ApplyCurrentSettings(candidate), out var error, log))
             activeSource = candidate;
         else
             activeSource = CreateUnavailableSource(error!);
@@ -248,13 +256,13 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     {
         fallbackStatus = enginePreference == BrowserMediaEngine.CefOffScreen ? string.Empty : fallbackStatus;
         activeEngine = BrowserMediaEngine.CefOffScreen;
-        return new CefBrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new CefBrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate, log, pluginDirectory);
     }
 
     private IVideoFrameSource CreateWebView2Source()
     {
         activeEngine = BrowserMediaEngine.WebView2Capture;
-        return new WebView2BrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);
+        return new WebView2BrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate, WebView2CaptureMode.PreviewJpeg, log);
     }
 
     private IVideoFrameSource CreateWebView2WindowCaptureSource()
@@ -272,7 +280,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             currentAudioEnabled,
             currentVolume,
             currentPlaybackRate,
-            WebView2CaptureMode.WindowGraphicsCapture);
+            WebView2CaptureMode.WindowGraphicsCapture,
+            log);
     }
 
     private void StartActiveSource()
@@ -282,7 +291,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             return;
 
         activeSource = null;
-        if (BrowserCandidateLifetime.TryUse(candidate, candidate.Start, out var startError))
+        if (BrowserCandidateLifetime.TryUse(candidate, candidate.Start, out var startError, log))
         {
             activeSource = candidate;
             return;
@@ -293,7 +302,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             {
                 ApplyCurrentSettings(fallbackCandidate);
                 fallbackCandidate.Start();
-            }, out var fallbackError))
+            }, out var fallbackError, log))
         {
             activeSource = fallbackCandidate;
             return;
@@ -305,7 +314,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     private IVideoFrameSource CreateFallbackAfterFailure(Exception ex)
     {
         var baseMessage = ex.GetBaseException().Message;
-        Plugin.Log.Warning(ex, "Failed to start CrystalCast browser source.");
+        log.Warning(ex, "Failed to start CrystalCast browser source.");
 
         if (activeEngine == BrowserMediaEngine.CefOffScreen && enginePreference == BrowserMediaEngine.Auto)
         {
@@ -316,7 +325,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             }
             catch (Exception webViewEx)
             {
-                Plugin.Log.Warning(webViewEx, "Failed to create CrystalCast WebView2 window capture fallback source.");
+                log.Warning(webViewEx, "Failed to create CrystalCast WebView2 window capture fallback source.");
                 return CreateUnavailableSource(webViewEx);
             }
         }
@@ -354,7 +363,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             {
                 ApplyCurrentSettings(fallbackCandidate);
                 fallbackCandidate.Start();
-            }, out var error))
+            }, out var error, log))
             activeSource = fallbackCandidate;
         else
             activeSource = CreateUnavailableSource(error!);
@@ -379,7 +388,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             {
                 ApplyCurrentSettings(fallbackCandidate);
                 fallbackCandidate.Start();
-            }, out var error))
+            }, out var error, log))
             activeSource = fallbackCandidate;
         else
             activeSource = CreateUnavailableSource(error!);

@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
@@ -18,6 +16,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private readonly bool autoplay;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly WebView2CaptureMode captureMode;
+    private readonly IPluginLog log;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
     private BrowserThread? browserThread;
@@ -50,7 +49,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         bool audioEnabled,
         float volume,
         float playbackRate,
-        WebView2CaptureMode captureMode = WebView2CaptureMode.PreviewJpeg)
+        WebView2CaptureMode captureMode,
+        IPluginLog log)
     {
         this.input = input;
         isValidSource = GenericWebUrl.TryParseSource(input, out source);
@@ -63,6 +63,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
         this.captureMode = captureMode;
+        this.log = log;
 
         if (!isValidSource)
             browserStatus = BrowserSourceDescriptors.GenericWeb.InvalidSourceMessage;
@@ -448,7 +449,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         private readonly CancellationTokenSource shutdownCancellation = new();
         private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
         private readonly Queue<string> pendingPlayerMessages = new();
-        private readonly MemoryStream captureStream = new();
+        private readonly WebView2JpegFrameCapture jpegCapture = new();
         private volatile bool shutdownRequested;
         private BrowserSynchronizationContext? synchronizationContext;
         private CoreWebView2Controller? controller;
@@ -633,10 +634,10 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 while (!shutdownRequested)
                 {
                     var shouldQuit = shutdownRequested;
-                    BrowserNative.PumpMessages(ref shouldQuit);
+                    BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
                     shutdownRequested = shouldQuit;
                     context.ExecutePending();
-                    BrowserNative.WaitForWork(context.WorkAvailable, 50);
+                    BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 50);
                 }
 
                 var cleanupDeadline = Environment.TickCount64 + 3000;
@@ -644,9 +645,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                     && Environment.TickCount64 < cleanupDeadline)
                 {
                     var shouldQuit = false;
-                    BrowserNative.PumpMessages(ref shouldQuit);
+                    BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
                     context.ExecutePending();
-                    BrowserNative.WaitForWork(context.WorkAvailable, 25);
+                    BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 25);
                 }
             }
             catch (Exception ex)
@@ -676,7 +677,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 }
 
                 lifecycle.MarkStopped();
-                captureStream.Dispose();
+                jpegCapture.Dispose();
                 shutdownCancellation.Dispose();
                 context.Dispose();
             }
@@ -748,7 +749,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             catch (Exception ex)
             {
                 DisposeWindowCaptureSession();
-                Plugin.Log.Warning(ex, "Failed to start CrystalCast Generic Web window capture.");
+                owner.log.Warning(ex, "Failed to start CrystalCast Generic Web window capture.");
                 owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
             }
 
@@ -881,22 +882,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         private async Task CaptureOnceAsync(CoreWebView2 currentWebView)
         {
-            captureStream.Position = 0;
-            captureStream.SetLength(0);
-            await currentWebView.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Jpeg, captureStream);
-            if (captureStream.Length == 0)
+            var frame = await jpegCapture.CaptureAsync(currentWebView, Interlocked.Increment(ref owner.sequence));
+            if (frame == null)
                 return;
 
-            captureStream.Position = 0;
-            using var image = Image.Load<Bgra32>(captureStream);
-            var frame = VideoFrame.Rent(
-                image.Width,
-                image.Height,
-                Interlocked.Increment(ref owner.sequence),
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             try
             {
-                image.CopyPixelDataTo(frame.Pixels.AsSpan(0, frame.PixelLength));
                 owner.PublishFrame(frame);
             }
             catch
@@ -949,96 +940,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             {
                 owner.playerStatus = $"invalid browser message: {ex.Message}";
             }
-        }
-    }
-
-    private sealed class BrowserSynchronizationContext : SynchronizationContext, IDisposable
-    {
-        private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> queue = new();
-        private readonly AutoResetEvent workAvailable = new(false);
-        private bool disposed;
-
-        public WaitHandle WorkAvailable => workAvailable;
-
-        public override void Post(SendOrPostCallback d, object? state)
-        {
-            if (disposed)
-                return;
-
-            queue.Enqueue((d, state));
-            try
-            {
-                workAvailable.Set();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
-
-        public void ExecutePending()
-        {
-            while (queue.TryDequeue(out var work))
-                work.Callback(work.State);
-        }
-
-        public void Dispose()
-        {
-            disposed = true;
-            workAvailable.Dispose();
-        }
-    }
-
-    private static class BrowserNative
-    {
-        private const uint PmRemove = 0x0001;
-        private const uint QsAllInput = 0x04FF;
-        private const uint MwmoInputAvailable = 0x0004;
-        private const uint WmQuit = 0x0012;
-
-        public static readonly IntPtr HwndMessage = new(-3);
-
-        public static void PumpMessages(ref bool quit)
-        {
-            while (PeekMessage(out var message, IntPtr.Zero, 0, 0, PmRemove))
-            {
-                if (message.Message == WmQuit)
-                {
-                    quit = true;
-                    return;
-                }
-
-                TranslateMessage(ref message);
-                DispatchMessage(ref message);
-            }
-        }
-
-        public static void WaitForWork(WaitHandle handle, uint timeoutMs)
-        {
-            var handles = new[] { handle.SafeWaitHandle.DangerousGetHandle() };
-            _ = MsgWaitForMultipleObjectsEx(1, handles, timeoutMs, QsAllInput, MwmoInputAvailable);
-        }
-
-        [DllImport("user32.dll")]
-        private static extern bool PeekMessage(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
-
-        [DllImport("user32.dll")]
-        private static extern bool TranslateMessage(ref Msg lpMsg);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DispatchMessage(ref Msg lpMsg);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern uint MsgWaitForMultipleObjectsEx(uint nCount, IntPtr[] pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Msg
-        {
-            public IntPtr Hwnd;
-            public uint Message;
-            public UIntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public System.Drawing.Point Point;
         }
     }
 

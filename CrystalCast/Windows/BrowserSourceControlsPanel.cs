@@ -24,15 +24,16 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         var descriptor = Descriptors.TryGetValue(screen.ProviderKind, out var knownDescriptor)
             ? knownDescriptor
             : Descriptors[BrowserSourceProviderKind.YouTube];
+        var capabilities = BrowserSourceProviderRegistry.GetCapabilities(descriptor.ProviderKind);
         var uiState = GetUiState(screen, descriptor);
         var changed = false;
 
         changed |= DrawUrlControls(screen, descriptor, uiState);
         changed |= DrawPlaybackControls(screen, descriptor, uiState);
-        DrawBrowserControlWindow(screen, descriptor);
+        DrawBrowserControlWindow(screen, descriptor, capabilities);
         changed |= DrawResolutionPreset(screen, descriptor);
         changed |= DrawCaptureFps(screen, descriptor);
-        changed |= DrawSourceOptions(screen, descriptor);
+        changed |= DrawSourceOptions(screen, descriptor, capabilities);
         return changed;
     }
 
@@ -176,9 +177,12 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         return changed;
     }
 
-    private void DrawBrowserControlWindow(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
+    private void DrawBrowserControlWindow(
+        BrowserScreenProfile screen,
+        BrowserSourceUiDescriptor descriptor,
+        BrowserProviderCapabilities capabilities)
     {
-        if (!renderer.AreBrowserControlsAvailable(screen))
+        if (!capabilities.SupportsBrowserControls || !renderer.AreBrowserControlsAvailable(screen))
             return;
 
         var visible = renderer.AreBrowserControlsVisible(screen);
@@ -235,7 +239,10 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         return changed;
     }
 
-    private static bool DrawSourceOptions(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
+    private static bool DrawSourceOptions(
+        BrowserScreenProfile screen,
+        BrowserSourceUiDescriptor descriptor,
+        BrowserProviderCapabilities capabilities)
     {
         var changed = false;
         var sourceLocked = SourceControlUi.IsSourceControlsLocked(screen);
@@ -249,7 +256,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (descriptor.SupportsLoop)
+        if (capabilities.SupportsLoop)
         {
             var loop = descriptor.GetLoop(screen);
             if (ImGui.Checkbox($"{descriptor.LoopLabel}##{descriptor.ProviderKind}Loop", ref loop))
@@ -259,7 +266,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             }
         }
 
-        if (descriptor.SupportsPlaylistAutoplayNext
+        if (capabilities.SupportsPlaylist
             && descriptor.SourceDescriptor.TryParse(descriptor.GetUrl(screen), out var source)
             && descriptor.ShowPlaylistAutoplayNext(source))
         {
@@ -271,7 +278,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             }
         }
 
-        if (descriptor.SupportsPlaybackRate)
+        if (capabilities.SupportsPlaybackRate)
         {
             var rate = descriptor.GetPlaybackRate(screen);
             if (ImGui.SliderFloat($"Playback rate##{descriptor.ProviderKind}Rate", ref rate, 0.25f, 2.0f))
@@ -312,9 +319,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             InvalidText = "YouTube source: invalid",
             EmptyText = "YouTube source: empty",
             LoopLabel = "Loop YouTube video",
-            SupportsLoop = true,
-            SupportsPlaybackRate = true,
-            SupportsPlaylistAutoplayNext = true,
             RequireDurationForSeek = false,
             GetUrl = screen => screen.YouTubeUrl,
             SetUrl = (screen, value) => screen.YouTubeUrl = value,
@@ -351,9 +355,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             InvalidText = "Twitch source: invalid",
             EmptyText = "Twitch source: empty",
             LoopLabel = string.Empty,
-            SupportsLoop = false,
-            SupportsPlaybackRate = false,
-            SupportsPlaylistAutoplayNext = false,
             RequireDurationForSeek = true,
             GetUrl = screen => screen.TwitchUrl,
             SetUrl = (screen, value) => screen.TwitchUrl = value,
@@ -383,9 +384,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             InvalidText = "Dailymotion source: invalid",
             EmptyText = "Dailymotion source: empty",
             LoopLabel = "Loop Dailymotion video",
-            SupportsLoop = true,
-            SupportsPlaybackRate = false,
-            SupportsPlaylistAutoplayNext = false,
             RequireDurationForSeek = true,
             GetUrl = screen => screen.DailymotionUrl,
             SetUrl = (screen, value) => screen.DailymotionUrl = value,
@@ -417,9 +415,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             InvalidText = "Vimeo source: invalid",
             EmptyText = "Vimeo source: empty",
             LoopLabel = "Loop Vimeo video",
-            SupportsLoop = true,
-            SupportsPlaybackRate = true,
-            SupportsPlaylistAutoplayNext = false,
             RequireDurationForSeek = true,
             GetUrl = screen => screen.VimeoUrl,
             SetUrl = (screen, value) => screen.VimeoUrl = value,
@@ -453,9 +448,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             InvalidText = "Generic Web URL: invalid",
             EmptyText = "Generic Web URL: empty",
             LoopLabel = "Loop media",
-            SupportsLoop = true,
-            SupportsPlaybackRate = true,
-            SupportsPlaylistAutoplayNext = false,
             RequireDurationForSeek = true,
             GetUrl = screen => screen.GenericWebUrl,
             SetUrl = (screen, value) => screen.GenericWebUrl = value,
@@ -494,9 +486,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         public required string InvalidText { get; init; }
         public required string EmptyText { get; init; }
         public required string LoopLabel { get; init; }
-        public required bool SupportsLoop { get; init; }
-        public required bool SupportsPlaybackRate { get; init; }
-        public required bool SupportsPlaylistAutoplayNext { get; init; }
         public required bool RequireDurationForSeek { get; init; }
         public required Func<BrowserScreenProfile, string> GetUrl { get; init; }
         public required Action<BrowserScreenProfile, string> SetUrl { get; init; }

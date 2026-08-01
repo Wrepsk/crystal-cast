@@ -1,20 +1,12 @@
 using System.Numerics;
 using CrystalCast.Rendering;
+using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 
 namespace CrystalCast.Windows;
 
 internal sealed class ScreenListPanel(WorldScreenManager renderer)
 {
-    private static readonly (BrowserSourceProviderKind Kind, string Name)[] SourceProviders =
-    [
-        (BrowserSourceProviderKind.YouTube, "YouTube"),
-        (BrowserSourceProviderKind.Twitch, "Twitch"),
-        (BrowserSourceProviderKind.Dailymotion, "Dailymotion"),
-        (BrowserSourceProviderKind.Vimeo, "Vimeo"),
-        (BrowserSourceProviderKind.GenericWeb, "Generic Web"),
-    ];
-
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
 
@@ -122,13 +114,14 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
 
         if (sourceLocked)
             ImGui.BeginDisabled();
-        if (ImGui.BeginCombo("Screen source", SourceProviders[current].Name))
+        var providers = BrowserSourceProviderRegistry.Options;
+        if (ImGui.BeginCombo("Screen source", providers[current].DisplayName))
         {
-            for (var i = 0; i < SourceProviders.Length; i++)
+            for (var i = 0; i < providers.Count; i++)
             {
-                var provider = SourceProviders[i];
+                var provider = providers[i];
                 var selected = i == current;
-                if (ImGui.Selectable(provider.Name, selected))
+                if (ImGui.Selectable(provider.DisplayName, selected))
                 {
                     activeScreen.ProviderKind = provider.Kind;
                     activeScreen.PlaybackPaused = false;
@@ -210,9 +203,10 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
 
     private static int FindSourceProviderIndex(BrowserSourceProviderKind providerKind)
     {
-        for (var i = 0; i < SourceProviders.Length; i++)
+        var providers = BrowserSourceProviderRegistry.Options;
+        for (var i = 0; i < providers.Count; i++)
         {
-            if (SourceProviders[i].Kind == providerKind)
+            if (providers[i].Kind == providerKind)
                 return i;
         }
 

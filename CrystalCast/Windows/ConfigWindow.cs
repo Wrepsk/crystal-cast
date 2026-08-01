@@ -8,11 +8,11 @@ namespace CrystalCast.Windows;
 
 public sealed class ConfigWindow : Window, IDisposable
 {
-    private static readonly string[] OutputModeNames =
+    private static readonly (ScreenOutputMode Mode, string Name)[] OutputModes =
     [
-        "ImGui overlay",
-        "Native overlay",
-        "Scene composite (Windows only)",
+        (ScreenOutputMode.ImGuiOverlay, "ImGui overlay"),
+        (ScreenOutputMode.NativeOverlay, "Native overlay"),
+        (ScreenOutputMode.SceneComposite, "Scene composite (Windows only)"),
     ];
 
     private static readonly string[] BrowserEngineNames =
@@ -93,21 +93,16 @@ public sealed class ConfigWindow : Window, IDisposable
         var distanceFade = placement.EnableDistanceFade;
         var fadeStart = placement.FadeStartMeters;
         var fadeStop = placement.FadeStopMeters;
-        var outputMode = GetOutputModeIndex(config.OutputMode);
+        var outputMode = FindOutputModeIndex(config.OutputMode);
 
-        if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
+        if (ImGui.BeginCombo("Output layer", OutputModes[outputMode].Name))
         {
-            for (var i = 0; i < OutputModeNames.Length; i++)
+            for (var i = 0; i < OutputModes.Length; i++)
             {
                 var selected = i == outputMode;
-                if (ImGui.Selectable(OutputModeNames[i], selected))
+                if (ImGui.Selectable(OutputModes[i].Name, selected))
                 {
-                    config.OutputMode = i switch
-                    {
-                        1 => Configuration.OutputModeNativeOverlay,
-                        2 => Configuration.OutputModeSceneComposite,
-                        _ => Configuration.OutputModeImGuiOverlay,
-                    };
+                    config.OutputMode = OutputModes[i].Mode;
                     changed = true;
                 }
 
@@ -180,14 +175,15 @@ public sealed class ConfigWindow : Window, IDisposable
         return changed;
     }
 
-    private static int GetOutputModeIndex(int outputMode)
+    private static int FindOutputModeIndex(ScreenOutputMode outputMode)
     {
-        return outputMode switch
+        for (var i = 0; i < OutputModes.Length; i++)
         {
-            Configuration.OutputModeNativeOverlay => 1,
-            Configuration.OutputModeSceneComposite or 3 => 2,
-            _ => 0,
-        };
+            if (OutputModes[i].Mode == outputMode)
+                return i;
+        }
+
+        return 0;
     }
 
     private static bool DrawBrowserMedia(Configuration config)

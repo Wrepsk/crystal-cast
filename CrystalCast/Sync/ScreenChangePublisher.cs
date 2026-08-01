@@ -5,14 +5,29 @@ namespace CrystalCast.Sync;
 internal sealed class ScreenChangePublisher
 {
     private readonly Configuration configuration;
-    private readonly ICallGateProvider<string, object> screenChangedProvider;
+    private readonly Action<string> sendMessage;
+    private readonly string ownerSessionId;
     private readonly Dictionary<string, ScreenChangeFingerprint> localScreenFingerprints = new(StringComparer.Ordinal);
     private readonly HashSet<string> knownLocalScreenIds = new(StringComparer.Ordinal);
 
-    public ScreenChangePublisher(Configuration configuration, ICallGateProvider<string, object> screenChangedProvider)
+    public ScreenChangePublisher(
+        Configuration configuration,
+        ICallGateProvider<string, object> screenChangedProvider,
+        string ownerSessionId)
     {
         this.configuration = configuration;
-        this.screenChangedProvider = screenChangedProvider;
+        sendMessage = screenChangedProvider.SendMessage;
+        this.ownerSessionId = ownerSessionId;
+    }
+
+    internal ScreenChangePublisher(
+        Configuration configuration,
+        string ownerSessionId,
+        Action<string> sendMessage)
+    {
+        this.configuration = configuration;
+        this.ownerSessionId = ownerSessionId;
+        this.sendMessage = sendMessage;
     }
 
     public void Clear()
@@ -21,8 +36,9 @@ internal sealed class ScreenChangePublisher
         knownLocalScreenIds.Clear();
     }
 
-    public void Remove(string screenId)
+    public void SendUnavailableAndForget(string screenId, BrowserScreenProfile? screen = null)
     {
+        SendScreenUnavailable(screenId, screen ?? FindBrowserScreen(screenId));
         localScreenFingerprints.Remove(screenId);
         knownLocalScreenIds.Remove(screenId);
     }
@@ -63,10 +79,7 @@ internal sealed class ScreenChangePublisher
     {
         foreach (var screenId in knownLocalScreenIds.Except(currentScreenIds, StringComparer.Ordinal).ToList())
         {
-            var screen = FindBrowserScreen(screenId);
-            SendScreenUnavailable(screenId, screen);
-            localScreenFingerprints.Remove(screenId);
-            knownLocalScreenIds.Remove(screenId);
+            SendUnavailableAndForget(screenId);
         }
     }
 
@@ -129,7 +142,7 @@ internal sealed class ScreenChangePublisher
         var evt = new ScreenIpcChangeEvent
         {
             ScreenId = state.ScreenId,
-            OwnerSessionId = configuration.OwnerSessionId,
+            OwnerSessionId = ownerSessionId,
             CreatedByIpc = screen?.CreatedByIpc ?? false,
             OwnerId = screen?.IpcOwnerId ?? string.Empty,
             SourceControlsLocked = screen?.SourceControlsLocked ?? false,
@@ -138,7 +151,7 @@ internal sealed class ScreenChangePublisher
             State = state,
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
-        screenChangedProvider.SendMessage(IpcJsonService.Serialize(evt));
+        sendMessage(IpcJsonService.Serialize(evt));
     }
 
     private void SendScreenUnavailable(string screenId, BrowserScreenProfile? screen)
@@ -146,16 +159,16 @@ internal sealed class ScreenChangePublisher
         var evt = new ScreenIpcChangeEvent
         {
             ScreenId = screenId,
-            OwnerSessionId = configuration.OwnerSessionId,
+            OwnerSessionId = ownerSessionId,
             CreatedByIpc = screen?.CreatedByIpc ?? false,
             OwnerId = screen?.IpcOwnerId ?? string.Empty,
             SourceControlsLocked = screen?.SourceControlsLocked ?? false,
             SourceControlsOwnerId = screen?.SourceControlsOwnerId ?? string.Empty,
-            Changes = [ScreenIpcChangeKind.Source],
+            Changes = [ScreenIpcChangeKind.Unavailable],
             State = null,
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
-        screenChangedProvider.SendMessage(IpcJsonService.Serialize(evt));
+        sendMessage(IpcJsonService.Serialize(evt));
     }
 
     private static ScreenChangeFingerprint BuildFingerprint(ScreenStateEnvelope state, BrowserScreenProfile? screen)

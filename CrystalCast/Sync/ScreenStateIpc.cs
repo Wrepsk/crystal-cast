@@ -1,19 +1,23 @@
 using CrystalCast.Rendering;
 using Dalamud.Plugin.Ipc;
+using System.Text;
 
 namespace CrystalCast.Sync;
 
 public sealed class ScreenStateIpc : IDisposable
 {
-    public const int ApiVersion = 6;
+    public const int ApiVersion = 7;
+    private const int MaxStatePayloadBytes = 64 * 1024;
 
     private readonly Configuration configuration;
+    private readonly string ownerSessionId;
     private readonly ScreenStateBuilder stateBuilder;
     private readonly ScreenChangePublisher changePublisher;
     private readonly ScreenIpcMutationService mutationService;
     private readonly ICallGateProvider<int> apiVersionProvider;
     private readonly ICallGateProvider<string> snapshotProvider;
     private readonly ICallGateProvider<string, bool> applyStateProvider;
+    private readonly ICallGateProvider<string, string> applyStateDetailedProvider;
     private readonly ICallGateProvider<string, bool> removeProvider;
     private readonly ICallGateProvider<string, object> localStateChangedProvider;
     private readonly ICallGateProvider<string, string> createScreenProvider;
@@ -21,21 +25,23 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, string> updateSourceProvider;
     private readonly ICallGateProvider<string, string> sourceLockProvider;
     private readonly ICallGateProvider<string, string> sourceStateProvider;
-    private readonly Dictionary<string, ScreenStateEnvelope> remoteScreens = new();
+    private readonly RemoteScreenStateStore remoteScreens = new();
     private bool registered;
 
     public ScreenStateIpc(Configuration configuration, WorldScreenManager renderer)
     {
         this.configuration = configuration;
-        stateBuilder = new ScreenStateBuilder(configuration, renderer);
+        ownerSessionId = Guid.NewGuid().ToString("N");
+        stateBuilder = new ScreenStateBuilder(configuration, renderer, ownerSessionId);
 
         apiVersionProvider = Plugin.PluginInterface.GetIpcProvider<int>("CrystalCast.ApiVersion");
         snapshotProvider = Plugin.PluginInterface.GetIpcProvider<string>("CrystalCast.Screen.GetSnapshot");
         applyStateProvider = Plugin.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.ApplyState");
+        applyStateDetailedProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.ApplyStateDetailed");
         removeProvider = Plugin.PluginInterface.GetIpcProvider<string, bool>("CrystalCast.Screen.Remove");
         localStateChangedProvider = Plugin.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.LocalStateChanged");
         var screenChangedProvider = Plugin.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.Changed");
-        changePublisher = new ScreenChangePublisher(configuration, screenChangedProvider);
+        changePublisher = new ScreenChangePublisher(configuration, screenChangedProvider, ownerSessionId);
         mutationService = new ScreenIpcMutationService(configuration, renderer, stateBuilder, changePublisher, PublishLocalState);
         createScreenProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Create");
         updateScreenProvider = Plugin.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Update");
@@ -46,7 +52,7 @@ public sealed class ScreenStateIpc : IDisposable
         UpdateRegistration();
     }
 
-    public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.Values;
+    public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.GetSnapshot();
 
     public bool Enabled => configuration.IpcEnabled;
 
@@ -87,6 +93,7 @@ public sealed class ScreenStateIpc : IDisposable
         apiVersionProvider.RegisterFunc(() => ApiVersion);
         snapshotProvider.RegisterFunc(GetSnapshotJson);
         applyStateProvider.RegisterFunc(ApplyStateJson);
+        applyStateDetailedProvider.RegisterFunc(ApplyStateDetailedJson);
         removeProvider.RegisterFunc(Remove);
         createScreenProvider.RegisterFunc(mutationService.CreateScreenJson);
         updateScreenProvider.RegisterFunc(mutationService.UpdateScreenJson);
@@ -104,6 +111,7 @@ public sealed class ScreenStateIpc : IDisposable
         apiVersionProvider.UnregisterFunc();
         snapshotProvider.UnregisterFunc();
         applyStateProvider.UnregisterFunc();
+        applyStateDetailedProvider.UnregisterFunc();
         removeProvider.UnregisterFunc();
         createScreenProvider.UnregisterFunc();
         updateScreenProvider.UnregisterFunc();
@@ -136,16 +144,17 @@ public sealed class ScreenStateIpc : IDisposable
     private string PublishLocalState(string? changedScreenId, IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)
     {
         configuration.Normalize();
-        configuration.Save();
         UpdateRegistration();
         if (!configuration.IpcEnabled)
+        {
+            configuration.Save();
             return string.Empty;
+        }
 
         var states = new List<ScreenStateEnvelope>();
         if (configuration.Enabled)
         {
-            var screensToPublish = configuration.BrowserScreens
-                .Take(Configuration.MaxRenderableBrowserScreens)
+            var screensToPublish = ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens)
                 .Where(screen => screen.Enabled)
                 .ToArray();
 
@@ -158,6 +167,8 @@ public sealed class ScreenStateIpc : IDisposable
                 states.Add(stateBuilder.BuildBrowserScreenState(screen, resolved));
             }
         }
+
+        configuration.Save();
 
         var publishedScreenIds = states.Select(state => state.ScreenId).ToHashSet(StringComparer.Ordinal);
         changePublisher.RememberKnownLocalScreens(publishedScreenIds);
@@ -213,36 +224,72 @@ public sealed class ScreenStateIpc : IDisposable
             apiVersion = ApiVersion,
             local = localStates.FirstOrDefault(),
             localScreens = localStates,
-            remote = remoteScreens.Values.OrderBy(screen => screen.ScreenId).ToArray(),
+            remote = remoteScreens.GetSnapshot()
+                .OrderBy(screen => screen.OwnerSessionId)
+                .ThenBy(screen => screen.ScreenId)
+                .ToArray(),
         };
         return IpcJsonService.Serialize(snapshot);
     }
 
     private bool ApplyStateJson(string json)
     {
+        return ApplyState(json).Success;
+    }
+
+    private string ApplyStateDetailedJson(string json)
+    {
+        return IpcJsonService.Serialize(ApplyState(json));
+    }
+
+    private ScreenIpcApplyStateResponse ApplyState(string json)
+    {
         try
         {
-            var state = IpcJsonService.Deserialize<ScreenStateEnvelope>(json);
-            remoteScreens.TryGetValue(state?.ScreenId ?? string.Empty, out var existing);
-            return RemoteScreenStateAcceptance.Evaluate(state, configuration.OwnerSessionId, existing) switch
+            if (string.IsNullOrWhiteSpace(json)
+                || json.Length > MaxStatePayloadBytes
+                || Encoding.UTF8.GetByteCount(json) > MaxStatePayloadBytes)
             {
-                RemoteScreenStateDecision.Reject => false,
-                RemoteScreenStateDecision.IgnoreSelf or RemoteScreenStateDecision.IgnoreStale => true,
-                RemoteScreenStateDecision.Accept => StoreRemoteState(state!),
-                _ => false,
+                return new ScreenIpcApplyStateResponse
+                {
+                    Success = false,
+                    Result = ScreenIpcApplyStateResult.RejectedInvalid,
+                    Error = $"State payload must be at most {MaxStatePayloadBytes} UTF-8 bytes.",
+                };
+            }
+
+            var state = IpcJsonService.Deserialize<ScreenStateEnvelope>(json);
+            var result = remoteScreens.Apply(state, ownerSessionId, out var error);
+            return new ScreenIpcApplyStateResponse
+            {
+                Success = result is RemoteScreenApplyResult.Applied
+                    or RemoteScreenApplyResult.IgnoredSelf
+                    or RemoteScreenApplyResult.IgnoredDuplicate
+                    or RemoteScreenApplyResult.IgnoredStale,
+                Result = result switch
+                {
+                    RemoteScreenApplyResult.Applied => ScreenIpcApplyStateResult.Applied,
+                    RemoteScreenApplyResult.IgnoredSelf => ScreenIpcApplyStateResult.IgnoredSelf,
+                    RemoteScreenApplyResult.IgnoredDuplicate => ScreenIpcApplyStateResult.IgnoredDuplicate,
+                    RemoteScreenApplyResult.IgnoredStale => ScreenIpcApplyStateResult.IgnoredStale,
+                    RemoteScreenApplyResult.RejectedCapacity => ScreenIpcApplyStateResult.RejectedCapacity,
+                    _ => ScreenIpcApplyStateResult.RejectedInvalid,
+                },
+                Error = error,
+                ScreenId = state?.ScreenId ?? string.Empty,
+                OwnerSessionId = state?.OwnerSessionId ?? string.Empty,
             };
         }
         catch (Exception ex)
         {
             Plugin.Log.Warning(ex, "Failed to apply CrystalCast screen state IPC payload.");
-            return false;
+            return new ScreenIpcApplyStateResponse
+            {
+                Success = false,
+                Result = ScreenIpcApplyStateResult.RejectedInvalid,
+                Error = "State payload is not valid JSON.",
+            };
         }
-    }
-
-    private bool StoreRemoteState(ScreenStateEnvelope state)
-    {
-        remoteScreens[state.ScreenId] = state;
-        return true;
     }
 
     private bool Remove(string screenId)
@@ -251,10 +298,10 @@ public sealed class ScreenStateIpc : IDisposable
         if (string.IsNullOrWhiteSpace(screenId))
             return false;
 
-        if (remoteScreens.Remove(screenId))
+        if (mutationService.Remove(screenId))
             return true;
 
-        return mutationService.Remove(screenId);
+        return remoteScreens.RemoveByScreenId(screenId);
     }
 
     private BrowserScreenProfile? FindBrowserScreen(string screenId)

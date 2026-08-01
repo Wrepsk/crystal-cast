@@ -38,7 +38,7 @@ internal sealed class ScreenIpcMutationService
         configuration.BrowserScreens.Remove(screen);
         configuration.Normalize();
         configuration.Save();
-        changePublisher.Remove(screenId);
+        changePublisher.SendUnavailableAndForget(screenId, screen);
         return true;
     }
 
@@ -74,17 +74,17 @@ internal sealed class ScreenIpcMutationService
             if (request.SourceControlsLocked == true && string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId))
                 screen.SourceControlsOwnerId = screen.IpcOwnerId;
 
-            if (!ScreenPatchApplier.ApplyScreenMutation(screen, request, out var error))
+            if (!ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var createdScreen, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
-            configuration.BrowserScreens.Add(screen);
+            configuration.BrowserScreens.Add(createdScreen);
             if (request.Activate)
-                configuration.ActiveBrowserScreenId = screen.ScreenId;
+                configuration.ActiveBrowserScreenId = createdScreen.ScreenId;
 
             configuration.Normalize();
             configuration.Save();
-            publishLocalState(screen.ScreenId, ScreenChangePublisher.GetCreateChangeKinds());
-            return IpcJsonService.SerializeMutationSuccess(screen, created: true);
+            publishLocalState(createdScreen.ScreenId, ScreenChangePublisher.GetCreateChangeKinds());
+            return IpcJsonService.SerializeMutationSuccess(createdScreen, created: true);
         }
         catch (Exception ex)
         {
@@ -107,17 +107,18 @@ internal sealed class ScreenIpcMutationService
             if (screen == null)
                 return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
 
-            if (!ScreenPatchApplier.ApplyScreenMutation(screen, request, out var error))
+            if (!ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updatedScreen, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
+            ReplaceBrowserScreen(screen, updatedScreen);
             if (request.Activate)
-                configuration.ActiveBrowserScreenId = screen.ScreenId;
+                configuration.ActiveBrowserScreenId = updatedScreen.ScreenId;
 
             configuration.Normalize();
             configuration.Save();
-            ApplyRuntimeControls(screen, request);
-            publishLocalState(screen.ScreenId, ScreenChangePublisher.GetMutationChangeKinds(request));
-            return IpcJsonService.SerializeMutationSuccess(screen, created: false);
+            ApplyRuntimeControls(updatedScreen, request);
+            publishLocalState(updatedScreen.ScreenId, ScreenChangePublisher.GetMutationChangeKinds(request));
+            return IpcJsonService.SerializeMutationSuccess(updatedScreen, created: false);
         }
         catch (Exception ex)
         {
@@ -167,22 +168,18 @@ internal sealed class ScreenIpcMutationService
             if (screen == null)
                 return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
 
-            if (request.Provider is { } provider && !ScreenPatchApplier.IsSupportedBrowserProvider(provider))
-                return IpcJsonService.SerializeMutationError($"Unsupported browser source provider '{provider}'.", screen.ScreenId);
-
-            var providerKind = ScreenPatchApplier.ResolveRequestedProvider(screen, request.Provider, request);
-            screen.ProviderKind = providerKind;
-            if (!ScreenPatchApplier.ApplyProviderPatch(screen, providerKind, request, out var error))
+            if (!ScreenPatchApplier.TryApplySourceMutation(screen, request, out var updatedScreen, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
+            ReplaceBrowserScreen(screen, updatedScreen);
             if (request.Activate)
-                configuration.ActiveBrowserScreenId = screen.ScreenId;
+                configuration.ActiveBrowserScreenId = updatedScreen.ScreenId;
 
             configuration.Normalize();
             configuration.Save();
-            ApplyRuntimeControls(screen, request);
-            publishLocalState(screen.ScreenId, ScreenChangePublisher.GetSourceUpdateChangeKinds(request));
-            return IpcJsonService.SerializeMutationSuccess(screen, created: false);
+            ApplyRuntimeControls(updatedScreen, request);
+            publishLocalState(updatedScreen.ScreenId, ScreenChangePublisher.GetSourceUpdateChangeKinds(request));
+            return IpcJsonService.SerializeMutationSuccess(updatedScreen, created: false);
         }
         catch (Exception ex)
         {
@@ -239,6 +236,15 @@ internal sealed class ScreenIpcMutationService
             return null;
 
         return configuration.BrowserScreens.FirstOrDefault(screen => string.Equals(screen.ScreenId, screenId, StringComparison.Ordinal));
+    }
+
+    private void ReplaceBrowserScreen(BrowserScreenProfile current, BrowserScreenProfile updated)
+    {
+        var index = configuration.BrowserScreens.IndexOf(current);
+        if (index < 0)
+            throw new InvalidOperationException($"Screen '{current.ScreenId}' is no longer part of the configuration.");
+
+        configuration.BrowserScreens[index] = updated;
     }
 
     private string GetNextIpcScreenName()

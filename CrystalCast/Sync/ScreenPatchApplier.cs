@@ -2,7 +2,48 @@ namespace CrystalCast.Sync;
 
 internal static class ScreenPatchApplier
 {
-    public static bool ApplyScreenMutation(
+    public static bool TryApplyScreenMutation(
+        BrowserScreenProfile current,
+        ScreenIpcMutationRequest request,
+        out BrowserScreenProfile updated,
+        out string error)
+    {
+        updated = current.Clone();
+        if (!ApplyScreenMutationInPlace(updated, request, out error))
+        {
+            updated = current;
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool TryApplySourceMutation(
+        BrowserScreenProfile current,
+        ScreenIpcSourceUpdateRequest request,
+        out BrowserScreenProfile updated,
+        out string error)
+    {
+        updated = current.Clone();
+        if (request.Provider is { } provider && !IsSupportedBrowserProvider(provider))
+        {
+            error = $"Unsupported browser source provider '{provider}'.";
+            updated = current;
+            return false;
+        }
+
+        var providerKind = ResolveRequestedProvider(updated, request.Provider, request);
+        updated.ProviderKind = providerKind;
+        if (!ApplyProviderPatch(updated, providerKind, request, out error))
+        {
+            updated = current;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ApplyScreenMutationInPlace(
         BrowserScreenProfile screen,
         ScreenIpcMutationRequest request,
         out string error)

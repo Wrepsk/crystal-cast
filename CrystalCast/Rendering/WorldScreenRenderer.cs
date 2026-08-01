@@ -209,8 +209,7 @@ public sealed class WorldScreenManager : IDisposable
 
     private void DrawBrowserScreens()
     {
-        var screens = configuration.BrowserScreens
-            .Take(Configuration.MaxRenderableBrowserScreens)
+        var screens = ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens)
             .Where(screen => screen.Enabled)
             .Select(screen => browserScreens[screen.ScreenId]);
 
@@ -269,12 +268,12 @@ public sealed class WorldScreenManager : IDisposable
     private void SyncBrowserScreens()
     {
         configuration.Normalize();
-        var activeIds = configuration.BrowserScreens
-            .Take(Configuration.MaxRenderableBrowserScreens)
+        var allowedScreens = ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens);
+        var activeIds = allowedScreens
             .Select(screen => screen.ScreenId)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxRenderableBrowserScreens))
+        foreach (var screen in allowedScreens)
         {
             if (!browserScreens.ContainsKey(screen.ScreenId))
                 browserScreens[screen.ScreenId] = new WorldScreenInstance(configuration, screen);
@@ -289,7 +288,7 @@ public sealed class WorldScreenManager : IDisposable
             browserScreens.Remove(screenId);
         }
 
-        foreach (var screen in configuration.BrowserScreens.Take(Configuration.MaxRenderableBrowserScreens).Where(screen => !screen.Enabled))
+        foreach (var screen in allowedScreens.Where(screen => !screen.Enabled))
         {
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
                 instance.Stop();

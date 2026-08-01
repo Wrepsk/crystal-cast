@@ -20,7 +20,6 @@ public class Configuration : IPluginConfiguration
     public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.Browser;
 
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
-    public string OwnerSessionId { get; set; } = Guid.NewGuid().ToString("N");
     public long LocalSequence { get; set; }
     public bool IpcEnabled { get; set; } = true;
 
@@ -84,12 +83,6 @@ public class Configuration : IPluginConfiguration
             changed = true;
         }
 
-        if (string.IsNullOrWhiteSpace(OwnerSessionId))
-        {
-            OwnerSessionId = Guid.NewGuid().ToString("N");
-            changed = true;
-        }
-
         if (SourceKind != ScreenSourceKind.Browser)
         {
             SourceKind = ScreenSourceKind.Browser;
@@ -122,6 +115,8 @@ public class Configuration : IPluginConfiguration
         var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < BrowserScreens.Count; i++)
             changed |= BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);
+
+        changed |= ScreenLimitPolicy.DisableScreensOutsideLimits(BrowserScreens);
 
         if (migratingFromLocalVideo)
         {
@@ -646,6 +641,18 @@ public sealed class BrowserScreenProfile
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,
         };
+    }
+
+    public BrowserScreenProfile Clone()
+    {
+        var clone = CloneAsNew(Name);
+        clone.ScreenId = ScreenId;
+        clone.CreatedByIpc = CreatedByIpc;
+        clone.IpcOwnerId = IpcOwnerId;
+        clone.SourceControlsLocked = SourceControlsLocked;
+        clone.SourceControlsOwnerId = SourceControlsOwnerId;
+        clone.LocalSequence = LocalSequence;
+        return clone;
     }
 }
 

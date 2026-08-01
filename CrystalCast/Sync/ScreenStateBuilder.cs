@@ -6,18 +6,20 @@ internal sealed class ScreenStateBuilder
 {
     private readonly Configuration configuration;
     private readonly WorldScreenManager renderer;
+    private readonly string ownerSessionId;
 
-    public ScreenStateBuilder(Configuration configuration, WorldScreenManager renderer)
+    public ScreenStateBuilder(Configuration configuration, WorldScreenManager renderer, string ownerSessionId)
     {
         this.configuration = configuration;
         this.renderer = renderer;
+        this.ownerSessionId = ownerSessionId;
     }
 
     public ScreenStateEnvelope BuildLocalState()
     {
         return BuildLocalStates().FirstOrDefault() ?? new ScreenStateEnvelope
         {
-            OwnerSessionId = configuration.OwnerSessionId,
+            OwnerSessionId = ownerSessionId,
             TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
         };
     }
@@ -28,8 +30,7 @@ internal sealed class ScreenStateBuilder
         if (!configuration.Enabled)
             return [];
 
-        var enabledScreens = configuration.BrowserScreens
-            .Take(Configuration.MaxRenderableBrowserScreens)
+        var enabledScreens = ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens)
             .Where(screen => screen.Enabled)
             .ToArray();
 
@@ -67,7 +68,7 @@ internal sealed class ScreenStateBuilder
         {
             SchemaVersion = 1,
             ScreenId = screen.ScreenId,
-            OwnerSessionId = configuration.OwnerSessionId,
+            OwnerSessionId = ownerSessionId,
             TerritoryId = (ushort)Plugin.ClientState.TerritoryType,
             Position = Vector3Dto.FromVector3(resolved.Position),
             Rotation = QuaternionDto.FromQuaternion(System.Numerics.Quaternion.Normalize(rotation)),

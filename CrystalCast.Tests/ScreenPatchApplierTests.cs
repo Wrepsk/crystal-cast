@@ -26,16 +26,17 @@ public sealed class ScreenPatchApplierTests
             },
         };
 
-        var applied = ScreenPatchApplier.ApplyScreenMutation(screen, request, out var error);
+        var applied = ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updated, out var error);
 
         Assert.True(applied, error);
-        Assert.Equal("Living Room", screen.Name);
-        Assert.Equal("integration", screen.IpcOwnerId);
-        Assert.Equal(2.5f, screen.Placement.PositionX);
-        Assert.Equal(4.0f, screen.Placement.WidthMeters);
-        Assert.Equal("https://youtu.be/dQw4w9WgXcQ", screen.YouTubeUrl);
-        Assert.True(screen.YouTubeAudioEnabled);
-        Assert.Equal(0.4f, screen.YouTubeVolume);
+        Assert.Equal("Living Room", updated.Name);
+        Assert.Equal("integration", updated.IpcOwnerId);
+        Assert.Equal(2.5f, updated.Placement.PositionX);
+        Assert.Equal(4.0f, updated.Placement.WidthMeters);
+        Assert.Equal("https://youtu.be/dQw4w9WgXcQ", updated.YouTubeUrl);
+        Assert.True(updated.YouTubeAudioEnabled);
+        Assert.Equal(0.4f, updated.YouTubeVolume);
+        Assert.Equal("Browser screen", screen.Name);
     }
 
     [Fact]
@@ -48,14 +49,14 @@ public sealed class ScreenPatchApplierTests
             Provider = (BrowserSourceProviderKind)999,
         };
 
-        var applied = ScreenPatchApplier.ApplyScreenMutation(screen, request, out var error);
+        var applied = ScreenPatchApplier.TryApplyScreenMutation(screen, request, out _, out var error);
 
         Assert.False(applied);
         Assert.Contains("Unsupported", error, StringComparison.Ordinal);
         Assert.Equal("Original", screen.Name);
     }
 
-    [Fact(Skip = "Phase 3 will make screen mutations transactional before enabling this regression assertion.")]
+    [Fact]
     public void InvalidProviderUrlDoesNotPartiallyMutateScreen()
     {
         var screen = new BrowserScreenProfile { Name = "Original" };
@@ -66,7 +67,7 @@ public sealed class ScreenPatchApplierTests
             YouTube = new YouTubeScreenPatchDto { Url = "not a youtube source" },
         };
 
-        Assert.False(ScreenPatchApplier.ApplyScreenMutation(screen, request, out _));
+        Assert.False(ScreenPatchApplier.TryApplyScreenMutation(screen, request, out _, out _));
         Assert.Equal("Original", screen.Name);
     }
 }

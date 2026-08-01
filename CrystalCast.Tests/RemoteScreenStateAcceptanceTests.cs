@@ -20,13 +20,20 @@ public sealed class RemoteScreenStateAcceptanceTests
         Assert.Equal(RemoteScreenStateDecision.IgnoreSelf, RemoteScreenStateAcceptance.Evaluate(candidate, "local", null));
     }
 
-    [Theory]
-    [InlineData(9)]
-    [InlineData(10)]
-    public void IgnoresLowerOrEqualSequence(long candidateSequence)
+    [Fact]
+    public void IgnoresDuplicateSequence()
     {
         var existing = new ScreenStateEnvelope { ScreenId = "screen", OwnerSessionId = "remote", Sequence = 10 };
-        var candidate = new ScreenStateEnvelope { ScreenId = "screen", OwnerSessionId = "remote", Sequence = candidateSequence };
+        var candidate = new ScreenStateEnvelope { ScreenId = "screen", OwnerSessionId = "remote", Sequence = 10 };
+
+        Assert.Equal(RemoteScreenStateDecision.IgnoreDuplicate, RemoteScreenStateAcceptance.Evaluate(candidate, "local", existing));
+    }
+
+    [Fact]
+    public void IgnoresLowerSequenceAsStale()
+    {
+        var existing = new ScreenStateEnvelope { ScreenId = "screen", OwnerSessionId = "remote", Sequence = 10 };
+        var candidate = new ScreenStateEnvelope { ScreenId = "screen", OwnerSessionId = "remote", Sequence = 9 };
 
         Assert.Equal(RemoteScreenStateDecision.IgnoreStale, RemoteScreenStateAcceptance.Evaluate(candidate, "local", existing));
     }

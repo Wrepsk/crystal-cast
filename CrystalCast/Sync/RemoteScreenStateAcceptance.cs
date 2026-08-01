@@ -4,6 +4,7 @@ internal enum RemoteScreenStateDecision
 {
     Reject,
     IgnoreSelf,
+    IgnoreDuplicate,
     IgnoreStale,
     Accept,
 }
@@ -21,7 +22,10 @@ internal static class RemoteScreenStateAcceptance
         if (candidate.OwnerSessionId == localOwnerSessionId)
             return RemoteScreenStateDecision.IgnoreSelf;
 
-        if (existing != null && existing.Sequence >= candidate.Sequence)
+        if (existing != null && existing.Sequence == candidate.Sequence)
+            return RemoteScreenStateDecision.IgnoreDuplicate;
+
+        if (existing != null && existing.Sequence > candidate.Sequence)
             return RemoteScreenStateDecision.IgnoreStale;
 
         return RemoteScreenStateDecision.Accept;

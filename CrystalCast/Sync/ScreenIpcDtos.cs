@@ -294,6 +294,26 @@ public enum ScreenIpcChangeKind
     Playback = 4,
     Visual = 5,
     SourceLock = 6,
+    Unavailable = 7,
+}
+
+public enum ScreenIpcApplyStateResult
+{
+    Applied = 1,
+    IgnoredSelf = 2,
+    IgnoredDuplicate = 3,
+    IgnoredStale = 4,
+    RejectedInvalid = 5,
+    RejectedCapacity = 6,
+}
+
+public sealed class ScreenIpcApplyStateResponse
+{
+    public bool Success { get; set; }
+    public ScreenIpcApplyStateResult Result { get; set; }
+    public string Error { get; set; } = string.Empty;
+    public string ScreenId { get; set; } = string.Empty;
+    public string OwnerSessionId { get; set; } = string.Empty;
 }
 
 public sealed class ScreenIpcChangeEvent

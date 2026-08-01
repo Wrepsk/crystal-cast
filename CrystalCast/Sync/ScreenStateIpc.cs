@@ -223,23 +223,26 @@ public sealed class ScreenStateIpc : IDisposable
         try
         {
             var state = IpcJsonService.Deserialize<ScreenStateEnvelope>(json);
-            if (state == null || state.SchemaVersion != 1 || string.IsNullOrWhiteSpace(state.ScreenId))
-                return false;
-
-            if (state.OwnerSessionId == configuration.OwnerSessionId)
-                return true;
-
-            if (remoteScreens.TryGetValue(state.ScreenId, out var existing) && existing.Sequence >= state.Sequence)
-                return true;
-
-            remoteScreens[state.ScreenId] = state;
-            return true;
+            remoteScreens.TryGetValue(state?.ScreenId ?? string.Empty, out var existing);
+            return RemoteScreenStateAcceptance.Evaluate(state, configuration.OwnerSessionId, existing) switch
+            {
+                RemoteScreenStateDecision.Reject => false,
+                RemoteScreenStateDecision.IgnoreSelf or RemoteScreenStateDecision.IgnoreStale => true,
+                RemoteScreenStateDecision.Accept => StoreRemoteState(state!),
+                _ => false,
+            };
         }
         catch (Exception ex)
         {
             Plugin.Log.Warning(ex, "Failed to apply CrystalCast screen state IPC payload.");
             return false;
         }
+    }
+
+    private bool StoreRemoteState(ScreenStateEnvelope state)
+    {
+        remoteScreens[state.ScreenId] = state;
+        return true;
     }
 
     private bool Remove(string screenId)

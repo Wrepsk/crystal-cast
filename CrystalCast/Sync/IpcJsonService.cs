@@ -9,7 +9,7 @@ internal static class IpcJsonService
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new ScreenSourceKindJsonConverter(), new JsonStringEnumConverter() },
     };
 
     public static T? Deserialize<T>(string json)

@@ -26,6 +26,9 @@ public static partial class TwitchVideoId
         if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
             return false;
 
+        if (uri.Scheme is not ("http" or "https"))
+            return false;
+
         var host = uri.Host.ToLowerInvariant();
         if (host is "clips.twitch.tv" || host.EndsWith(".clips.twitch.tv", StringComparison.OrdinalIgnoreCase))
             return false;

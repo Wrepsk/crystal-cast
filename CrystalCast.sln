@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrystalCast", "CrystalCast\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pictomancy", "ThirdParty\ffxiv_pictomancy\Pictomancy\Pictomancy.csproj", "{4FEC9558-EB25-419F-B86E-51B8CFDA32B7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrystalCast.Tests", "CrystalCast.Tests\CrystalCast.Tests.csproj", "{1D455C2A-550A-41BC-8F19-BF9FB7B40DBA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{4FEC9558-EB25-419F-B86E-51B8CFDA32B7}.Debug|x64.Build.0 = Debug|x64
 		{4FEC9558-EB25-419F-B86E-51B8CFDA32B7}.Release|x64.ActiveCfg = Release|x64
 		{4FEC9558-EB25-419F-B86E-51B8CFDA32B7}.Release|x64.Build.0 = Release|x64
+		{1D455C2A-550A-41BC-8F19-BF9FB7B40DBA}.Debug|x64.ActiveCfg = Debug|x64
+		{1D455C2A-550A-41BC-8F19-BF9FB7B40DBA}.Debug|x64.Build.0 = Debug|x64
+		{1D455C2A-550A-41BC-8F19-BF9FB7B40DBA}.Release|x64.ActiveCfg = Release|x64
+		{1D455C2A-550A-41BC-8F19-BF9FB7B40DBA}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -22,8 +22,8 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
     {
         var changed = false;
         var activeIndex = Math.Max(0, config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId));
-        var userScreenCount = CountUserBrowserScreens(config);
-        var canAddUserScreen = userScreenCount < Configuration.MaxBrowserScreens;
+        var userScreenCount = ScreenLimitPolicy.CountUserScreens(config.BrowserScreens);
+        var canAddUserScreen = ScreenLimitPolicy.CanCreateUserScreen(config.BrowserScreens);
 
         if (ImGui.BeginCombo("Screen", activeScreen.Name))
         {
@@ -171,11 +171,6 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             renamingScreenId = string.Empty;
 
         return changed;
-    }
-
-    private static int CountUserBrowserScreens(Configuration config)
-    {
-        return config.BrowserScreens.Count(screen => !screen.CreatedByIpc);
     }
 
     private static string GetNextScreenName(Configuration config)

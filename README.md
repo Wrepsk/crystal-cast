@@ -22,6 +22,16 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 3. Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud dev plugin.
 
+## Tests
+
+The browser-only model, migration, provider URL parsers, source-kind compatibility, screen limits, IPC patching, remote-state sequencing, and browser factory mapping are covered by the xUnit test project:
+
+```powershell
+dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
+```
+
+The tests use an injected browser-frame-source factory and do not start CEF, WebView2, Windows Graphics Capture, or D3D resources.
+
 ## Usage
 
 Open the controls with `/crystalcast`.

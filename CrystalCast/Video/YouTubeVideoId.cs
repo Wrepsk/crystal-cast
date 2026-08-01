@@ -32,9 +32,14 @@ public static partial class YouTubeVideoId
         if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
             return false;
 
+        if (uri.Scheme is not ("http" or "https"))
+            return false;
+
         var host = uri.Host.ToLowerInvariant();
-        if (!host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase)
-            && !host.EndsWith("youtube-nocookie.com", StringComparison.OrdinalIgnoreCase)
+        if (host is not "youtube.com" and not "www.youtube.com"
+            && !host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase)
+            && host is not "youtube-nocookie.com" and not "www.youtube-nocookie.com"
+            && !host.EndsWith(".youtube-nocookie.com", StringComparison.OrdinalIgnoreCase)
             && host is not "youtu.be" and not "www.youtu.be")
         {
             return false;

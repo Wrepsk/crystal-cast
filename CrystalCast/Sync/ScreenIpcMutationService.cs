@@ -51,8 +51,8 @@ internal sealed class ScreenIpcMutationService
                 return IpcJsonService.SerializeMutationError("Request body is empty.");
 
             configuration.Normalize();
-            if (configuration.BrowserScreens.Count >= Configuration.MaxRenderableBrowserScreens)
-                return IpcJsonService.SerializeMutationError($"CrystalCast can render at most {Configuration.MaxRenderableBrowserScreens} browser screens.");
+            if (!ScreenLimitPolicy.CanCreateIpcScreen(configuration.BrowserScreens))
+                return IpcJsonService.SerializeMutationError($"CrystalCast can create at most {Configuration.MaxIpcBrowserScreens} IPC browser screens and {Configuration.MaxRenderableBrowserScreens} browser screens in total.");
 
             var requestedScreenId = IpcJsonService.NormalizeText(request.ScreenId);
             if (!string.IsNullOrWhiteSpace(requestedScreenId) && FindBrowserScreen(requestedScreenId) != null)

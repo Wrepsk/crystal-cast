@@ -21,7 +21,6 @@ public sealed class ScreenStateEnvelope
 
 public sealed class ScreenSourceState
 {
-    [JsonConverter(typeof(JsonStringEnumConverter))]
     public ScreenSourceKind Kind { get; set; }
 
     public string Provider { get; set; } = string.Empty;

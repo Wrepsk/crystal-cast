@@ -19,8 +19,16 @@ internal static class BrowserSourceProviderRegistry
 
     public static IVideoFrameSource? CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
     {
+        return CreateFrameSource(screen, enginePreference, BrowserFrameSourceFactory.Instance);
+    }
+
+    internal static IVideoFrameSource? CreateFrameSource(
+        BrowserScreenProfile screen,
+        BrowserMediaEngine enginePreference,
+        IBrowserFrameSourceFactory factory)
+    {
         return Providers.TryGetValue(screen.ProviderKind, out var provider)
-            ? provider.CreateFrameSource(screen, enginePreference)
+            ? provider.CreateFrameSource(screen, enginePreference, factory)
             : null;
     }
 
@@ -78,7 +86,7 @@ internal static class BrowserSourceProviderRegistry
 
     private interface IBrowserSourceProvider
     {
-        IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference);
+        IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory);
         string GetUrl(BrowserScreenProfile screen);
         BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen);
         BrowserSourceRuntimeSettings GetRuntimeSettings(BrowserScreenProfile screen);
@@ -87,9 +95,10 @@ internal static class BrowserSourceProviderRegistry
 
     private sealed class YouTubeBrowserSourceProvider : IBrowserSourceProvider
     {
-        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory)
         {
-            return new BrowserFrameSource(
+            return factory.Create(new BrowserFrameSourceRequest(
+                BrowserSourceProviderKind.YouTube,
                 BrowserSourceDescriptors.YouTube,
                 screen.YouTubeUrl,
                 screen.YouTubeBrowserWidth,
@@ -101,7 +110,7 @@ internal static class BrowserSourceProviderRegistry
                 screen.YouTubePlaylistAutoplayNext,
                 screen.YouTubeAudioEnabled,
                 screen.YouTubeVolume,
-                screen.YouTubePlaybackRate);
+                screen.YouTubePlaybackRate));
         }
 
         public string GetUrl(BrowserScreenProfile screen)
@@ -139,9 +148,10 @@ internal static class BrowserSourceProviderRegistry
 
     private sealed class TwitchBrowserSourceProvider : IBrowserSourceProvider
     {
-        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory)
         {
-            return new BrowserFrameSource(
+            return factory.Create(new BrowserFrameSourceRequest(
+                BrowserSourceProviderKind.Twitch,
                 BrowserSourceDescriptors.Twitch,
                 screen.TwitchUrl,
                 screen.TwitchBrowserWidth,
@@ -153,7 +163,7 @@ internal static class BrowserSourceProviderRegistry
                 false,
                 screen.TwitchAudioEnabled,
                 screen.TwitchVolume,
-                1.0f);
+                1.0f));
         }
 
         public string GetUrl(BrowserScreenProfile screen)
@@ -191,9 +201,10 @@ internal static class BrowserSourceProviderRegistry
 
     private sealed class DailymotionBrowserSourceProvider : IBrowserSourceProvider
     {
-        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory)
         {
-            return new BrowserFrameSource(
+            return factory.Create(new BrowserFrameSourceRequest(
+                BrowserSourceProviderKind.Dailymotion,
                 BrowserSourceDescriptors.Dailymotion,
                 screen.DailymotionUrl,
                 screen.DailymotionBrowserWidth,
@@ -205,7 +216,7 @@ internal static class BrowserSourceProviderRegistry
                 true,
                 screen.DailymotionAudioEnabled,
                 screen.DailymotionVolume,
-                1.0f);
+                1.0f));
         }
 
         public string GetUrl(BrowserScreenProfile screen)
@@ -243,9 +254,10 @@ internal static class BrowserSourceProviderRegistry
 
     private sealed class VimeoBrowserSourceProvider : IBrowserSourceProvider
     {
-        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory)
         {
-            return new BrowserFrameSource(
+            return factory.Create(new BrowserFrameSourceRequest(
+                BrowserSourceProviderKind.Vimeo,
                 BrowserSourceDescriptors.Vimeo,
                 screen.VimeoUrl,
                 screen.VimeoBrowserWidth,
@@ -257,7 +269,7 @@ internal static class BrowserSourceProviderRegistry
                 true,
                 screen.VimeoAudioEnabled,
                 screen.VimeoVolume,
-                screen.VimeoPlaybackRate);
+                screen.VimeoPlaybackRate));
         }
 
         public string GetUrl(BrowserScreenProfile screen)
@@ -295,21 +307,25 @@ internal static class BrowserSourceProviderRegistry
 
     private sealed class GenericWebBrowserSourceProvider : IBrowserSourceProvider
     {
-        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+        public IVideoFrameSource CreateFrameSource(BrowserScreenProfile screen, BrowserMediaEngine enginePreference, IBrowserFrameSourceFactory factory)
         {
-            return new GenericWebBrowserFrameSource(
+            return factory.Create(new BrowserFrameSourceRequest(
+                BrowserSourceProviderKind.GenericWeb,
+                null,
                 screen.GenericWebUrl,
                 screen.GenericWebBrowserWidth,
                 screen.GenericWebBrowserHeight,
                 screen.GenericWebCaptureFps,
+                enginePreference,
                 screen.GenericWebAutoplay,
                 screen.LoopGenericWeb,
+                true,
                 screen.GenericWebAudioEnabled,
                 screen.GenericWebVolume,
                 screen.GenericWebPlaybackRate,
                 enginePreference is BrowserMediaEngine.Auto or BrowserMediaEngine.WebView2WindowCapture
                     ? WebView2CaptureMode.WindowGraphicsCapture
-                    : WebView2CaptureMode.PreviewJpeg);
+                    : WebView2CaptureMode.PreviewJpeg));
         }
 
         public string GetUrl(BrowserScreenProfile screen)

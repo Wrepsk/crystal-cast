@@ -17,6 +17,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private readonly IBrowserSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
+    private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly object telemetryLock = new();
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly Dictionary<string, Delegate> browserEventHandlers = new(StringComparer.Ordinal);
@@ -282,6 +283,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
         var pageUrl = $"{descriptor.PlayerOrigin}/player.html?source={Uri.EscapeDataString(source.DisplayName)}&attempt={playerLoadAttempt}&seq={sequence}";
         var html = descriptor.BuildHtml(source, new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate));
+        html = BrowserPageMessaging.AttachOutboundNonce(html, messageNonce);
         InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
         lastPlayerLoadUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         browserStatus = $"CEF loading {descriptor.DisplayName} player ({reason})";
@@ -796,7 +798,8 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     private void UpdateFromWebMessage(JsonElement root)
     {
-        if (!root.TryGetProperty("type", out var typeProperty))
+        if (!BrowserPageMessaging.HasNonce(root, messageNonce)
+            || !root.TryGetProperty("type", out var typeProperty))
             return;
 
         var type = typeProperty.GetString();

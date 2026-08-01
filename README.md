@@ -24,7 +24,7 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 ## Tests
 
-The browser-only model, migration, provider URL parsers, source-kind compatibility, screen limits, IPC patching, remote-state sequencing, and browser factory mapping are covered by the xUnit test project:
+The browser-only model, migration, provider URL parsers, source-kind compatibility, screen limits, IPC patching, remote-state sequencing, browser factory mapping, page isolation, and lifecycle races are covered by the xUnit test project:
 
 ```powershell
 dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
@@ -53,6 +53,8 @@ CrystalCast supports two browser capture paths:
 CrystalCast does not ship a proprietary-codec CEF build. Some streaming sources, especially Twitch and YouTube Live, may require codecs not included in the bundled CEF runtime. In Auto mode, CrystalCast uses each provider's preferred browser path and falls back between CEF offscreen capture and WebView2 capture on Windows when needed.
 
 WebView2 JPEG capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than CEF offscreen capture. WebView2 window capture uses Windows Graphics Capture and falls back to JPEG capture if the OS or capture session is unavailable.
+
+Each WebView2 screen serves its player from a unique immutable in-memory page resource. Browser controls and telemetry use per-screen WebMessages protected by an instance nonce, so concurrent screens cannot overwrite a shared page or accept another screen's messages. Browser initialization and capture are cancellation-driven; commands and disposal do not synchronously wait on the render or UI thread.
 
 | Source | Windows CEF | Windows WebView2 | Notes |
 |---|---:|---:|---|

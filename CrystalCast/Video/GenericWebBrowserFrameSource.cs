@@ -12,15 +12,11 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 {
     private const string PlaybackUnavailableStatus = "Playback sync unavailable for this page";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
     private readonly string input;
     private readonly GenericWebSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
+    private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly WebView2CaptureMode captureMode;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
@@ -294,7 +290,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     private void UpdateFromWebMessage(JsonElement root)
     {
-        if (!root.TryGetProperty("type", out var typeProperty))
+        if (!BrowserPageMessaging.HasNonce(root, messageNonce)
+            || !root.TryGetProperty("type", out var typeProperty))
             return;
 
         var type = typeProperty.GetString();
@@ -302,6 +299,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             case "ready":
                 playerStatus = "media controller ready";
+                browserThread?.MarkPlayerReady();
                 browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
                 settingsPublished = true;
                 if (autoplay && captureEnabled)
@@ -429,19 +427,24 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     {
         private readonly GenericWebBrowserFrameSource owner;
         private readonly Thread thread;
-        private readonly ManualResetEventSlim contextReady = new();
+        private readonly BrowserLifecycle lifecycle = new();
+        private readonly CancellationTokenSource shutdownCancellation = new();
+        private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
+        private readonly Queue<string> pendingPlayerMessages = new();
         private volatile bool shutdownRequested;
         private BrowserSynchronizationContext? synchronizationContext;
         private CoreWebView2Controller? controller;
         private CoreWebView2? webView;
         private WebView2HostWindow? hostWindow;
         private WebView2WindowCaptureSession? windowCaptureSession;
+        private Task? captureLoopTask;
+        private bool playerReady;
         private volatile bool browserControlsVisible;
-        private volatile bool disposed;
 
         public BrowserThread(GenericWebBrowserFrameSource owner)
         {
             this.owner = owner;
+            lifecycle.TryStart();
             thread = new Thread(ThreadMain)
             {
                 IsBackground = true,
@@ -455,69 +458,38 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         public void Play()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastPlay && window.crystalCastPlay();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Play(owner.messageNonce));
         }
 
         public void Pause()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastPause && window.crystalCastPause();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Pause(owner.messageNonce));
         }
 
         public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
         {
-            var settingsJson = JsonSerializer.Serialize(new
+            var message = BrowserPageMessaging.Settings(owner.messageNonce, audioEnabled, volume, playbackRate, loop, playlistAutoplayNext: true);
+            Post(() =>
             {
-                audioEnabled,
-                volume,
-                playbackRate,
-                loop,
-            }, JsonOptions);
-
-            Post(async () =>
-            {
-                if (webView != null)
-                {
-                    ApplyBrowserMute(audioEnabled, volume);
-                    await webView.ExecuteScriptAsync($"window.crystalCastApplySettings && window.crystalCastApplySettings({settingsJson});");
-                }
+                ApplyBrowserMute(audioEnabled, volume);
+                SendOrQueuePlayerMessage(message);
+                return Task.CompletedTask;
             });
         }
 
         public void SeekBy(double seconds)
         {
-            var secondsJson = JsonSerializer.Serialize(seconds, JsonOptions);
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync($"window.crystalCastSeekBy && window.crystalCastSeekBy({secondsJson});");
-            });
+            PostPlayerMessage(BrowserPageMessaging.SeekBy(owner.messageNonce, seconds));
         }
 
         public void SeekTo(double seconds)
         {
-            var secondsJson = JsonSerializer.Serialize(seconds, JsonOptions);
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync($"window.crystalCastSeekTo && window.crystalCastSeekTo({secondsJson});");
-            });
+            PostPlayerMessage(BrowserPageMessaging.SeekTo(owner.messageNonce, seconds));
         }
 
         public void Restart()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastRestart && window.crystalCastRestart();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Restart(owner.messageNonce));
         }
 
         public void ShowBrowserControls()
@@ -557,33 +529,67 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         public void Dispose()
         {
-            if (disposed)
+            if (!lifecycle.TryBeginStopping())
                 return;
 
-            disposed = true;
             shutdownRequested = true;
-            if (contextReady.Wait(TimeSpan.FromSeconds(1)))
-                synchronizationContext?.Post(_ => shutdownRequested = true, null);
-
-            if (!thread.Join(TimeSpan.FromSeconds(3)))
-                owner.browserStatus = "WebView2 thread did not stop cleanly";
-
-            contextReady.Dispose();
+            shutdownCancellation.Cancel();
+            synchronizationContext?.Post(_ => { }, null);
         }
 
         private void Post(Func<Task> action)
         {
-            if (disposed || !contextReady.Wait(TimeSpan.FromSeconds(1)))
+            if (!lifecycle.CanAcceptCommands)
                 return;
 
-            synchronizationContext?.Post(state =>
+            pendingActions.Enqueue(action);
+            synchronizationContext?.Post(_ => DrainPostedActions(), null);
+        }
+
+        private void PostPlayerMessage(string json)
+        {
+            Post(() =>
             {
-                _ = RunPostedActionAsync((Func<Task>)state!);
-            }, action);
+                SendOrQueuePlayerMessage(json);
+                return Task.CompletedTask;
+            });
+        }
+
+        private void SendOrQueuePlayerMessage(string json)
+        {
+            if (webView == null || !playerReady)
+            {
+                if (pendingPlayerMessages.Count >= 64)
+                    pendingPlayerMessages.Dequeue();
+                pendingPlayerMessages.Enqueue(json);
+                return;
+            }
+
+            webView.PostWebMessageAsJson(json);
+        }
+
+        public void MarkPlayerReady()
+        {
+            Post(() =>
+            {
+                playerReady = true;
+                while (webView != null && pendingPlayerMessages.TryDequeue(out var message))
+                    webView.PostWebMessageAsJson(message);
+                return Task.CompletedTask;
+            });
+        }
+
+        private void DrainPostedActions()
+        {
+            while (lifecycle.CanAcceptCommands && pendingActions.TryDequeue(out var action))
+                _ = RunPostedActionAsync(action);
         }
 
         private async Task RunPostedActionAsync(Func<Task> action)
         {
+            if (!lifecycle.CanAcceptCommands)
+                return;
+
             try
             {
                 await action();
@@ -599,11 +605,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             var context = new BrowserSynchronizationContext();
             synchronizationContext = context;
             SynchronizationContext.SetSynchronizationContext(context);
-            contextReady.Set();
 
+            Task? initializationTask = null;
             try
             {
-                _ = InitializeAsync();
+                if (lifecycle.CanAcceptCommands)
+                    initializationTask = InitializeAsync(shutdownCancellation.Token);
+                DrainPostedActions();
                 while (!shutdownRequested)
                 {
                     var shouldQuit = shutdownRequested;
@@ -611,6 +619,16 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                     shutdownRequested = shouldQuit;
                     context.ExecutePending();
                     BrowserNative.WaitForWork(context.WorkAvailable, 50);
+                }
+
+                var cleanupDeadline = Environment.TickCount64 + 3000;
+                while ((initializationTask is { IsCompleted: false } || captureLoopTask is { IsCompleted: false })
+                    && Environment.TickCount64 < cleanupDeadline)
+                {
+                    var shouldQuit = false;
+                    BrowserNative.PumpMessages(ref shouldQuit);
+                    context.ExecutePending();
+                    BrowserNative.WaitForWork(context.WorkAvailable, 25);
                 }
             }
             catch (Exception ex)
@@ -621,6 +639,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             {
                 try
                 {
+                    if (webView != null)
+                    {
+                        webView.WebMessageReceived -= OnWebMessageReceived;
+                        webView.NavigationStarting -= OnNavigationStarting;
+                        webView.NavigationCompleted -= OnNavigationCompleted;
+                        webView.ProcessFailed -= OnProcessFailed;
+                    }
                     webView = null;
                     DisposeWindowCaptureSession();
                     controller?.Close();
@@ -632,11 +657,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 {
                 }
 
+                lifecycle.MarkStopped();
+                shutdownCancellation.Dispose();
                 context.Dispose();
             }
         }
 
-        private async Task InitializeAsync()
+        private async Task InitializeAsync(CancellationToken cancellationToken)
         {
             try
             {
@@ -645,15 +672,18 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                     "CrystalCast",
                     "WebView2GenericWeb");
                 Directory.CreateDirectory(userDataFolder);
+                cancellationToken.ThrowIfCancellationRequested();
 
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: "--autoplay-policy=no-user-gesture-required");
                 var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
+                cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
                 var parentHwnd = hostWindow.Hwnd;
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
+                cancellationToken.ThrowIfCancellationRequested();
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
                 hostWindow.ShowForCapture();
@@ -662,19 +692,29 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 ConfigureWebView(webView);
                 ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;
+                webView.NavigationStarting += OnNavigationStarting;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
-                await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript());
+                await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript(owner.messageNonce));
+                cancellationToken.ThrowIfCancellationRequested();
+                playerReady = false;
                 owner.browserStatus = "WebView2 loading Generic Web page";
                 webView.Navigate(owner.source.Url);
+
+                if (!lifecycle.TryMarkRunning())
+                    cancellationToken.ThrowIfCancellationRequested();
 
                 if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture)
                     StartWindowCaptureOrFallback();
                 else
-                    _ = CaptureLoopAsync();
+                    EnsureCaptureLoopStarted();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
             catch (Exception ex)
             {
+                lifecycle.MarkFaulted();
                 owner.browserStatus = $"WebView2 init failed: {ex.Message}";
             }
         }
@@ -693,7 +733,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
             }
 
-            _ = CaptureLoopAsync();
+            EnsureCaptureLoopStarted();
         }
 
         private bool TryStartWindowCapture()
@@ -757,42 +797,54 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             }
         }
 
-        private async Task CaptureLoopAsync()
+        private void EnsureCaptureLoopStarted()
         {
-            while (!shutdownRequested)
+            if (captureLoopTask is not { IsCompleted: false })
+                captureLoopTask = CaptureLoopAsync(shutdownCancellation.Token);
+        }
+
+        private async Task CaptureLoopAsync(CancellationToken cancellationToken)
+        {
+            try
             {
-                var frameInterval = TimeSpan.FromSeconds(1.0 / owner.FramesPerSecond);
-                if (!owner.captureEnabled || webView == null)
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await Task.Delay(200);
-                    continue;
-                }
+                    var frameInterval = TimeSpan.FromSeconds(1.0 / owner.FramesPerSecond);
+                    if (!owner.captureEnabled || webView == null)
+                    {
+                        await Task.Delay(200, cancellationToken);
+                        continue;
+                    }
 
-                var sw = Stopwatch.StartNew();
-                try
-                {
-                    await CaptureOnceAsync(webView);
-                    sw.Stop();
-                    owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
-                    var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                        ? "WebView2 JPEG fallback capture running"
-                        : "WebView2 JPEG capture running";
-                    owner.browserStatus = owner.FramesPerSecond > 30.0f
-                        ? $"{captureStatus}; high FPS is best effort"
-                        : captureStatus;
-                }
-                catch (Exception ex)
-                {
-                    sw.Stop();
-                    owner.browserStatus = $"WebView2 capture failed: {ex.Message}";
-                    await Task.Delay(500);
-                }
+                    var sw = Stopwatch.StartNew();
+                    try
+                    {
+                        await CaptureOnceAsync(webView);
+                        sw.Stop();
+                        owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
+                        var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                            ? "WebView2 JPEG fallback capture running"
+                            : "WebView2 JPEG capture running";
+                        owner.browserStatus = owner.FramesPerSecond > 30.0f
+                            ? $"{captureStatus}; high FPS is best effort"
+                            : captureStatus;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        sw.Stop();
+                        owner.browserStatus = $"WebView2 capture failed: {ex.Message}";
+                        await Task.Delay(500, cancellationToken);
+                    }
 
-                var remaining = frameInterval - sw.Elapsed;
-                if (remaining > TimeSpan.Zero)
-                    await Task.Delay(remaining);
-                else if (owner.FramesPerSecond > 30.0f)
-                    await Task.Delay(1);
+                    var remaining = frameInterval - sw.Elapsed;
+                    if (remaining > TimeSpan.Zero)
+                        await Task.Delay(remaining, cancellationToken);
+                    else if (owner.FramesPerSecond > 30.0f)
+                        await Task.Delay(1, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
         }
 
@@ -822,12 +874,19 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             try
             {
                 if (webView != null)
-                    await webView.ExecuteScriptAsync(BuildControllerScript());
+                {
+                    await webView.ExecuteScriptAsync(BuildControllerScript(owner.messageNonce));
+                }
             }
             catch (Exception ex)
             {
                 owner.playerStatus = $"controller injection failed: {ex.Message}";
             }
+        }
+
+        private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
+        {
+            playerReady = false;
         }
 
         private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs args)
@@ -939,9 +998,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         }
     }
 
-    private static string BuildControllerScript()
+    private static string BuildControllerScript(string nonce)
     {
-        return """
+        var script = """
 (() => {
   try {
     if (window.__crystalCastGenericWebInstalled || window.top !== window) {
@@ -1199,5 +1258,11 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
   }
 })();
 """;
+        var nonceJson = JsonSerializer.Serialize(nonce);
+        script = script.Replace(
+            "Object.assign({ type }, data || {})",
+            $"Object.assign({{ type, nonce: {nonceJson} }}, data || {{}})",
+            StringComparison.Ordinal);
+        return script + "\n" + BrowserPageMessaging.BuildCommandBridge(nonce);
     }
 }

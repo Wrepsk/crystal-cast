@@ -186,17 +186,20 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         if (activeSource != null)
             return;
 
+        IVideoFrameSource candidate;
         try
         {
-            activeSource = CreateSource();
+            candidate = CreateSource();
         }
         catch (Exception ex)
         {
-            activeSource = CreateFallbackAfterFailure(ex);
+            candidate = CreateFallbackAfterFailure(ex);
         }
 
-        if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
+        if (BrowserCandidateLifetime.TryUse(candidate, () => ApplyCurrentSettings(candidate), out var error))
+            activeSource = candidate;
+        else
+            activeSource = CreateUnavailableSource(error!);
     }
 
     private IVideoFrameSource CreateSource()
@@ -298,29 +301,29 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
     private void StartActiveSource()
     {
-        if (activeSource == null)
+        var candidate = activeSource;
+        if (candidate == null)
             return;
 
-        try
+        activeSource = null;
+        if (BrowserCandidateLifetime.TryUse(candidate, candidate.Start, out var startError))
         {
-            activeSource.Start();
+            activeSource = candidate;
+            return;
         }
-        catch (Exception ex)
+
+        var fallbackCandidate = CreateFallbackAfterFailure(startError!);
+        if (BrowserCandidateLifetime.TryUse(fallbackCandidate, () =>
+            {
+                ApplyCurrentSettings(fallbackCandidate);
+                fallbackCandidate.Start();
+            }, out var fallbackError))
         {
-            activeSource = CreateFallbackAfterFailure(ex);
-
-            if (activeSource is IMediaPlaybackController controller)
-                controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
-
-            try
-            {
-                activeSource.Start();
-            }
-            catch (Exception fallbackEx)
-            {
-                activeSource = CreateUnavailableSource(fallbackEx);
-            }
+            activeSource = fallbackCandidate;
+            return;
         }
+
+        activeSource = CreateUnavailableSource(fallbackError!);
     }
 
     private IVideoFrameSource CreateFallbackAfterFailure(Exception ex)
@@ -367,13 +370,18 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             return;
 
         activeSource.Dispose();
-        activeSource = CreateWebView2WindowCaptureSource();
+        activeSource = null;
+        var fallbackCandidate = CreateWebView2WindowCaptureSource();
         fallbackStatus = $"CEF failed, using WebView2 window capture fallback: {cefStatus}";
 
-        if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
-
-        StartActiveSource();
+        if (BrowserCandidateLifetime.TryUse(fallbackCandidate, () =>
+            {
+                ApplyCurrentSettings(fallbackCandidate);
+                fallbackCandidate.Start();
+            }, out var error))
+            activeSource = fallbackCandidate;
+        else
+            activeSource = CreateUnavailableSource(error!);
     }
 
     private void TryFallbackFromCefPlayerFailure()
@@ -387,13 +395,24 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
         var cefStatus = cefSource.Status;
         activeSource.Dispose();
-        activeSource = CreateWebView2WindowCaptureSource();
+        activeSource = null;
+        var fallbackCandidate = CreateWebView2WindowCaptureSource();
         fallbackStatus = $"CEF {descriptor.DisplayName} playback failed, using WebView2 window capture fallback: {cefStatus}";
 
-        if (activeSource is IMediaPlaybackController controller)
-            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
+        if (BrowserCandidateLifetime.TryUse(fallbackCandidate, () =>
+            {
+                ApplyCurrentSettings(fallbackCandidate);
+                fallbackCandidate.Start();
+            }, out var error))
+            activeSource = fallbackCandidate;
+        else
+            activeSource = CreateUnavailableSource(error!);
+    }
 
-        StartActiveSource();
+    private void ApplyCurrentSettings(IVideoFrameSource candidate)
+    {
+        if (candidate is IMediaPlaybackController controller)
+            controller.ApplyPlaybackSettings(currentAudioEnabled, currentVolume, currentPlaybackRate, currentLoop, currentPlaylistAutoplayNext);
     }
 
     private static string DescribePreference(BrowserMediaEngine engine)

@@ -10,16 +10,12 @@ namespace CrystalCast.Video;
 
 internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
     private readonly IBrowserSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
+    private readonly BrowserPlayerPageResource? playerPage;
     private readonly WebView2CaptureMode captureMode;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
@@ -70,6 +66,14 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         this.volume = QuantizeVolume(volume);
         this.playbackRate = ClampPlaybackRate(playbackRate);
         this.captureMode = captureMode;
+
+        if (isValidSource)
+        {
+            playerPage = BrowserPlayerPageResource.Create(
+                descriptor,
+                source,
+                new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, this.volume, this.playbackRate));
+        }
 
         if (!isValidSource)
             browserStatus = descriptor.InvalidSourceMessage;
@@ -254,14 +258,6 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         return true;
     }
 
-    private string WritePlayerPage(string contentFolder)
-    {
-        const string playerPageName = "player.html";
-        var playerPagePath = Path.Combine(contentFolder, playerPageName);
-        File.WriteAllText(playerPagePath, descriptor.BuildHtml(source, new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate)));
-        return playerPageName;
-    }
-
     private void PublishFrame(byte[] pixels, int width, int height)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -297,7 +293,9 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
     private void UpdateFromWebMessage(JsonElement root)
     {
-        if (!root.TryGetProperty("type", out var typeProperty))
+        if (playerPage == null
+            || !BrowserPageMessaging.HasNonce(root, playerPage.Nonce)
+            || !root.TryGetProperty("type", out var typeProperty))
             return;
 
         var type = typeProperty.GetString();
@@ -305,6 +303,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         {
             case "ready":
                 playerStatus = $"player ready: {source.DisplayName}";
+                browserThread?.MarkPlayerReady();
                 browserThread?.StartWindowCaptureWhenReady();
                 if (autoplay && captureEnabled)
                     browserThread?.Play();
@@ -453,20 +452,26 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     {
         private readonly WebView2BrowserFrameSource owner;
         private readonly Thread thread;
-        private readonly ManualResetEventSlim contextReady = new();
+        private readonly BrowserLifecycle lifecycle = new();
+        private readonly CancellationTokenSource shutdownCancellation = new();
+        private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
+        private readonly Queue<string> pendingPlayerMessages = new();
         private volatile bool shutdownRequested;
         private BrowserSynchronizationContext? synchronizationContext;
+        private CoreWebView2Environment? environment;
         private CoreWebView2Controller? controller;
         private CoreWebView2? webView;
         private WebView2HostWindow? hostWindow;
         private WebView2WindowCaptureSession? windowCaptureSession;
+        private Task? captureLoopTask;
         private bool windowCaptureStartRequested;
+        private bool playerReady;
         private volatile bool browserControlsVisible;
-        private volatile bool disposed;
 
         public BrowserThread(WebView2BrowserFrameSource owner)
         {
             this.owner = owner;
+            lifecycle.TryStart();
             thread = new Thread(ThreadMain)
             {
                 IsBackground = true,
@@ -480,70 +485,38 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
         public void Play()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastPlay && window.crystalCastPlay();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Play(GetMessageNonce()));
         }
 
         public void Pause()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastPause && window.crystalCastPause();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Pause(GetMessageNonce()));
         }
 
         public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
         {
-            var settingsJson = JsonSerializer.Serialize(new
+            var message = BrowserPageMessaging.Settings(GetMessageNonce(), audioEnabled, volume, playbackRate, loop, playlistAutoplayNext);
+            Post(() =>
             {
-                audioEnabled,
-                volume,
-                playbackRate,
-                loop,
-                playlistAutoplayNext,
-            }, JsonOptions);
-
-            Post(async () =>
-            {
-                if (webView != null)
-                {
-                    ApplyBrowserMute(audioEnabled, volume);
-                    await webView.ExecuteScriptAsync($"window.crystalCastApplySettings && window.crystalCastApplySettings({settingsJson});");
-                }
+                ApplyBrowserMute(audioEnabled, volume);
+                SendOrQueuePlayerMessage(message);
+                return Task.CompletedTask;
             });
         }
 
         public void SeekBy(double seconds)
         {
-            var secondsJson = JsonSerializer.Serialize(seconds, JsonOptions);
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync($"window.crystalCastSeekBy && window.crystalCastSeekBy({secondsJson});");
-            });
+            PostPlayerMessage(BrowserPageMessaging.SeekBy(GetMessageNonce(), seconds));
         }
 
         public void SeekTo(double seconds)
         {
-            var secondsJson = JsonSerializer.Serialize(seconds, JsonOptions);
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync($"window.crystalCastSeekTo && window.crystalCastSeekTo({secondsJson});");
-            });
+            PostPlayerMessage(BrowserPageMessaging.SeekTo(GetMessageNonce(), seconds));
         }
 
         public void Restart()
         {
-            Post(async () =>
-            {
-                if (webView != null)
-                    await webView.ExecuteScriptAsync("window.crystalCastRestart && window.crystalCastRestart();");
-            });
+            PostPlayerMessage(BrowserPageMessaging.Restart(GetMessageNonce()));
         }
 
         public void ShowBrowserControls()
@@ -583,33 +556,72 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
         public void Dispose()
         {
-            if (disposed)
+            if (!lifecycle.TryBeginStopping())
                 return;
 
-            disposed = true;
             shutdownRequested = true;
-            if (contextReady.Wait(TimeSpan.FromSeconds(1)))
-                synchronizationContext?.Post(_ => shutdownRequested = true, null);
-
-            if (!thread.Join(TimeSpan.FromSeconds(3)))
-                owner.browserStatus = "WebView2 thread did not stop cleanly";
-
-            contextReady.Dispose();
+            shutdownCancellation.Cancel();
+            synchronizationContext?.Post(_ => { }, null);
         }
 
         private void Post(Func<Task> action)
         {
-            if (disposed || !contextReady.Wait(TimeSpan.FromSeconds(1)))
+            if (!lifecycle.CanAcceptCommands)
                 return;
 
-            synchronizationContext?.Post(state =>
+            pendingActions.Enqueue(action);
+            synchronizationContext?.Post(_ => DrainPostedActions(), null);
+        }
+
+        private void PostPlayerMessage(string json)
+        {
+            Post(() =>
             {
-                _ = RunPostedActionAsync((Func<Task>)state!);
-            }, action);
+                SendOrQueuePlayerMessage(json);
+                return Task.CompletedTask;
+            });
+        }
+
+        private string GetMessageNonce()
+        {
+            return owner.playerPage?.Nonce ?? string.Empty;
+        }
+
+        private void SendOrQueuePlayerMessage(string json)
+        {
+            if (webView == null || !playerReady)
+            {
+                if (pendingPlayerMessages.Count >= 64)
+                    pendingPlayerMessages.Dequeue();
+                pendingPlayerMessages.Enqueue(json);
+                return;
+            }
+
+            webView.PostWebMessageAsJson(json);
+        }
+
+        public void MarkPlayerReady()
+        {
+            Post(() =>
+            {
+                playerReady = true;
+                while (webView != null && pendingPlayerMessages.TryDequeue(out var message))
+                    webView.PostWebMessageAsJson(message);
+                return Task.CompletedTask;
+            });
+        }
+
+        private void DrainPostedActions()
+        {
+            while (lifecycle.CanAcceptCommands && pendingActions.TryDequeue(out var action))
+                _ = RunPostedActionAsync(action);
         }
 
         private async Task RunPostedActionAsync(Func<Task> action)
         {
+            if (!lifecycle.CanAcceptCommands)
+                return;
+
             try
             {
                 await action();
@@ -625,11 +637,13 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             var context = new BrowserSynchronizationContext();
             synchronizationContext = context;
             SynchronizationContext.SetSynchronizationContext(context);
-            contextReady.Set();
 
+            Task? initializationTask = null;
             try
             {
-                _ = InitializeAsync();
+                if (lifecycle.CanAcceptCommands)
+                    initializationTask = InitializeAsync(shutdownCancellation.Token);
+                DrainPostedActions();
                 while (!shutdownRequested)
                 {
                     var shouldQuit = shutdownRequested;
@@ -637,6 +651,16 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     shutdownRequested = shouldQuit;
                     context.ExecutePending();
                     BrowserNative.WaitForWork(context.WorkAvailable, 50);
+                }
+
+                var cleanupDeadline = Environment.TickCount64 + 3000;
+                while ((initializationTask is { IsCompleted: false } || captureLoopTask is { IsCompleted: false })
+                    && Environment.TickCount64 < cleanupDeadline)
+                {
+                    var shouldQuit = false;
+                    BrowserNative.PumpMessages(ref shouldQuit);
+                    context.ExecutePending();
+                    BrowserNative.WaitForWork(context.WorkAvailable, 25);
                 }
             }
             catch (Exception ex)
@@ -647,6 +671,13 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             {
                 try
                 {
+                    if (webView != null)
+                    {
+                        webView.WebResourceRequested -= OnWebResourceRequested;
+                        webView.WebMessageReceived -= OnWebMessageReceived;
+                        webView.NavigationCompleted -= OnNavigationCompleted;
+                        webView.ProcessFailed -= OnProcessFailed;
+                    }
                     webView = null;
                     DisposeWindowCaptureSession();
                     controller?.Close();
@@ -659,11 +690,14 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     // Best-effort browser cleanup during plugin unload/source changes.
                 }
 
+                environment = null;
+                lifecycle.MarkStopped();
+                shutdownCancellation.Dispose();
                 context.Dispose();
             }
         }
 
-        private async Task InitializeAsync()
+        private async Task InitializeAsync(CancellationToken cancellationToken)
         {
             try
             {
@@ -672,14 +706,11 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     "CrystalCast",
                     owner.descriptor.WebView2UserDataFolderName);
                 Directory.CreateDirectory(userDataFolder);
-                var contentFolder = Path.Combine(userDataFolder, "Content");
-                Directory.CreateDirectory(contentFolder);
-                var playerPageName = owner.WritePlayerPage(contentFolder);
+                cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
                 var parentHwnd = hostWindow.Hwnd;
 
-                CoreWebView2Environment environment;
                 if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))
                 {
                     environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
@@ -690,8 +721,10 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                         additionalBrowserArguments: owner.descriptor.WebView2AdditionalBrowserArguments);
                     environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
                 }
+                cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
+                cancellationToken.ThrowIfCancellationRequested();
                 controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
                 controller.IsVisible = true;
                 controller.DefaultBackgroundColor = System.Drawing.Color.Black;
@@ -703,24 +736,33 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 webView.WebMessageReceived += OnWebMessageReceived;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
-                webView.SetVirtualHostNameToFolderMapping(
-                    owner.descriptor.VirtualHostName,
-                    contentFolder,
-                    CoreWebView2HostResourceAccessKind.DenyCors);
+                webView.WebResourceRequested += OnWebResourceRequested;
+                var page = owner.playerPage ?? throw new InvalidOperationException("Player page was not created.");
+                webView.AddWebResourceRequestedFilter(page.Url, CoreWebView2WebResourceContext.Document);
+                playerReady = false;
                 owner.browserStatus = $"WebView2 loading {owner.descriptor.DisplayName} player";
-                webView.Navigate($"{owner.descriptor.PlayerOrigin}/{playerPageName}");
+                webView.Navigate(page.Url);
 
-                _ = CaptureLoopAsync();
+                if (!lifecycle.TryMarkRunning())
+                    cancellationToken.ThrowIfCancellationRequested();
+                EnsureCaptureLoopStarted();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
             catch (Exception ex)
             {
+                lifecycle.MarkFaulted();
                 owner.browserStatus = $"WebView2 init failed: {ex.Message}";
             }
         }
 
         public void StartWindowCaptureWhenReady()
         {
-            if (owner.captureMode != WebView2CaptureMode.WindowGraphicsCapture || disposed || windowCaptureSession != null || windowCaptureStartRequested)
+            if (owner.captureMode != WebView2CaptureMode.WindowGraphicsCapture
+                || !lifecycle.CanAcceptCommands
+                || windowCaptureSession != null
+                || windowCaptureStartRequested)
                 return;
 
             windowCaptureStartRequested = true;
@@ -745,7 +787,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
             }
 
-            _ = CaptureLoopAsync();
+            EnsureCaptureLoopStarted();
         }
 
         private bool TryStartWindowCapture()
@@ -810,48 +852,60 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             }
         }
 
-        private async Task CaptureLoopAsync()
+        private void EnsureCaptureLoopStarted()
+        {
+            if (captureLoopTask is not { IsCompleted: false })
+                captureLoopTask = CaptureLoopAsync(shutdownCancellation.Token);
+        }
+
+        private async Task CaptureLoopAsync(CancellationToken cancellationToken)
         {
             var frameInterval = TimeSpan.FromSeconds(1.0 / owner.FramesPerSecond);
-            while (!shutdownRequested)
+            try
             {
-                if (!owner.captureEnabled || webView == null)
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await Task.Delay(200);
-                    continue;
-                }
+                    if (!owner.captureEnabled || webView == null)
+                    {
+                        await Task.Delay(200, cancellationToken);
+                        continue;
+                    }
 
-                if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture && windowCaptureSession != null)
-                {
-                    await Task.Delay(200);
-                    continue;
-                }
+                    if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture && windowCaptureSession != null)
+                    {
+                        await Task.Delay(200, cancellationToken);
+                        continue;
+                    }
 
-                var sw = Stopwatch.StartNew();
-                try
-                {
-                    await CaptureOnceAsync(webView);
-                    sw.Stop();
-                    owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
-                    var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                        ? "WebView2 JPEG fallback capture running"
-                        : "WebView2 JPEG capture running";
-                    owner.browserStatus = owner.FramesPerSecond > 30.0f
-                        ? $"{captureStatus}; high FPS is best effort"
-                        : captureStatus;
-                }
-                catch (Exception ex)
-                {
-                    sw.Stop();
-                    owner.browserStatus = $"WebView2 capture failed: {ex.Message}";
-                    await Task.Delay(500);
-                }
+                    var sw = Stopwatch.StartNew();
+                    try
+                    {
+                        await CaptureOnceAsync(webView);
+                        sw.Stop();
+                        owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
+                        var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                            ? "WebView2 JPEG fallback capture running"
+                            : "WebView2 JPEG capture running";
+                        owner.browserStatus = owner.FramesPerSecond > 30.0f
+                            ? $"{captureStatus}; high FPS is best effort"
+                            : captureStatus;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        sw.Stop();
+                        owner.browserStatus = $"WebView2 capture failed: {ex.Message}";
+                        await Task.Delay(500, cancellationToken);
+                    }
 
-                var remaining = frameInterval - sw.Elapsed;
-                if (remaining > TimeSpan.Zero)
-                    await Task.Delay(remaining);
-                else if (owner.FramesPerSecond > 30.0f)
-                    await Task.Delay(1);
+                    var remaining = frameInterval - sw.Elapsed;
+                    if (remaining > TimeSpan.Zero)
+                        await Task.Delay(remaining, cancellationToken);
+                    else if (owner.FramesPerSecond > 30.0f)
+                        await Task.Delay(1, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
             }
         }
 
@@ -880,6 +934,24 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             {
                 owner.playerStatus = $"invalid browser message: {ex.Message}";
             }
+        }
+
+        private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs args)
+        {
+            var page = owner.playerPage;
+            if (page == null
+                || environment == null
+                || !string.Equals(args.Request.Uri, page.Url, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var stream = new MemoryStream(page.Utf8Content.ToArray(), writable: false);
+            args.Response = environment.CreateWebResourceResponse(
+                stream,
+                200,
+                "OK",
+                "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
         }
 
         private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)

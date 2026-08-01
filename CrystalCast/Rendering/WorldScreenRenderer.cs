@@ -8,32 +8,21 @@ namespace CrystalCast.Rendering;
 public sealed class WorldScreenManager : IDisposable
 {
     private const int CurvedScreenSegments = 32;
+    private const long GraphicsRetryDelayMs = 5000;
 
     private readonly record struct PreparedScreenTexture(nint NativeHandle, int Width, int Height);
 
     private readonly Configuration configuration;
     private readonly Dictionary<string, WorldScreenInstance> browserScreens = new(StringComparer.Ordinal);
     private PctContext? pictomancyContext;
+    private long lastGraphicsInitializationAttemptUnixMs;
+    private long lastGlobalDrawErrorUnixMs;
 
     public WorldScreenManager(Configuration configuration)
     {
         this.configuration = configuration;
 
-        try
-        {
-            pictomancyContext = PctService.Initialize(Plugin.PluginInterface, new PctOptions
-            {
-                EnableVfxRenderer = false,
-                EnableKtkOutput = true,
-                MaxImages = (Configuration.MaxRenderableBrowserScreens * CurvedScreenSegments) + 1,
-            });
-            Status = "Pictomancy ready";
-        }
-        catch (Exception ex)
-        {
-            Status = $"Pictomancy init failed: {ex.Message}";
-            Plugin.Log.Error(ex, "Failed to initialize Pictomancy.");
-        }
+        TryInitializePictomancy(force: true);
     }
 
     public string Status { get; private set; } = "not initialized";
@@ -70,6 +59,11 @@ public sealed class WorldScreenManager : IDisposable
 
         if (pictomancyContext == null)
         {
+            TryInitializePictomancy(force: false);
+        }
+
+        if (pictomancyContext == null)
+        {
             LastDrawStatus = "Pictomancy is not initialized";
             StopAllScreens();
             return;
@@ -82,7 +76,19 @@ public sealed class WorldScreenManager : IDisposable
             return;
         }
 
-        DrawBrowserScreens();
+        try
+        {
+            DrawBrowserScreens();
+        }
+        catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
+        {
+            HandleGraphicsDeviceLoss(ex);
+        }
+        catch (Exception ex)
+        {
+            LastDrawStatus = $"draw pipeline failed: {ex.GetBaseException().Message}";
+            LogGlobalDrawFailure(ex);
+        }
     }
 
     public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
@@ -201,10 +207,89 @@ public sealed class WorldScreenManager : IDisposable
     public void Dispose()
     {
         foreach (var instance in browserScreens.Values)
-            instance.Dispose();
+        {
+            try
+            {
+                instance.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Debug(ex, "Failed to dispose a CrystalCast screen instance.");
+            }
+        }
         browserScreens.Clear();
-        pictomancyContext?.Dispose();
+        try
+        {
+            pictomancyContext?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Debug(ex, "Failed to dispose the CrystalCast Pictomancy context.");
+        }
         pictomancyContext = null;
+    }
+
+    private void TryInitializePictomancy(bool force)
+    {
+        if (pictomancyContext != null)
+            return;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (!force && now - lastGraphicsInitializationAttemptUnixMs < GraphicsRetryDelayMs)
+            return;
+
+        lastGraphicsInitializationAttemptUnixMs = now;
+        try
+        {
+            pictomancyContext = PctService.Initialize(Plugin.PluginInterface, new PctOptions
+            {
+                EnableVfxRenderer = false,
+                EnableKtkOutput = true,
+                MaxImages = (Configuration.MaxRenderableBrowserScreens * CurvedScreenSegments) + 1,
+            });
+            Status = "Pictomancy ready";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Pictomancy init failed: {ex.Message}";
+            Plugin.Log.Error(ex, "Failed to initialize Pictomancy.");
+        }
+    }
+
+    private void HandleGraphicsDeviceLoss(Exception exception)
+    {
+        LastDrawStatus = $"graphics device lost; retrying: {exception.GetBaseException().Message}";
+        Status = "graphics device lost";
+        try
+        {
+            pictomancyContext?.Dispose();
+        }
+        catch
+        {
+        }
+        pictomancyContext = null;
+        foreach (var instance in browserScreens.Values)
+        {
+            try
+            {
+                instance.ResetGraphicsResources();
+            }
+            catch (Exception resetException)
+            {
+                Plugin.Log.Debug(resetException, "Failed to reset a CrystalCast screen after device loss.");
+            }
+        }
+        LogGlobalDrawFailure(exception);
+    }
+
+    private void LogGlobalDrawFailure(Exception exception)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (now - lastGlobalDrawErrorUnixMs < GraphicsRetryDelayMs)
+            return;
+
+        lastGlobalDrawErrorUnixMs = now;
+        Plugin.Log.Warning(exception, "CrystalCast graphics pipeline failed; rendering will retry.");
     }
 
     private void DrawBrowserScreens()
@@ -222,8 +307,15 @@ public sealed class WorldScreenManager : IDisposable
         var prepared = new List<(WorldScreenInstance Instance, PreparedScreenTexture Texture)>();
         foreach (var screen in screenList)
         {
-            if (screen.TryPrepareFrame(out var texture))
-                prepared.Add((screen, texture));
+            try
+            {
+                if (screen.TryPrepareFrame(out var texture))
+                    prepared.Add((screen, texture));
+            }
+            catch (Exception ex)
+            {
+                screen.RecordDrawFailure(ex, "prepare");
+            }
         }
 
         if (prepared.Count == 0)
@@ -259,10 +351,21 @@ public sealed class WorldScreenManager : IDisposable
         const bool showDebugMarker = false;
 #endif
 
+        var drawnCount = 0;
         foreach (var (screen, texture) in prepared)
-            screen.DrawPrepared(drawList, texture, showDebugMarker);
+        {
+            try
+            {
+                screen.DrawPrepared(drawList, texture, showDebugMarker);
+                drawnCount++;
+            }
+            catch (Exception ex)
+            {
+                screen.RecordDrawFailure(ex, "draw");
+            }
+        }
 
-        LastDrawStatus = $"{DescribeDrawMode(autoDraw)} drawn {prepared.Count} screen{(prepared.Count == 1 ? string.Empty : "s")}";
+        LastDrawStatus = $"{DescribeDrawMode(autoDraw)} drawn {drawnCount}/{prepared.Count} prepared screen{(prepared.Count == 1 ? string.Empty : "s")}";
     }
 
     private void SyncBrowserScreens()
@@ -284,14 +387,21 @@ public sealed class WorldScreenManager : IDisposable
             if (activeIds.Contains(screenId))
                 continue;
 
-            instance.Dispose();
+            try
+            {
+                instance.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Debug(ex, "Failed to dispose CrystalCast screen {ScreenId}.", screenId);
+            }
             browserScreens.Remove(screenId);
         }
 
         foreach (var screen in allowedScreens.Where(screen => !screen.Enabled))
         {
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
-                instance.Stop();
+                TryStopScreen(screen.ScreenId, instance);
         }
     }
 
@@ -302,8 +412,20 @@ public sealed class WorldScreenManager : IDisposable
 
     private void StopBrowserScreens()
     {
-        foreach (var instance in browserScreens.Values)
+        foreach (var (screenId, instance) in browserScreens)
+            TryStopScreen(screenId, instance);
+    }
+
+    private static void TryStopScreen(string screenId, WorldScreenInstance instance)
+    {
+        try
+        {
             instance.Stop();
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Debug(ex, "Failed to stop CrystalCast screen {ScreenId}.", screenId);
+        }
     }
 
     private AutoDraw GetAutoDraw()
@@ -341,6 +463,7 @@ public sealed class WorldScreenManager : IDisposable
         private long lastFrameUnixMs;
         private string lastNativeTextureError = string.Empty;
         private long lastNativeTextureErrorUnixMs;
+        private long lastDrawFailureLogUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
         private long lastPauseCommandUnixMs;
         private long fallbackFrameSequence = -1_000_000_000;
@@ -442,6 +565,17 @@ public sealed class WorldScreenManager : IDisposable
                 : $"drawn {shapeStatus}; center is off-screen or behind camera";
         }
 
+        public void RecordDrawFailure(Exception exception, string stage)
+        {
+            LastDrawStatus = $"{stage} failed: {exception.GetBaseException().Message}";
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (now - lastDrawFailureLogUnixMs < 5000)
+                return;
+
+            lastDrawFailureLogUnixMs = now;
+            Plugin.Log.Warning(exception, "CrystalCast screen {ScreenId} failed during {Stage}; other screens will continue.", browserScreen.ScreenId, stage);
+        }
+
         public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
         {
             return ScreenPlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
@@ -537,10 +671,31 @@ public sealed class WorldScreenManager : IDisposable
 
         public void Dispose()
         {
-            frameSource?.Dispose();
-            frameSource = null;
+            try
+            {
+                frameSource?.Dispose();
+            }
+            finally
+            {
+                frameSource = null;
+                try
+                {
+                    dynamicTexture.Dispose();
+                }
+                finally
+                {
+                    sharedTexture.Dispose();
+                }
+            }
+        }
+
+        public void ResetGraphicsResources()
+        {
             dynamicTexture.Dispose();
             sharedTexture.Dispose();
+            lastFrameUnixMs = 0;
+            lastNativeTextureError = string.Empty;
+            lastNativeTextureErrorUnixMs = 0;
         }
 
         private PreparedScreenTexture? ResolveTexture()
@@ -657,7 +812,14 @@ public sealed class WorldScreenManager : IDisposable
             if (signature == frameSourceSignature)
                 return;
 
-            frameSource?.Dispose();
+            try
+            {
+                frameSource?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Debug(ex, "Failed to dispose the previous frame source for screen {ScreenId}.", browserScreen.ScreenId);
+            }
             frameSource = null;
             frameSourceSignature = signature;
             dynamicTexture.Dispose();

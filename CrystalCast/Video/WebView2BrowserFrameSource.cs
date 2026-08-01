@@ -812,9 +812,21 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 () => owner.FramesPerSecond,
                 (sharedHandle, width, height) => owner.PublishNativeFrame(sharedHandle, width, height),
                 value => owner.lastCaptureMilliseconds = value,
-                value => owner.browserStatus = value);
+                value => owner.browserStatus = value,
+                HandleWindowCaptureFatalError);
             windowCaptureSession.Start();
             return true;
+        }
+
+        private void HandleWindowCaptureFatalError(Exception exception)
+        {
+            Post(() =>
+            {
+                DisposeWindowCaptureSession();
+                owner.browserStatus = $"WebView2 window capture device lost, using JPEG fallback: {exception.GetBaseException().Message}";
+                EnsureCaptureLoopStarted();
+                return Task.CompletedTask;
+            });
         }
 
         private void DisposeWindowCaptureSession()

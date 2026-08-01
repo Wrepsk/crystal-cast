@@ -14,6 +14,7 @@ public sealed class SharedVideoTexture : IDisposable
     private D3D11Device? device;
     private DeviceContext? context;
     private Texture2D? sharedTexture;
+    private KeyedMutex? sharedTextureMutex;
     private ShaderResourceView? shaderResourceView;
     private Texture2D? texture;
     private Texture2D? diagnosticStagingTexture;
@@ -37,14 +38,22 @@ public sealed class SharedVideoTexture : IDisposable
         if (frame.SharedHandle == IntPtr.Zero || frame.Width <= 0 || frame.Height <= 0)
             return false;
 
-        var sw = Stopwatch.StartNew();
-        if (device == null)
+        try
         {
-            var devicePtr = (nint)GameDevice.Instance()->D3D11Forwarder;
-            Marshal.AddRef(devicePtr);
-            device = new D3D11Device(devicePtr);
-            context = device.ImmediateContext;
+            return UploadCore(frame);
         }
+        catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
+        {
+            ResetDevice();
+            DiagnosticStatus = $"game D3D device lost: {ex.GetBaseException().Message}";
+            return false;
+        }
+    }
+
+    private unsafe bool UploadCore(NativeVideoFrame frame)
+    {
+        var sw = Stopwatch.StartNew();
+        EnsureDevice();
 
         if (shaderResourceView == null
             || texture == null
@@ -53,34 +62,71 @@ public sealed class SharedVideoTexture : IDisposable
             || Width != frame.Width
             || Height != frame.Height)
         {
-            DisposeTexture();
-            sharedTexture = device.OpenSharedResource<Texture2D>(frame.SharedHandle);
-            var description = sharedTexture.Description;
-            texture = new Texture2D(device, new Texture2DDescription
+            Texture2D? nextSharedTexture = null;
+            KeyedMutex? nextMutex = null;
+            Texture2D? nextTexture = null;
+            ShaderResourceView? nextShaderResourceView = null;
+            try
             {
-                Width = description.Width,
-                Height = description.Height,
-                MipLevels = 1,
-                ArraySize = 1,
-                Format = description.Format,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Default,
-                BindFlags = BindFlags.ShaderResource,
-                CpuAccessFlags = CpuAccessFlags.None,
-                OptionFlags = ResourceOptionFlags.None,
-            });
-            shaderResourceView = new ShaderResourceView(device, texture);
+                nextSharedTexture = device!.OpenSharedResource<Texture2D>(frame.SharedHandle);
+                nextMutex = nextSharedTexture.QueryInterface<KeyedMutex>();
+                var description = nextSharedTexture.Description;
+                nextTexture = new Texture2D(device, new Texture2DDescription
+                {
+                    Width = description.Width,
+                    Height = description.Height,
+                    MipLevels = 1,
+                    ArraySize = 1,
+                    Format = description.Format,
+                    SampleDescription = new SampleDescription(1, 0),
+                    Usage = ResourceUsage.Default,
+                    BindFlags = BindFlags.ShaderResource,
+                    CpuAccessFlags = CpuAccessFlags.None,
+                    OptionFlags = ResourceOptionFlags.None,
+                });
+                nextShaderResourceView = new ShaderResourceView(device, nextTexture);
+            }
+            catch
+            {
+                nextShaderResourceView?.Dispose();
+                nextTexture?.Dispose();
+                nextMutex?.Dispose();
+                nextSharedTexture?.Dispose();
+                throw;
+            }
+
+            DisposeTexture();
+            sharedTexture = nextSharedTexture;
+            sharedTextureMutex = nextMutex;
+            texture = nextTexture;
+            shaderResourceView = nextShaderResourceView;
             openedHandle = frame.SharedHandle;
-            Width = frame.Width;
-            Height = frame.Height;
+            Width = nextSharedTexture.Description.Width;
+            Height = nextSharedTexture.Description.Height;
         }
 
-        if (context == null || sharedTexture == null || texture == null)
+        if (context == null || sharedTexture == null || sharedTextureMutex == null || texture == null)
             return false;
 
-        context.CopyResource(sharedTexture, texture);
-        UpdateDiagnosticStatus();
-        context.Flush();
+        try
+        {
+            sharedTextureMutex.Acquire(1, 5);
+        }
+        catch (Exception ex) when (NativeGraphicsError.IsWaitTimeout(ex))
+        {
+            return false;
+        }
+
+        try
+        {
+            context.CopyResource(sharedTexture, texture);
+            UpdateDiagnosticStatus();
+            context.Flush();
+        }
+        finally
+        {
+            sharedTextureMutex.Release(0);
+        }
 
         sw.Stop();
         openedSequence = frame.Sequence;
@@ -91,10 +137,41 @@ public sealed class SharedVideoTexture : IDisposable
 
     public void Dispose()
     {
-        DisposeTexture();
-        context = null;
-        device?.Dispose();
-        device = null;
+        ResetDevice();
+    }
+
+    private unsafe void EnsureDevice()
+    {
+        if (device != null && context != null)
+            return;
+
+        var gameDevice = GameDevice.Instance();
+        if (gameDevice == null || gameDevice->D3D11Forwarder == null)
+            throw new InvalidOperationException("The game D3D11 device is unavailable.");
+
+        var devicePtr = (nint)gameDevice->D3D11Forwarder;
+        D3D11Device? nextDevice = null;
+        DeviceContext? nextContext = null;
+        var referenceAdded = false;
+        try
+        {
+            Marshal.AddRef(devicePtr);
+            referenceAdded = true;
+            nextDevice = new D3D11Device(devicePtr);
+            referenceAdded = false;
+            nextContext = nextDevice.ImmediateContext;
+        }
+        catch
+        {
+            nextContext?.Dispose();
+            nextDevice?.Dispose();
+            if (referenceAdded)
+                Marshal.Release(devicePtr);
+            throw;
+        }
+
+        device = nextDevice;
+        context = nextContext;
     }
 
     private void UpdateDiagnosticStatus()
@@ -139,8 +216,7 @@ public sealed class SharedVideoTexture : IDisposable
             return;
         }
 
-        diagnosticStagingTexture?.Dispose();
-        diagnosticStagingTexture = new Texture2D(device, new Texture2DDescription
+        var nextTexture = new Texture2D(device, new Texture2DDescription
         {
             Width = description.Width,
             Height = description.Height,
@@ -153,6 +229,9 @@ public sealed class SharedVideoTexture : IDisposable
             CpuAccessFlags = CpuAccessFlags.Read,
             OptionFlags = ResourceOptionFlags.None,
         });
+        var previous = diagnosticStagingTexture;
+        diagnosticStagingTexture = nextTexture;
+        previous?.Dispose();
     }
 
     private void DisposeTexture()
@@ -161,6 +240,8 @@ public sealed class SharedVideoTexture : IDisposable
         shaderResourceView = null;
         texture?.Dispose();
         texture = null;
+        sharedTextureMutex?.Dispose();
+        sharedTextureMutex = null;
         sharedTexture?.Dispose();
         sharedTexture = null;
         diagnosticStagingTexture?.Dispose();
@@ -171,5 +252,14 @@ public sealed class SharedVideoTexture : IDisposable
         openedSequence = -1;
         lastDiagnosticTicks = 0;
         DiagnosticStatus = "game texture sample pending";
+    }
+
+    private void ResetDevice()
+    {
+        DisposeTexture();
+        context?.Dispose();
+        context = null;
+        device?.Dispose();
+        device = null;
     }
 }

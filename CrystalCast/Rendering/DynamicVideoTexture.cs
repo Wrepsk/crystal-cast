@@ -6,6 +6,7 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using SharpDX;
 using SharpDX.Direct3D11;
+using D3D11Device = SharpDX.Direct3D11.Device;
 
 namespace CrystalCast.Rendering;
 
@@ -15,6 +16,7 @@ public sealed class DynamicVideoTexture : IDisposable
     private IDalamudTextureWrap? wrap;
     private ShaderResourceView? shaderResourceView;
     private Texture2D? texture;
+    private D3D11Device? device;
     private DeviceContext? context;
     private long uploadedSequence = -1;
 
@@ -38,28 +40,36 @@ public sealed class DynamicVideoTexture : IDisposable
         if (frame.Pixels.Length != frame.Width * frame.Height * 4)
             return false;
 
-        if (wrap == null || frame.Width != Width || frame.Height != Height)
-            Recreate(frame.Width, frame.Height);
-
-        if (texture == null || context == null)
-            return false;
-
-        var sw = Stopwatch.StartNew();
-        var dataBox = context.MapSubresource(texture, 0, MapMode.WriteDiscard, MapFlags.None);
         try
         {
-            CopyPixels(frame.Pixels, frame.Width, frame.Height, dataBox);
-        }
-        finally
-        {
-            context.UnmapSubresource(texture, 0);
-        }
+            if (wrap == null || frame.Width != Width || frame.Height != Height)
+                Recreate(frame.Width, frame.Height);
 
-        sw.Stop();
-        uploadedSequence = frame.Sequence;
-        UploadCount++;
-        LastUploadMilliseconds = sw.Elapsed.TotalMilliseconds;
-        return true;
+            if (texture == null || context == null)
+                return false;
+
+            var sw = Stopwatch.StartNew();
+            var dataBox = context.MapSubresource(texture, 0, MapMode.WriteDiscard, MapFlags.None);
+            try
+            {
+                CopyPixels(frame.Pixels, frame.Width, frame.Height, dataBox);
+            }
+            finally
+            {
+                context.UnmapSubresource(texture, 0);
+            }
+
+            sw.Stop();
+            uploadedSequence = frame.Sequence;
+            UploadCount++;
+            LastUploadMilliseconds = sw.Elapsed.TotalMilliseconds;
+            return true;
+        }
+        catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
+        {
+            DisposeTexture();
+            return false;
+        }
     }
 
     public void Dispose()
@@ -69,25 +79,59 @@ public sealed class DynamicVideoTexture : IDisposable
 
     private void Recreate(int width, int height)
     {
-        DisposeTexture();
+        var specs = RawImageSpecification.Bgra32(width, height);
+        IDalamudTextureWrap? nextWrap = null;
+        ShaderResourceView? nextShaderResourceView = null;
+        Texture2D? nextTexture = null;
+        D3D11Device? nextDevice = null;
+        DeviceContext? nextContext = null;
+        var srvPointer = IntPtr.Zero;
+        var referenceAdded = false;
+        try
+        {
+            nextWrap = textureProvider.CreateEmpty(specs, cpuRead: false, cpuWrite: true, "CrystalCast dynamic video");
+            srvPointer = (IntPtr)nextWrap.Handle.Handle;
+            if (srvPointer == IntPtr.Zero)
+                throw new InvalidOperationException("Dalamud returned an empty texture handle.");
 
+            Marshal.AddRef(srvPointer);
+            referenceAdded = true;
+            nextShaderResourceView = new ShaderResourceView(srvPointer);
+            referenceAdded = false;
+            using var resource = nextShaderResourceView.Resource;
+            nextTexture = resource.QueryInterface<Texture2D>();
+            nextDevice = nextTexture.Device;
+            nextContext = nextDevice.ImmediateContext;
+        }
+        catch
+        {
+            nextContext?.Dispose();
+            nextDevice?.Dispose();
+            nextTexture?.Dispose();
+            nextShaderResourceView?.Dispose();
+            if (referenceAdded)
+                Marshal.Release(srvPointer);
+            nextWrap?.Dispose();
+            throw;
+        }
+
+        DisposeTexture();
+        wrap = nextWrap;
+        shaderResourceView = nextShaderResourceView;
+        texture = nextTexture;
+        device = nextDevice;
+        context = nextContext;
         Width = width;
         Height = height;
-        var specs = RawImageSpecification.Bgra32(width, height);
-        wrap = textureProvider.CreateEmpty(specs, cpuRead: false, cpuWrite: true, "CrystalCast dynamic video");
-
-        var srvPtr = (IntPtr)wrap.Handle.Handle;
-        Marshal.AddRef(srvPtr);
-        shaderResourceView = new ShaderResourceView(srvPtr);
-        using var resource = shaderResourceView.Resource;
-        texture = resource.QueryInterface<Texture2D>();
-        context = texture.Device.ImmediateContext;
         uploadedSequence = -1;
     }
 
     private void DisposeTexture()
     {
+        context?.Dispose();
         context = null;
+        device?.Dispose();
+        device = null;
         texture?.Dispose();
         texture = null;
         shaderResourceView?.Dispose();

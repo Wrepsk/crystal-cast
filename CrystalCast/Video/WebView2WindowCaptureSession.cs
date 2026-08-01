@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
@@ -39,6 +38,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private readonly Action<IntPtr, int, int> publishSharedTexture;
     private readonly Action<double> reportCaptureMilliseconds;
     private readonly Action<string> reportStatus;
+    private readonly Action<Exception> reportFatalError;
     private readonly object frameProcessingLock = new();
     private readonly D3D11Device d3dDevice;
     private readonly DeviceContext d3dContext;
@@ -49,18 +49,16 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private IntPtr session;
     private CancellationTokenSource? captureCancellation;
     private Task? captureTask;
-    private FrameArrivedEventHandler? frameArrivedHandler;
-    private EventRegistrationToken frameArrivedToken;
     private D3D11Texture2D? sharedTexture;
+    private KeyedMutex? sharedTextureMutex;
     private D3D11Texture2D? diagnosticStagingTexture;
     private IntPtr sharedTextureHandle;
     private SizeInt32 captureSize;
     private long lastPublishedTicks;
     private long lastDiagnosticTicks;
-    private long lastEventErrorTicks;
     private string lastDiagnosticStatus = "diagnostic pending";
     private string capturePumpStatus = "starting";
-    private bool frameArrivedRegistered;
+    private bool started;
     private bool disposed;
 
     [SupportedOSPlatform("windows10.0.19041")]
@@ -72,23 +70,53 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         Func<float> captureFpsProvider,
         Action<IntPtr, int, int> publishSharedTexture,
         Action<double> reportCaptureMilliseconds,
-        Action<string> reportStatus)
+        Action<string> reportStatus,
+        Action<Exception> reportFatalError)
     {
         this.shouldCapture = shouldCapture;
         this.captureFpsProvider = captureFpsProvider;
         this.publishSharedTexture = publishSharedTexture;
         this.reportCaptureMilliseconds = reportCaptureMilliseconds;
         this.reportStatus = reportStatus;
+        this.reportFatalError = reportFatalError;
 
         uninitializeWinRt = InitializeWinRt();
-        d3dDevice = CreateCaptureDevice();
-        d3dContext = d3dDevice.ImmediateContext;
-        winRtDevice = CreateDirect3DDevice(d3dDevice);
-        item = CreateCaptureItem(hwnd);
-        captureSize = GetCaptureSize(item, width, height);
-        framePool = CreateFramePool(winRtDevice, captureSize);
-        session = CreateCaptureSession(framePool, item);
-        DisableCursorCapture(session);
+        D3D11Device? nextDevice = null;
+        DeviceContext? nextContext = null;
+        var nextWinRtDevice = IntPtr.Zero;
+        var nextItem = IntPtr.Zero;
+        var nextFramePool = IntPtr.Zero;
+        var nextSession = IntPtr.Zero;
+        try
+        {
+            nextDevice = CreateCaptureDevice();
+            nextContext = nextDevice.ImmediateContext;
+            nextWinRtDevice = CreateDirect3DDevice(nextDevice);
+            nextItem = CreateCaptureItem(hwnd);
+            captureSize = GetCaptureSize(nextItem, width, height);
+            nextFramePool = CreateFramePool(nextWinRtDevice, captureSize);
+            nextSession = CreateCaptureSession(nextFramePool, nextItem);
+            DisableCursorCapture(nextSession);
+        }
+        catch
+        {
+            CloseAndRelease(ref nextSession);
+            CloseAndRelease(ref nextFramePool);
+            Release(ref nextItem);
+            Release(ref nextWinRtDevice);
+            nextContext?.Dispose();
+            nextDevice?.Dispose();
+            if (uninitializeWinRt)
+                RoUninitialize();
+            throw;
+        }
+
+        d3dDevice = nextDevice;
+        d3dContext = nextContext;
+        winRtDevice = nextWinRtDevice;
+        item = nextItem;
+        framePool = nextFramePool;
+        session = nextSession;
     }
 
     [SupportedOSPlatformGuard("windows10.0.19041")]
@@ -128,19 +156,15 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     public void Start()
     {
         ThrowIfDisposed();
-        var eventDriven = TryRegisterFrameArrivedHandler();
-        StartCapture(session);
-        if (eventDriven)
-        {
-            capturePumpStatus = "frame event";
-            reportStatus("WebView2 window capture running (frame event)");
+        if (started)
             return;
-        }
 
-        capturePumpStatus = "poll fallback";
+        StartCapture(session);
+        started = true;
+        capturePumpStatus = "poll";
         captureCancellation = new CancellationTokenSource();
         captureTask = Task.Run(() => CaptureLoopAsync(captureCancellation.Token));
-        reportStatus("WebView2 window capture running (poll fallback)");
+        reportStatus("WebView2 window capture running");
     }
 
     public void Dispose()
@@ -150,31 +174,55 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
         disposed = true;
         captureCancellation?.Cancel();
+        var captureStopped = true;
         try
         {
-            captureTask?.Wait(TimeSpan.FromSeconds(1));
+            captureStopped = captureTask?.Wait(TimeSpan.FromSeconds(2)) ?? true;
         }
         catch
         {
-            // The session is already shutting down; stale frame work is safe to abandon.
+            captureStopped = captureTask?.IsCompleted ?? true;
+        }
+
+        if (!captureStopped)
+        {
+            reportStatus("WebView2 window capture shutdown timed out; native resources retained for safety");
+            return;
         }
 
         captureCancellation?.Dispose();
         captureCancellation = null;
         captureTask = null;
-        UnregisterFrameArrivedHandler();
+        DisposeNativeResources();
+    }
+
+    private void DisposeNativeResources()
+    {
         CloseAndRelease(ref session);
         CloseAndRelease(ref framePool);
         Release(ref item);
         Release(ref winRtDevice);
+        sharedTextureMutex?.Dispose();
+        sharedTextureMutex = null;
         sharedTexture?.Dispose();
         sharedTexture = null;
         diagnosticStagingTexture?.Dispose();
         diagnosticStagingTexture = null;
         sharedTextureHandle = IntPtr.Zero;
-        d3dContext.ClearState();
-        d3dContext.Flush();
-        d3dDevice.Dispose();
+        try
+        {
+            d3dContext.ClearState();
+            d3dContext.Flush();
+        }
+        catch
+        {
+            // Device loss during shutdown must not skip COM/D3D release.
+        }
+        finally
+        {
+            d3dContext.Dispose();
+            d3dDevice.Dispose();
+        }
 
         if (uninitializeWinRt)
             RoUninitialize();
@@ -200,6 +248,14 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
                     continue;
                 }
             }
+            catch (Exception ex) when (CrystalCast.Rendering.NativeGraphicsError.IsDeviceLost(ex))
+            {
+                sw.Stop();
+                reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
+                reportStatus($"WebView2 window capture device lost: {ex.GetBaseException().Message}");
+                reportFatalError(ex);
+                return;
+            }
             catch (Exception ex) when (!token.IsCancellationRequested)
             {
                 sw.Stop();
@@ -208,74 +264,6 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
                 await DelayAsync(250, token);
             }
             await Task.Yield();
-        }
-    }
-
-    private bool TryRegisterFrameArrivedHandler()
-    {
-        try
-        {
-            frameArrivedHandler = new FrameArrivedEventHandler(OnFrameArrived);
-            frameArrivedToken = AddFrameArrivedHandler(framePool, frameArrivedHandler.Pointer);
-            frameArrivedRegistered = true;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            frameArrivedRegistered = false;
-            frameArrivedHandler?.Dispose();
-            frameArrivedHandler = null;
-            reportStatus($"WebView2 frame event unavailable, polling: {ex.GetBaseException().Message}");
-            return false;
-        }
-    }
-
-    private void UnregisterFrameArrivedHandler()
-    {
-        if (frameArrivedRegistered)
-        {
-            try
-            {
-                RemoveFrameArrivedHandler(framePool, frameArrivedToken);
-            }
-            catch
-            {
-                // The frame pool is already closing; removing the event is best effort.
-            }
-        }
-
-        frameArrivedRegistered = false;
-        frameArrivedHandler?.Dispose();
-        frameArrivedHandler = null;
-        frameArrivedToken = default;
-    }
-
-    private void OnFrameArrived()
-    {
-        if (disposed)
-            return;
-
-        if (!shouldCapture())
-        {
-            DrainFramePool();
-            return;
-        }
-
-        var sw = Stopwatch.StartNew();
-        try
-        {
-            TryProcessLatestFrame(sw);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
-            var now = Stopwatch.GetTimestamp();
-            if (now - Interlocked.Read(ref lastEventErrorTicks) < Stopwatch.Frequency / 4)
-                return;
-
-            Interlocked.Exchange(ref lastEventErrorTicks, now);
-            reportStatus($"WebView2 window capture failed: {ex.GetBaseException().Message}");
         }
     }
 
@@ -363,9 +351,30 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         {
             surface = GetFrameSurface(frame);
             using var sourceTexture = GetDirect3DTexture(surface);
-            d3dContext.CopyResource(sourceTexture, sharedTexture);
-            var diagnosticStatus = UpdateDiagnosticStatus(sourceTexture, contentSize.Width, contentSize.Height);
-            d3dContext.Flush();
+            if (sharedTextureMutex == null)
+                return;
+
+            try
+            {
+                sharedTextureMutex.Acquire(0, 5);
+            }
+            catch (Exception ex) when (CrystalCast.Rendering.NativeGraphicsError.IsWaitTimeout(ex))
+            {
+                return;
+            }
+
+            string diagnosticStatus;
+            try
+            {
+                d3dContext.CopyResource(sourceTexture, sharedTexture);
+                diagnosticStatus = UpdateDiagnosticStatus(sourceTexture, contentSize.Width, contentSize.Height);
+                d3dContext.Flush();
+            }
+            finally
+            {
+                sharedTextureMutex.Release(1);
+            }
+
             sw.Stop();
             reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
             publishSharedTexture(sharedTextureHandle, contentSize.Width, contentSize.Height);
@@ -425,23 +434,44 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
     private void RecreateSharedTexture(int width, int height)
     {
-        sharedTexture?.Dispose();
-        sharedTextureHandle = IntPtr.Zero;
-        sharedTexture = new D3D11Texture2D(d3dDevice, new Texture2DDescription
+        D3D11Texture2D? nextTexture = null;
+        KeyedMutex? nextMutex = null;
+        var nextHandle = IntPtr.Zero;
+        try
         {
-            Width = width,
-            Height = height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = DxgiFormat.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Default,
-            BindFlags = BindFlags.ShaderResource,
-            CpuAccessFlags = CpuAccessFlags.None,
-            OptionFlags = ResourceOptionFlags.Shared,
-        });
-        using var dxgiResource = sharedTexture.QueryInterface<SharpDX.DXGI.Resource>();
-        sharedTextureHandle = dxgiResource.SharedHandle;
+            nextTexture = new D3D11Texture2D(d3dDevice, new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = DxgiFormat.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CpuAccessFlags = CpuAccessFlags.None,
+                OptionFlags = ResourceOptionFlags.SharedKeyedmutex,
+            });
+            nextMutex = nextTexture.QueryInterface<KeyedMutex>();
+            using var dxgiResource = nextTexture.QueryInterface<SharpDX.DXGI.Resource>();
+            nextHandle = dxgiResource.SharedHandle;
+            if (nextHandle == IntPtr.Zero)
+                throw new InvalidOperationException("D3D11 returned an empty shared texture handle.");
+        }
+        catch
+        {
+            nextMutex?.Dispose();
+            nextTexture?.Dispose();
+            throw;
+        }
+
+        var previousMutex = sharedTextureMutex;
+        var previousTexture = sharedTexture;
+        sharedTexture = nextTexture;
+        sharedTextureMutex = nextMutex;
+        sharedTextureHandle = nextHandle;
+        previousMutex?.Dispose();
+        previousTexture?.Dispose();
     }
 
     private string UpdateDiagnosticStatus(D3D11Texture2D sourceTexture, int width, int height)
@@ -480,8 +510,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             return;
         }
 
-        diagnosticStagingTexture?.Dispose();
-        diagnosticStagingTexture = new D3D11Texture2D(d3dDevice, new Texture2DDescription
+        var nextTexture = new D3D11Texture2D(d3dDevice, new Texture2DDescription
         {
             Width = width,
             Height = height,
@@ -494,6 +523,9 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             CpuAccessFlags = CpuAccessFlags.Read,
             OptionFlags = ResourceOptionFlags.None,
         });
+        var previous = diagnosticStagingTexture;
+        diagnosticStagingTexture = nextTexture;
+        previous?.Dispose();
     }
 
     private void ThrowIfDisposed()
@@ -524,13 +556,16 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
     private static unsafe D3D11Device CreateCaptureDevice()
     {
-        var gameDevicePtr = (IntPtr)GameDevice.Instance()->D3D11Forwarder;
+        var gameDeviceInstance = GameDevice.Instance();
+        var gameDevicePtr = gameDeviceInstance == null
+            ? IntPtr.Zero
+            : (IntPtr)gameDeviceInstance->D3D11Forwarder;
         if (gameDevicePtr == IntPtr.Zero)
             return new D3D11Device(DriverType.Hardware, DeviceCreationFlags.BgraSupport);
 
         Marshal.AddRef(gameDevicePtr);
-        using var gameDevice = new D3D11Device(gameDevicePtr);
-        using var gameDxgiDevice = gameDevice.QueryInterface<DxgiDevice>();
+        using var gameD3dDevice = new D3D11Device(gameDevicePtr);
+        using var gameDxgiDevice = gameD3dDevice.QueryInterface<DxgiDevice>();
         using var adapter = gameDxgiDevice.Adapter;
         return new D3D11Device(adapter, DeviceCreationFlags.BgraSupport);
     }
@@ -610,8 +645,18 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         if (current == IntPtr.Zero)
             return;
 
-        TryClose(current);
-        Release(current);
+        try
+        {
+            TryClose(current);
+        }
+        catch
+        {
+            // Releasing the COM reference is still required when Close fails.
+        }
+        finally
+        {
+            Release(current);
+        }
     }
 
     private static void TryClose(IntPtr value)
@@ -728,25 +773,6 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         return frame;
     }
 
-    private static unsafe EventRegistrationToken AddFrameArrivedHandler(IntPtr currentFramePool, IntPtr handler)
-    {
-        var token = default(EventRegistrationToken);
-        var vtable = *(IntPtr**)currentFramePool;
-        var addFrameArrived = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, EventRegistrationToken*, int>)vtable[8];
-        Marshal.ThrowExceptionForHR(addFrameArrived(currentFramePool, handler, &token));
-        return token;
-    }
-
-    private static unsafe void RemoveFrameArrivedHandler(IntPtr currentFramePool, EventRegistrationToken token)
-    {
-        if (currentFramePool == IntPtr.Zero)
-            return;
-
-        var vtable = *(IntPtr**)currentFramePool;
-        var removeFrameArrived = (delegate* unmanaged[Stdcall]<IntPtr, EventRegistrationToken, int>)vtable[9];
-        Marshal.ThrowExceptionForHR(removeFrameArrived(currentFramePool, token));
-    }
-
     private static unsafe IntPtr CreateCaptureSession(IntPtr currentFramePool, IntPtr captureItem)
     {
         var captureSession = IntPtr.Zero;
@@ -851,99 +877,4 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         public readonly int Height;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly struct EventRegistrationToken
-    {
-        public readonly long Value;
-    }
-
-    private sealed unsafe class FrameArrivedEventHandler : IDisposable
-    {
-        private static readonly IntPtr Vtable = CreateVtable();
-        private readonly Action callback;
-        private readonly GCHandle handle;
-        private readonly IntPtr instance;
-        private bool disposed;
-
-        public FrameArrivedEventHandler(Action callback)
-        {
-            this.callback = callback;
-            handle = GCHandle.Alloc(this);
-            instance = Marshal.AllocHGlobal(IntPtr.Size * 2);
-            Marshal.WriteIntPtr(instance, Vtable);
-            Marshal.WriteIntPtr(instance, IntPtr.Size, GCHandle.ToIntPtr(handle));
-        }
-
-        public IntPtr Pointer => instance;
-
-        public void Dispose()
-        {
-            if (disposed)
-                return;
-
-            disposed = true;
-            if (instance != IntPtr.Zero)
-                Marshal.FreeHGlobal(instance);
-            if (handle.IsAllocated)
-                handle.Free();
-        }
-
-        private static IntPtr CreateVtable()
-        {
-            var vtable = Marshal.AllocHGlobal(IntPtr.Size * 4);
-            Marshal.WriteIntPtr(vtable, IntPtr.Size * 0, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, Guid*, IntPtr*, int>)&QueryInterface);
-            Marshal.WriteIntPtr(vtable, IntPtr.Size * 1, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, uint>)&AddRef);
-            Marshal.WriteIntPtr(vtable, IntPtr.Size * 2, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, uint>)&Release);
-            Marshal.WriteIntPtr(vtable, IntPtr.Size * 3, (IntPtr)(delegate* unmanaged[Stdcall]<IntPtr, IntPtr, IntPtr, int>)&Invoke);
-            return vtable;
-        }
-
-        private static FrameArrivedEventHandler? FromThis(IntPtr thisPtr)
-        {
-            if (thisPtr == IntPtr.Zero)
-                return null;
-
-            var handlePtr = Marshal.ReadIntPtr(thisPtr, IntPtr.Size);
-            if (handlePtr == IntPtr.Zero)
-                return null;
-
-            return GCHandle.FromIntPtr(handlePtr).Target as FrameArrivedEventHandler;
-        }
-
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-        private static int QueryInterface(IntPtr thisPtr, Guid* iid, IntPtr* obj)
-        {
-            if (obj == null)
-                return unchecked((int)0x80004003);
-
-            *obj = thisPtr;
-            return 0;
-        }
-
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-        private static uint AddRef(IntPtr thisPtr)
-        {
-            return 1;
-        }
-
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-        private static uint Release(IntPtr thisPtr)
-        {
-            return 1;
-        }
-
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-        private static int Invoke(IntPtr thisPtr, IntPtr sender, IntPtr args)
-        {
-            try
-            {
-                FromThis(thisPtr)?.callback();
-                return 0;
-            }
-            catch
-            {
-                return unchecked((int)0x80004005);
-            }
-        }
-    }
 }

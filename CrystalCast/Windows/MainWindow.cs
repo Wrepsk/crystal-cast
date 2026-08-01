@@ -3,6 +3,7 @@ using CrystalCast.Rendering;
 using CrystalCast.Sync;
 using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
 
 namespace CrystalCast.Windows;
@@ -31,6 +32,21 @@ public sealed class MainWindow : Window, IDisposable
 
         Size = new Vector2(520, 560);
         SizeCondition = ImGuiCond.FirstUseEver;
+        TitleBarButtons =
+        [
+            new TitleBarButton
+            {
+                Icon = FontAwesomeIcon.Cog,
+                IconOffset = new Vector2(2.0f, 1.0f),
+                Click = _ => plugin.ToggleConfigUi(),
+                ShowTooltip = () =>
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted("Open CrystalCast settings");
+                    ImGui.EndTooltip();
+                },
+            },
+        ];
     }
 
     public void Dispose()

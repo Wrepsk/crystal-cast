@@ -26,6 +26,9 @@ public sealed class ConfigWindow : Window, IDisposable
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
     private string browserDataStatus = string.Empty;
+    private string diagnosticsReport = string.Empty;
+    private long diagnosticsReportUpdatedAtTick;
+    private long diagnosticsCopiedAtTick;
 
     public ConfigWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast Settings###CrystalCastConfig")
@@ -262,26 +265,48 @@ public sealed class ConfigWindow : Window, IDisposable
         if (ImGui.Checkbox("Enable GPU texture sampling", ref gpuDiagnostics))
         {
             config.EnableGpuDiagnostics = gpuDiagnostics;
+            diagnosticsReportUpdatedAtTick = 0;
             changed = true;
         }
         ImGui.TextDisabled("Off by default; sampling performs a GPU readback once per second per active WGC screen.");
         ImGui.Spacing();
-        ImGui.TextUnformatted($"Renderer: {renderer.Status}");
-        ImGui.TextUnformatted($"Draw: {renderer.LastDrawStatus}");
-        ImGui.TextUnformatted($"Scene composite: {renderer.SceneCompositeStatus}");
-        ImGui.TextUnformatted($"Source: {renderer.SourceName}");
-        ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
-        ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
-        ImGui.TextUnformatted($"Browser runtimes: {renderer.ActiveBrowserRuntimeCount}");
-        ImGui.TextUnformatted($"Browser budget: {renderer.BrowserResourceBudgetStatus}");
-        ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
-        ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
-        ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
-        ImGui.TextUnformatted($"Frame age: {renderer.FrameAgeMilliseconds} ms");
-        ImGui.TextUnformatted($"Audio distance: {renderer.AudioDistanceMeters:0.00} m");
-        ImGui.TextUnformatted($"Audio falloff: {renderer.SpatialAudioAttenuation * 100.0f:0}%");
-        ImGui.TextUnformatted($"Effective audio volume: {renderer.EffectiveAudioVolume * 100.0f:0}%");
+
+        if (ImGui.Button("Copy full diagnostics"))
+        {
+            ImGui.SetClipboardText(GetDiagnosticsReport(config, forceRefresh: true));
+            diagnosticsCopiedAtTick = Environment.TickCount64;
+        }
+
+        if (diagnosticsCopiedAtTick > 0 && Environment.TickCount64 - diagnosticsCopiedAtTick < 2000)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Copied!");
+        }
+
+        ImGui.Separator();
+        if (ImGui.BeginChild("CrystalCastDiagnosticsReport", Vector2.Zero, true, ImGuiWindowFlags.None))
+        {
+            ImGui.PushTextWrapPos();
+            ImGui.TextUnformatted(GetDiagnosticsReport(config, forceRefresh: false));
+            ImGui.PopTextWrapPos();
+        }
+        ImGui.EndChild();
         return changed;
+    }
+
+    private string GetDiagnosticsReport(Configuration config, bool forceRefresh)
+    {
+        var now = Environment.TickCount64;
+        if (forceRefresh
+            || string.IsNullOrEmpty(diagnosticsReport)
+            || diagnosticsReportUpdatedAtTick == 0
+            || now - diagnosticsReportUpdatedAtTick >= 1000)
+        {
+            diagnosticsReport = DiagnosticsReportBuilder.Build(config, renderer);
+            diagnosticsReportUpdatedAtTick = now;
+        }
+
+        return diagnosticsReport;
     }
 
     private void DrawIpc(Configuration config)

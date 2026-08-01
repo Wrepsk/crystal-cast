@@ -28,6 +28,7 @@ public sealed class WorldScreenManager : IDisposable
 
     public string Status { get; private set; } = "not initialized";
     public string LastDrawStatus { get; private set; } = "not drawn yet";
+    public string LastGraphicsError { get; private set; } = "none recorded";
     public string SceneCompositeStatus => PctService.SceneCompositeStatus;
     public string SourceStatus => ActiveInstance?.SourceStatus ?? "no dynamic source";
     public string AudioStatus => ActiveInstance?.AudioStatus ?? "audio stopped";
@@ -100,6 +101,7 @@ public sealed class WorldScreenManager : IDisposable
         catch (Exception ex)
         {
             LastDrawStatus = $"draw pipeline failed: {ex.GetBaseException().Message}";
+            LastGraphicsError = DescribeDiagnosticException(ex);
             LogGlobalDrawFailure(ex);
         }
     }
@@ -235,6 +237,64 @@ public sealed class WorldScreenManager : IDisposable
             : 0.0f;
     }
 
+    internal IReadOnlyList<WorldScreenDiagnosticSnapshot> GetDiagnosticSnapshots()
+    {
+        SyncBrowserScreens();
+        var activeScreenIds = ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens)
+            .Select(screen => screen.ScreenId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return configuration.BrowserScreens.Select((screen, index) =>
+        {
+            var source = BrowserSourceProviderRegistry.GetSnapshot(screen);
+            browserScreens.TryGetValue(screen.ScreenId, out var instance);
+            var captureMode = BrowserPlatformPolicy.ResolveCaptureMode(configuration.YouTubeBrowserEngine, WineEnvironment.IsWine);
+            var texturePipeline = instance == null
+                ? "not initialized"
+                : captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                    ? instance.TextureWidth > 0 ? "shared GPU texture" : "shared GPU texture pending"
+                    : instance.TextureWidth > 0 ? "CPU frame upload" : "CPU frame upload pending";
+            var gpuSampleStatus = captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                ? instance?.GpuSampleStatus ?? "game texture sample pending"
+                : "not applicable to JPEG capture";
+
+            return new WorldScreenDiagnosticSnapshot(
+                index + 1,
+                string.Equals(screen.ScreenId, configuration.ActiveBrowserScreenId, StringComparison.Ordinal),
+                screen.Enabled,
+                activeScreenIds.Contains(screen.ScreenId),
+                screen.CreatedByIpc,
+                screen.PlaybackPaused,
+                screen.ProviderKind,
+                screen.Placement.Mode,
+                !string.IsNullOrWhiteSpace(source.Url),
+                source.Dimensions.Width,
+                source.Dimensions.Height,
+                source.CaptureSettings.FramesPerSecond,
+                source.CaptureSettings.Manual,
+                captureMode,
+                instance?.HasBrowserRuntime == true,
+                instance?.IsBrowserRuntimeActive == true,
+                instance?.BrowserControlsVisible == true,
+                instance?.SourceName ?? "browser source not started",
+                instance?.SourceStatus ?? "browser source not started",
+                instance?.LastDrawStatus ?? "not initialized",
+                instance?.LastError ?? "none recorded",
+                texturePipeline,
+                gpuSampleStatus,
+                instance?.TextureWidth ?? 0,
+                instance?.TextureHeight ?? 0,
+                instance?.UploadCount ?? 0,
+                instance?.LastUploadMilliseconds ?? 0.0,
+                instance?.FrameAgeMilliseconds ?? 0,
+                screen.Placement.WidthMeters,
+                screen.Placement.HeightMeters,
+                screen.Placement.ScreenCurveAmountMeters,
+                screen.Placement.OccludedAlpha,
+                screen.Placement.EnableDistanceFade);
+        }).ToArray();
+    }
+
     public void Dispose()
     {
         foreach (var instance in browserScreens.Values)
@@ -283,6 +343,7 @@ public sealed class WorldScreenManager : IDisposable
         catch (Exception ex)
         {
             Status = $"Pictomancy init failed: {ex.Message}";
+            LastGraphicsError = DescribeDiagnosticException(ex);
             services.Log.Error(ex, "Failed to initialize Pictomancy.");
         }
     }
@@ -291,6 +352,7 @@ public sealed class WorldScreenManager : IDisposable
     {
         LastDrawStatus = $"graphics device lost; retrying: {exception.GetBaseException().Message}";
         Status = "graphics device lost";
+        LastGraphicsError = DescribeDiagnosticException(exception);
         try
         {
             pictomancyContext?.Dispose();
@@ -311,6 +373,12 @@ public sealed class WorldScreenManager : IDisposable
             }
         }
         LogGlobalDrawFailure(exception);
+    }
+
+    private static string DescribeDiagnosticException(Exception exception)
+    {
+        var root = exception.GetBaseException();
+        return $"{DateTimeOffset.UtcNow:O}; {root.GetType().Name}; HRESULT 0x{root.HResult:X8}; {root.Message}";
     }
 
     private void LogGlobalDrawFailure(Exception exception)
@@ -519,6 +587,7 @@ public sealed class WorldScreenManager : IDisposable
             ? "browser audio enabled"
             : "browser audio muted";
         public string SourceName => frameSource?.Name ?? "no source";
+        public bool HasBrowserRuntime => frameSource != null;
         public bool IsBrowserRuntimeActive => frameSource?.IsRunning == true;
         public bool BrowserControlsAvailable
         {
@@ -537,6 +606,8 @@ public sealed class WorldScreenManager : IDisposable
         public int TextureHeight => sharedTexture.NativeHandle != 0 ? sharedTexture.Height : dynamicTexture.Height;
         public long FrameAgeMilliseconds => lastFrameUnixMs == 0 ? 0 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs;
         public string LastDrawStatus { get; private set; } = "not drawn yet";
+        public string LastError { get; private set; } = "none recorded";
+        public string GpuSampleStatus => sharedTexture.DiagnosticStatus;
         public MediaPlaybackTelemetry? PlaybackTelemetry => Volatile.Read(ref playbackTelemetry);
         public float AudioDistanceMeters { get; private set; }
         public float SpatialAudioAttenuation { get; private set; } = 1.0f;
@@ -603,6 +674,7 @@ public sealed class WorldScreenManager : IDisposable
         public void RecordDrawFailure(Exception exception, string stage)
         {
             LastDrawStatus = $"{stage} failed: {exception.GetBaseException().Message}";
+            LastError = DescribeDiagnosticException(exception);
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (now - lastDrawFailureLogUnixMs < 5000)
                 return;
@@ -1284,3 +1356,38 @@ public sealed class WorldScreenManager : IDisposable
         }
     }
 }
+
+internal sealed record WorldScreenDiagnosticSnapshot(
+    int Number,
+    bool IsSelected,
+    bool Enabled,
+    bool WithinResourceBudget,
+    bool CreatedByIpc,
+    bool PlaybackPaused,
+    BrowserSourceProviderKind Provider,
+    ScreenPlacementMode PlacementMode,
+    bool SourceConfigured,
+    int ConfiguredWidth,
+    int ConfiguredHeight,
+    float ConfiguredCaptureFps,
+    bool CaptureFpsManual,
+    WebView2CaptureMode CaptureMode,
+    bool RuntimeCreated,
+    bool CaptureRunning,
+    bool BrowserControlsVisible,
+    string SourceName,
+    string SourceStatus,
+    string DrawStatus,
+    string LastError,
+    string TexturePipeline,
+    string GpuSampleStatus,
+    int TextureWidth,
+    int TextureHeight,
+    long UploadCount,
+    double LastUploadMilliseconds,
+    long FrameAgeMilliseconds,
+    float WidthMeters,
+    float HeightMeters,
+    float CurveMeters,
+    float OccludedAlpha,
+    bool DistanceFadeEnabled);

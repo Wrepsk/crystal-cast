@@ -19,9 +19,11 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private readonly bool autoplay;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly object telemetryLock = new();
+    private readonly object browserStartupGate = new();
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly Dictionary<string, Delegate> browserEventHandlers = new(StringComparer.Ordinal);
     private object? browser;
+    private Task? browserStartupTask;
     private VideoFrame? latestFrame;
     private VideoFrame? latestLoadingFrame;
     private MediaPlaybackTelemetry telemetry = new();
@@ -46,6 +48,8 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private float detectedVideoFps;
     private bool playerReady;
     private bool playerFailed;
+    private volatile bool disposed;
+    private volatile bool browserStartupFailed;
 
     public CefBrowserFrameSource(
         BrowserSourceDescriptor descriptor,
@@ -108,13 +112,13 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             return;
         }
 
-        if (browser == null)
-            CreateBrowser();
-
-        if (browser == null)
-            return;
-
         captureEnabled = true;
+        if (Volatile.Read(ref browser) == null)
+        {
+            BeginBrowserStartup();
+            return;
+        }
+
         MaybeReloadPlayerIfNotReady();
         if (!wasCaptureEnabled)
             Play();
@@ -196,12 +200,15 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     {
         if (ShouldShowLoadingFrame())
         {
-            frame = GetLoadingFrame();
-            return true;
+            return GetLoadingFrame().TryAcquire(out frame);
         }
 
-        frame = latestFrame!;
-        return frame != null;
+        var current = Volatile.Read(ref latestFrame);
+        if (current != null)
+            return current.TryAcquire(out frame);
+
+        frame = null!;
+        return false;
     }
 
     public bool TryGetPlaybackTelemetry(out MediaPlaybackTelemetry currentTelemetry)
@@ -216,16 +223,11 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     public void Dispose()
     {
+        disposed = true;
         captureEnabled = false;
-        if (browser != null)
-        {
-            CloseBrowserHost(browser);
-            RemoveBrowserEventHandlers(browser);
-            if (browser is IDisposable disposable)
-                disposable.Dispose();
-
-            browser = null;
-        }
+        Interlocked.Exchange(ref latestFrame, null)?.Dispose();
+        Interlocked.Exchange(ref latestLoadingFrame, null)?.Dispose();
+        CleanupBrowser(Interlocked.Exchange(ref browser, null));
 
         browserStatus = "disposed";
         UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
@@ -236,9 +238,12 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         if (!CefRuntimeManager.TryInitialize(out var cefStatus))
         {
             browserStatus = cefStatus;
+            browserStartupFailed = true;
+            captureEnabled = false;
             return;
         }
 
+        object? candidate = null;
         try
         {
             var browserSettingsType = GetCefType("CefSharp.Core", "CefSharp.BrowserSettings");
@@ -247,24 +252,101 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             SetInstanceProperty(browserSettings, "WindowlessFrameRate", (int)Math.Clamp(MathF.Round(FramesPerSecond), 1.0f, 60.0f));
             SetInstanceProperty(browserSettings, "BackgroundColor", 0xFF000000u);
 
-            browser = CreateChromiumBrowser(chromiumBrowserType, browserSettings);
-            SetInstanceProperty(browser, "Size", new System.Drawing.Size(Width, Height));
+            candidate = CreateChromiumBrowser(chromiumBrowserType, browserSettings);
+            SetInstanceProperty(candidate, "Size", new System.Drawing.Size(Width, Height));
+            AddBrowserEventHandler(candidate, "Paint", nameof(OnPaint));
+            AddBrowserEventHandler(candidate, "JavascriptMessageReceived", nameof(OnJavascriptMessageReceived));
+            AddBrowserEventHandler(candidate, "LoadError", nameof(OnLoadError));
+            AddBrowserEventHandler(candidate, "FrameLoadEnd", nameof(OnFrameLoadEnd));
+            AddBrowserEventHandler(candidate, "LoadingStateChanged", nameof(OnLoadingStateChanged));
+            AddBrowserEventHandler(candidate, "ConsoleMessage", nameof(OnConsoleMessage));
+            AddBrowserEventHandler(candidate, "StatusMessage", nameof(OnStatusMessage));
+            AddBrowserEventHandler(candidate, "TitleChanged", nameof(OnTitleChanged));
+
+            if (disposed || Interlocked.CompareExchange(ref browser, candidate, null) != null)
+            {
+                CleanupBrowser(candidate);
+                return;
+            }
+
+            candidate = null;
             ApplyBrowserMute(audioEnabled, volume);
-            AddBrowserEventHandler(browser, "Paint", nameof(OnPaint));
-            AddBrowserEventHandler(browser, "JavascriptMessageReceived", nameof(OnJavascriptMessageReceived));
-            AddBrowserEventHandler(browser, "LoadError", nameof(OnLoadError));
-            AddBrowserEventHandler(browser, "FrameLoadEnd", nameof(OnFrameLoadEnd));
-            AddBrowserEventHandler(browser, "LoadingStateChanged", nameof(OnLoadingStateChanged));
-            AddBrowserEventHandler(browser, "ConsoleMessage", nameof(OnConsoleMessage));
-            AddBrowserEventHandler(browser, "StatusMessage", nameof(OnStatusMessage));
-            AddBrowserEventHandler(browser, "TitleChanged", nameof(OnTitleChanged));
 
             LoadPlayerHtml(descriptor.LoadReason);
         }
         catch (Exception ex)
         {
+            CleanupBrowser(candidate ?? Interlocked.Exchange(ref browser, null));
+            browserStartupFailed = true;
+            captureEnabled = false;
             browserStatus = $"CEF browser failed: {ex.Message}";
             Plugin.Log.Warning(ex, "Failed to create CEF {Provider} browser.", descriptor.DisplayName);
+        }
+    }
+
+    private void BeginBrowserStartup()
+    {
+        if (disposed || browserStartupFailed)
+        {
+            captureEnabled = false;
+            return;
+        }
+
+        lock (browserStartupGate)
+        {
+            if (browserStartupTask is { IsCompleted: false } || browser != null)
+                return;
+
+            browserStatus = "CEF startup queued";
+            browserStartupTask = Task.Run(() =>
+            {
+                try
+                {
+                    CreateBrowser();
+                    if (!disposed && captureEnabled && browser != null)
+                        Play();
+                }
+                catch (Exception ex)
+                {
+                    browserStartupFailed = true;
+                    captureEnabled = false;
+                    browserStatus = $"CEF startup failed: {ex.GetBaseException().Message}";
+                    Plugin.Log.Warning(ex, "CrystalCast CEF startup task failed.");
+                }
+            });
+        }
+    }
+
+    private void CleanupBrowser(object? candidate)
+    {
+        if (candidate == null)
+            return;
+
+        try
+        {
+            CloseBrowserHost(candidate);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            RemoveBrowserEventHandlers(candidate);
+        }
+        catch
+        {
+        }
+
+        if (candidate is IDisposable disposable)
+        {
+            try
+            {
+                disposable.Dispose();
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -277,7 +359,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         playerReady = false;
         playerFailed = false;
         playerReadyUnixMs = 0;
-        latestLoadingFrame = null;
+        Interlocked.Exchange(ref latestLoadingFrame, null)?.Dispose();
         lastLoadingFrameUnixMs = 0;
         playerStatus = "player not ready";
         var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
@@ -356,27 +438,33 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private VideoFrame GetLoadingFrame()
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (latestLoadingFrame != null && now - lastLoadingFrameUnixMs < LoadingFrameIntervalMs)
-            return latestLoadingFrame;
+        var current = Volatile.Read(ref latestLoadingFrame);
+        if (current != null && now - lastLoadingFrameUnixMs < LoadingFrameIntervalMs)
+            return current;
 
         var elapsedMs = Math.Max(0, now - (lastPlayerLoadUnixMs == 0 ? now : lastPlayerLoadUnixMs));
-        var pixels = RenderLoadingFrame(Width, Height, elapsedMs);
-        latestLoadingFrame = new VideoFrame(pixels, Width, Height, Interlocked.Increment(ref sequence), now);
+        var nextFrame = RenderLoadingFrame(
+            Width,
+            Height,
+            elapsedMs,
+            Interlocked.Increment(ref sequence),
+            now);
+        Interlocked.Exchange(ref latestLoadingFrame, nextFrame)?.Dispose();
         lastLoadingFrameUnixMs = now;
-        return latestLoadingFrame;
+        return nextFrame;
     }
 
-    private static byte[] RenderLoadingFrame(int width, int height, long elapsedMs)
+    private static VideoFrame RenderLoadingFrame(int width, int height, long elapsedMs, long sequence, long timestampUnixMs)
     {
-        var pixels = new byte[width * height * 4];
-        FillBackground(pixels);
-        DrawLoadingRing(pixels, width, height, elapsedMs);
-        return pixels;
+        var frame = VideoFrame.Rent(width, height, sequence, timestampUnixMs);
+        FillBackground(frame.Pixels, frame.PixelLength);
+        DrawLoadingRing(frame.Pixels, width, height, elapsedMs);
+        return frame;
     }
 
-    private static void FillBackground(byte[] pixels)
+    private static void FillBackground(byte[] pixels, int length)
     {
-        for (var i = 0; i < pixels.Length; i += 4)
+        for (var i = 0; i < length; i += 4)
         {
             pixels[i] = 0x06;
             pixels[i + 1] = 0x05;
@@ -709,23 +797,42 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             return;
 
         var sw = Stopwatch.StartNew();
-        var length = width * height * 4;
-        var pixels = new byte[length];
-        Marshal.Copy(bufferHandle, pixels, 0, length);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var frame = VideoFrame.Rent(width, height, Interlocked.Increment(ref sequence), now);
+        try
+        {
+            Marshal.Copy(bufferHandle, frame.Pixels, 0, frame.PixelLength);
+        }
+        catch
+        {
+            frame.Dispose();
+            throw;
+        }
         sw.Stop();
         lastPaintMilliseconds = sw.Elapsed.TotalMilliseconds;
         browserStatus = "CEF BGRA paint running";
-        PublishFrame(pixels, width, height);
+        PublishFrame(frame);
     }
 
-    private void PublishFrame(byte[] pixels, int width, int height)
+    private void PublishFrame(VideoFrame frame)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var frame = new VideoFrame(pixels, width, height, Interlocked.Increment(ref sequence), now);
-        Interlocked.Exchange(ref latestFrame, frame);
-        lastFrameUnixMs = now;
+        if (disposed)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        Interlocked.Exchange(ref latestFrame, frame)?.Dispose();
+        if (disposed && Interlocked.CompareExchange(ref latestFrame, null, frame) == frame)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        lastFrameUnixMs = frame.TimestampUnixMs;
         cadenceDiagnostics.Record(FramesPerSecond);
 
+        var now = frame.TimestampUnixMs;
         if (captureWindowStartUnixMs == 0)
             captureWindowStartUnixMs = now;
 

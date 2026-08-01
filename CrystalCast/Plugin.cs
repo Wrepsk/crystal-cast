@@ -74,6 +74,7 @@ public sealed class Plugin : IDalamudPlugin
         configWindow.Dispose();
         ipc.Dispose();
         renderer.Dispose();
+        Configuration.FlushPendingSave();
     }
 
     public void ToggleMainUi() => mainWindow.Toggle();
@@ -86,6 +87,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         windowSystem.Draw();
         renderer.DrawWorld();
+        Configuration.ProcessPendingSave();
     }
 
     private void OnTerritoryChanged(uint territoryId)

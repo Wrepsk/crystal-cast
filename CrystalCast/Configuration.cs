@@ -1,18 +1,24 @@
 using Dalamud.Configuration;
 using CrystalCast.Video;
 using System;
+using System.Diagnostics;
 
 namespace CrystalCast;
 
 [Serializable]
 public class Configuration : IPluginConfiguration
 {
+    private const int SaveDebounceMilliseconds = 300;
+    [NonSerialized] private long lastSaveRequestTicks;
+    [NonSerialized] private int savePending;
+
     public const int OutputModeImGuiOverlay = 0;
     public const int OutputModeNativeOverlay = 1;
     public const int OutputModeSceneComposite = 2;
     public const int MaxBrowserScreens = 8;
     public const int MaxIpcBrowserScreens = 56;
     public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
+    public const int MaxActiveBrowserScreens = 8;
 
     public int Version { get; set; } = 2;
 
@@ -43,6 +49,7 @@ public class Configuration : IPluginConfiguration
     public int OutputMode { get; set; } = DefaultOutputMode;
     public int UiMaskMode { get; set; }
     public bool ShowDebugMarker { get; set; }
+    public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
 
@@ -250,6 +257,27 @@ public class Configuration : IPluginConfiguration
 
     public void Save()
     {
+        Interlocked.Exchange(ref lastSaveRequestTicks, Stopwatch.GetTimestamp());
+        Interlocked.Exchange(ref savePending, 1);
+    }
+
+    internal void ProcessPendingSave()
+    {
+        if (Volatile.Read(ref savePending) == 0)
+            return;
+
+        var elapsed = Stopwatch.GetElapsedTime(Interlocked.Read(ref lastSaveRequestTicks));
+        if (elapsed.TotalMilliseconds < SaveDebounceMilliseconds)
+            return;
+
+        FlushPendingSave();
+    }
+
+    internal void FlushPendingSave()
+    {
+        if (Interlocked.Exchange(ref savePending, 0) == 0)
+            return;
+
         Plugin.PluginInterface.SavePluginConfig(this);
     }
 }

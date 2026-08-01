@@ -5,6 +5,42 @@ namespace CrystalCast.Tests;
 public sealed class ScreenChangePublisherTests
 {
     [Fact]
+    public void UnchangedScreenIsNotPublishedTwice()
+    {
+        var configuration = new Configuration();
+        var screen = configuration.GetActiveBrowserScreen();
+        var messages = new List<string>();
+        var publisher = new ScreenChangePublisher(configuration, "runtime-session", messages.Add);
+        var state = new ScreenStateEnvelope
+        {
+            ScreenId = screen.ScreenId,
+            Source = new ScreenSourceState { Kind = ScreenSourceKind.Browser },
+        };
+
+        Assert.True(publisher.MaybeSendScreenChanged(state, null, null));
+        Assert.False(publisher.MaybeSendScreenChanged(state, null, null));
+        Assert.Single(messages);
+    }
+
+    [Fact]
+    public void ForcedChangePublishesAnUnchangedScreen()
+    {
+        var configuration = new Configuration();
+        var screen = configuration.GetActiveBrowserScreen();
+        var messages = new List<string>();
+        var publisher = new ScreenChangePublisher(configuration, "runtime-session", messages.Add);
+        var state = new ScreenStateEnvelope
+        {
+            ScreenId = screen.ScreenId,
+            Source = new ScreenSourceState { Kind = ScreenSourceKind.Browser },
+        };
+        publisher.MaybeSendScreenChanged(state, null, null);
+
+        Assert.True(publisher.MaybeSendScreenChanged(state, screen.ScreenId, [ScreenIpcChangeKind.Playback]));
+        Assert.Equal(2, messages.Count);
+    }
+
+    [Fact]
     public void UnavailableEventPreservesOwnershipAndHasNoState()
     {
         var configuration = new Configuration();

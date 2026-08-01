@@ -176,10 +176,12 @@ public sealed class ScreenStateIpc : IDisposable
         string? firstJson = null;
         foreach (var state in states)
         {
+            if (!changePublisher.MaybeSendScreenChanged(state, changedScreenId, forcedChanges))
+                continue;
+
             var json = IpcJsonService.Serialize(state);
             firstJson ??= json;
             localStateChangedProvider.SendMessage(json);
-            changePublisher.MaybeSendScreenChanged(state, changedScreenId, forcedChanges);
         }
 
         changePublisher.SendUnavailableEventsForMissingLocalScreens(publishedScreenIds);

@@ -70,6 +70,19 @@ public sealed class ScreenLimitPolicyTests
         Assert.Single(configuration.BrowserScreens, screen => screen.CreatedByIpc && !screen.Enabled);
     }
 
+    [Fact]
+    public void ActiveScreensEnforceRuntimeBudgetWithoutDisablingDeferredProfiles()
+    {
+        var screens = CreateScreens(Configuration.MaxBrowserScreens, createdByIpc: false);
+        screens.AddRange(CreateScreens(2, createdByIpc: true));
+
+        var active = ScreenLimitPolicy.GetActiveScreens(screens);
+
+        Assert.Equal(Configuration.MaxActiveBrowserScreens, active.Count);
+        Assert.Equal(2, ScreenLimitPolicy.CountDeferredActiveScreens(screens));
+        Assert.All(screens, screen => Assert.True(screen.Enabled));
+    }
+
     private static List<BrowserScreenProfile> CreateScreens(int count, bool createdByIpc)
     {
         return Enumerable.Range(0, count)

@@ -38,6 +38,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private int captureWindowFrames;
     private double measuredCaptureFps;
     private double lastCaptureMilliseconds;
+    private volatile bool disposed;
 
     public GenericWebBrowserFrameSource(
         string input,
@@ -122,8 +123,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public bool TryGetLatestFrame(out VideoFrame frame)
     {
-        frame = latestFrame!;
-        return frame != null;
+        var current = Volatile.Read(ref latestFrame);
+        if (current != null)
+            return current.TryAcquire(out frame);
+
+        frame = null!;
+        return false;
     }
 
     public bool TryGetLatestNativeFrame(out NativeVideoFrame frame)
@@ -231,7 +236,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public void Dispose()
     {
+        disposed = true;
         captureEnabled = false;
+        Interlocked.Exchange(ref latestFrame, null)?.Dispose();
         browserThread?.Dispose();
         browserThread = null;
         browserStatus = "disposed";
@@ -255,12 +262,22 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop, true);
     }
 
-    private void PublishFrame(byte[] pixels, int width, int height)
+    private void PublishFrame(VideoFrame frame)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var frame = new VideoFrame(pixels, width, height, Interlocked.Increment(ref sequence), now);
-        Interlocked.Exchange(ref latestFrame, frame);
-        RecordCapturedFrame(now);
+        if (disposed)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        Interlocked.Exchange(ref latestFrame, frame)?.Dispose();
+        if (disposed && Interlocked.CompareExchange(ref latestFrame, null, frame) == frame)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        RecordCapturedFrame(frame.TimestampUnixMs);
     }
 
     private void PublishNativeFrame(IntPtr sharedHandle, int width, int height)
@@ -431,6 +448,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         private readonly CancellationTokenSource shutdownCancellation = new();
         private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
         private readonly Queue<string> pendingPlayerMessages = new();
+        private readonly MemoryStream captureStream = new();
         private volatile bool shutdownRequested;
         private BrowserSynchronizationContext? synchronizationContext;
         private CoreWebView2Controller? controller;
@@ -658,6 +676,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 }
 
                 lifecycle.MarkStopped();
+                captureStream.Dispose();
                 shutdownCancellation.Dispose();
                 context.Dispose();
             }
@@ -862,16 +881,29 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         private async Task CaptureOnceAsync(CoreWebView2 currentWebView)
         {
-            await using var stream = new MemoryStream();
-            await currentWebView.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Jpeg, stream);
-            if (stream.Length == 0)
+            captureStream.Position = 0;
+            captureStream.SetLength(0);
+            await currentWebView.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Jpeg, captureStream);
+            if (captureStream.Length == 0)
                 return;
 
-            stream.Position = 0;
-            using var image = Image.Load<Bgra32>(stream);
-            var pixels = new byte[image.Width * image.Height * 4];
-            image.CopyPixelDataTo(pixels);
-            owner.PublishFrame(pixels, image.Width, image.Height);
+            captureStream.Position = 0;
+            using var image = Image.Load<Bgra32>(captureStream);
+            var frame = VideoFrame.Rent(
+                image.Width,
+                image.Height,
+                Interlocked.Increment(ref owner.sequence),
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            try
+            {
+                image.CopyPixelDataTo(frame.Pixels.AsSpan(0, frame.PixelLength));
+                owner.PublishFrame(frame);
+            }
+            catch
+            {
+                frame.Dispose();
+                throw;
+            }
         }
 
         private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)

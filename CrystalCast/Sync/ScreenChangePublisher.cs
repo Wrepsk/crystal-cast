@@ -43,7 +43,7 @@ internal sealed class ScreenChangePublisher
         knownLocalScreenIds.Remove(screenId);
     }
 
-    public void MaybeSendScreenChanged(
+    public bool MaybeSendScreenChanged(
         ScreenStateEnvelope state,
         string? forcedScreenId,
         IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)
@@ -60,19 +60,24 @@ internal sealed class ScreenChangePublisher
                     ? forcedChanges!
                     : GetCreateChangeKinds());
 
-            return;
+            return true;
         }
 
         localScreenFingerprints[state.ScreenId] = next;
         if (IsForcedScreen(state.ScreenId, forcedScreenId, forcedChanges))
         {
             SendScreenChanged(state, screen, forcedChanges!);
-            return;
+            return true;
         }
 
         var changes = GetFingerprintChanges(previous, next);
         if (changes.Count > 0)
+        {
             SendScreenChanged(state, screen, changes);
+            return true;
+        }
+
+        return false;
     }
 
     public void SendUnavailableEventsForMissingLocalScreens(HashSet<string> currentScreenIds)

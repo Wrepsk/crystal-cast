@@ -228,14 +228,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
     private IVideoFrameSource CreateAutoCefFirstSource()
     {
-        if (CefRuntimeManager.CanInitialize(out var status))
-        {
-            fallbackStatus = string.Empty;
-            return CreateCefSource();
-        }
-
-        fallbackStatus = $"CEF unavailable, using WebView2 window capture fallback: {status}";
-        return CreateWebView2WindowCaptureSource();
+        fallbackStatus = string.Empty;
+        return CreateCefSource();
     }
 
     private IVideoFrameSource CreateAutoWebView2FirstSource()
@@ -246,30 +240,12 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             return CreateWebView2WindowCaptureSource();
         }
 
-        if (CefRuntimeManager.CanInitialize(out var cefStatus))
-        {
-            fallbackStatus = $"WebView2 unavailable, using CEF for {descriptor.DisplayName}: {webView2Status}";
-            return CreateCefSource();
-        }
-
-        fallbackStatus = $"browser source unavailable: WebView2 {webView2Status}; CEF {cefStatus}";
-        return CreateUnavailableSource(fallbackStatus);
+        fallbackStatus = $"WebView2 unavailable, trying CEF for {descriptor.DisplayName}: {webView2Status}";
+        return CreateCefSource();
     }
 
     private IVideoFrameSource CreateCefSource()
     {
-        if (!CefRuntimeManager.CanInitialize(out var cefStatus))
-        {
-            if (enginePreference == BrowserMediaEngine.Auto)
-            {
-            fallbackStatus = $"CEF unavailable, using WebView2 window capture fallback: {cefStatus}";
-            return CreateWebView2WindowCaptureSource();
-            }
-
-            fallbackStatus = $"CEF unavailable: {cefStatus}";
-            return CreateUnavailableSource(fallbackStatus);
-        }
-
         fallbackStatus = enginePreference == BrowserMediaEngine.CefOffScreen ? string.Empty : fallbackStatus;
         activeEngine = BrowserMediaEngine.CefOffScreen;
         return new CefBrowserFrameSource(descriptor, input, width, height, captureFps, autoplay, currentLoop, currentPlaylistAutoplayNext, currentAudioEnabled, currentVolume, currentPlaybackRate);

@@ -37,7 +37,8 @@ public sealed class DynamicVideoTexture : IDisposable
         if (frame.Sequence == uploadedSequence)
             return false;
 
-        if (frame.Pixels.Length != frame.Width * frame.Height * 4)
+        if (frame.PixelLength != frame.Width * frame.Height * 4
+            || frame.Pixels.Length < frame.PixelLength)
             return false;
 
         try
@@ -105,13 +106,19 @@ public sealed class DynamicVideoTexture : IDisposable
         }
         catch
         {
-            nextContext?.Dispose();
-            nextDevice?.Dispose();
-            nextTexture?.Dispose();
-            nextShaderResourceView?.Dispose();
+            DisposeComObject(nextContext);
+            DisposeComObject(nextShaderResourceView);
+            DisposeComObject(nextTexture);
             if (referenceAdded)
                 Marshal.Release(srvPointer);
-            nextWrap?.Dispose();
+            try
+            {
+                nextWrap?.Dispose();
+            }
+            finally
+            {
+                DisposeComObject(nextDevice);
+            }
             throw;
         }
 
@@ -128,19 +135,40 @@ public sealed class DynamicVideoTexture : IDisposable
 
     private void DisposeTexture()
     {
-        context?.Dispose();
+        var previousContext = context;
+        var previousTexture = texture;
+        var previousShaderResourceView = shaderResourceView;
+        var previousDevice = device;
+        var previousWrap = wrap;
+
         context = null;
-        device?.Dispose();
-        device = null;
-        texture?.Dispose();
         texture = null;
-        shaderResourceView?.Dispose();
         shaderResourceView = null;
-        wrap?.Dispose();
+        device = null;
         wrap = null;
         Width = 0;
         Height = 0;
         uploadedSequence = -1;
+
+        DisposeComObject(previousContext);
+        DisposeComObject(previousShaderResourceView);
+        DisposeComObject(previousTexture);
+        try
+        {
+            previousWrap?.Dispose();
+        }
+        finally
+        {
+            DisposeComObject(previousDevice);
+        }
+    }
+
+    private static void DisposeComObject(ComObject? value)
+    {
+        if (value == null || value.NativePointer == IntPtr.Zero)
+            return;
+
+        value.Dispose();
     }
 
     private static unsafe void CopyPixels(byte[] pixels, int width, int height, DataBox dataBox)

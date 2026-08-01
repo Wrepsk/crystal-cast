@@ -16,7 +16,7 @@ public sealed class ConfigWindow : Window, IDisposable
     ];
 
     private static readonly string[] BrowserEngineNames =
-        ["Auto (CEF, then WebView2)", "CEF offscreen", "WebView2 JPEG capture", "WebView2 window capture"];
+        ["Auto (WGC preferred)", "CEF offscreen", "WebView2 JPEG capture", "WebView2 window capture"];
 
     private static readonly BrowserMediaEngine[] BrowserEngines =
         [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture];
@@ -65,7 +65,7 @@ public sealed class ConfigWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Diagnostics"))
             {
                 ImGui.Spacing();
-                DrawDiagnostics();
+                changed |= DrawDiagnostics(config);
                 ImGui.EndTabItem();
             }
 
@@ -228,8 +228,17 @@ public sealed class ConfigWindow : Window, IDisposable
         return 0;
     }
 
-    private void DrawDiagnostics()
+    private bool DrawDiagnostics(Configuration config)
     {
+        var changed = false;
+        var gpuDiagnostics = config.EnableGpuDiagnostics;
+        if (ImGui.Checkbox("Enable GPU texture sampling", ref gpuDiagnostics))
+        {
+            config.EnableGpuDiagnostics = gpuDiagnostics;
+            changed = true;
+        }
+        ImGui.TextDisabled("Off by default; sampling performs a GPU readback once per second per active WGC screen.");
+        ImGui.Spacing();
         ImGui.TextUnformatted($"Renderer: {renderer.Status}");
         ImGui.TextUnformatted($"Draw: {renderer.LastDrawStatus}");
         ImGui.TextUnformatted($"Scene composite: {renderer.SceneCompositeStatus}");
@@ -237,6 +246,7 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextUnformatted($"Source status: {renderer.SourceStatus}");
         ImGui.TextUnformatted($"Audio: {renderer.AudioStatus}");
         ImGui.TextUnformatted($"Browser runtimes: {renderer.ActiveBrowserRuntimeCount}");
+        ImGui.TextUnformatted($"Browser budget: {renderer.BrowserResourceBudgetStatus}");
         ImGui.TextUnformatted($"Texture: {renderer.TextureWidth} x {renderer.TextureHeight}");
         ImGui.TextUnformatted($"Uploads: {renderer.UploadCount}");
         ImGui.TextUnformatted($"Last upload: {renderer.LastUploadMilliseconds:0.000} ms");
@@ -244,6 +254,7 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextUnformatted($"Audio distance: {renderer.AudioDistanceMeters:0.00} m");
         ImGui.TextUnformatted($"Audio falloff: {renderer.SpatialAudioAttenuation * 100.0f:0}%");
         ImGui.TextUnformatted($"Effective audio volume: {renderer.EffectiveAudioVolume * 100.0f:0}%");
+        return changed;
     }
 
     private void DrawIpc(Configuration config)

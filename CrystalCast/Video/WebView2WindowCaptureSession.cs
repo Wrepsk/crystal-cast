@@ -367,7 +367,16 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             try
             {
                 d3dContext.CopyResource(sourceTexture, sharedTexture);
-                diagnosticStatus = UpdateDiagnosticStatus(sourceTexture, contentSize.Width, contentSize.Height);
+                if (CrystalCast.Rendering.GraphicsDiagnostics.Enabled)
+                {
+                    diagnosticStatus = UpdateDiagnosticStatus(sourceTexture, contentSize.Width, contentSize.Height);
+                }
+                else
+                {
+                    diagnosticStagingTexture?.Dispose();
+                    diagnosticStagingTexture = null;
+                    diagnosticStatus = "GPU sampling disabled";
+                }
                 d3dContext.Flush();
             }
             finally

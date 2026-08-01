@@ -7,7 +7,6 @@ namespace CrystalCast.Rendering;
 
 public sealed class WorldScreenManager : IDisposable
 {
-    private const int CurvedScreenSegments = 32;
     private const long GraphicsRetryDelayMs = 5000;
 
     private readonly record struct PreparedScreenTexture(nint NativeHandle, int Width, int Height);
@@ -40,7 +39,18 @@ public sealed class WorldScreenManager : IDisposable
     public float AudioDistanceMeters => ActiveInstance?.AudioDistanceMeters ?? 0.0f;
     public float SpatialAudioAttenuation => ActiveInstance?.SpatialAudioAttenuation ?? 1.0f;
     public float EffectiveAudioVolume => ActiveInstance?.EffectiveAudioVolume ?? 0.0f;
-    public int ActiveBrowserRuntimeCount => browserScreens.Count;
+    public int ActiveBrowserRuntimeCount => browserScreens.Values.Count(instance => instance.IsBrowserRuntimeActive);
+    public string BrowserResourceBudgetStatus
+    {
+        get
+        {
+            var active = ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens).Count;
+            var deferred = ScreenLimitPolicy.CountDeferredActiveScreens(configuration.BrowserScreens);
+            return deferred == 0
+                ? $"{active}/{Configuration.MaxActiveBrowserScreens} active browser slots used"
+                : $"{active}/{Configuration.MaxActiveBrowserScreens} active browser slots used; {deferred} enabled screen{(deferred == 1 ? string.Empty : "s")} deferred";
+        }
+    }
 
     private WorldScreenInstance? ActiveInstance
     {
@@ -55,6 +65,7 @@ public sealed class WorldScreenManager : IDisposable
     public void DrawWorld()
     {
         configuration.Normalize();
+        GraphicsDiagnostics.Enabled = configuration.EnableGpuDiagnostics;
         SyncBrowserScreens();
 
         if (pictomancyContext == null)
@@ -106,13 +117,16 @@ public sealed class WorldScreenManager : IDisposable
 
     public bool TryPlayDynamicSource()
     {
-        return ActiveInstance?.TryPlayDynamicSource() == true;
+        var screen = configuration.GetActiveBrowserScreen();
+        return IsWithinBrowserResourceBudget(screen) && ActiveInstance?.TryPlayDynamicSource() == true;
     }
 
     public bool TryPlayDynamicSource(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryPlayDynamicSource();
+        return IsWithinBrowserResourceBudget(screen)
+            && browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            && instance.TryPlayDynamicSource();
     }
 
     public bool TryPauseDynamicSource()
@@ -139,19 +153,24 @@ public sealed class WorldScreenManager : IDisposable
 
     public bool TryRestartDynamicSource()
     {
-        return ActiveInstance?.TryRestartDynamicSource() == true;
+        var screen = configuration.GetActiveBrowserScreen();
+        return IsWithinBrowserResourceBudget(screen) && ActiveInstance?.TryRestartDynamicSource() == true;
     }
 
     public bool TryRestartDynamicSource(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryRestartDynamicSource();
+        return IsWithinBrowserResourceBudget(screen)
+            && browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            && instance.TryRestartDynamicSource();
     }
 
     public bool TryShowBrowserControls(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryShowBrowserControls();
+        return IsWithinBrowserResourceBudget(screen)
+            && browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            && instance.TryShowBrowserControls();
     }
 
     public bool TryHideBrowserControls(BrowserScreenProfile screen)
@@ -169,7 +188,15 @@ public sealed class WorldScreenManager : IDisposable
     public bool AreBrowserControlsAvailable(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.BrowserControlsAvailable;
+        return IsWithinBrowserResourceBudget(screen)
+            && browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            && instance.BrowserControlsAvailable;
+    }
+
+    private bool IsWithinBrowserResourceBudget(BrowserScreenProfile screen)
+    {
+        return ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens)
+            .Any(active => string.Equals(active.ScreenId, screen.ScreenId, StringComparison.Ordinal));
     }
 
     public MediaPlaybackTelemetry? GetPlaybackTelemetry(BrowserScreenProfile screen)
@@ -245,7 +272,7 @@ public sealed class WorldScreenManager : IDisposable
             {
                 EnableVfxRenderer = false,
                 EnableKtkOutput = true,
-                MaxImages = (Configuration.MaxRenderableBrowserScreens * CurvedScreenSegments) + 1,
+                MaxImages = (Configuration.MaxActiveBrowserScreens * CurvedScreenTessellation.MaxSegments) + 1,
             });
             Status = "Pictomancy ready";
         }
@@ -294,11 +321,13 @@ public sealed class WorldScreenManager : IDisposable
 
     private void DrawBrowserScreens()
     {
-        var screens = ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens)
-            .Where(screen => screen.Enabled)
+        var screens = ScreenLimitPolicy.GetActiveScreens(configuration.BrowserScreens)
             .Select(screen => browserScreens[screen.ScreenId]);
 
         DrawScreens(screens);
+        var deferred = ScreenLimitPolicy.CountDeferredActiveScreens(configuration.BrowserScreens);
+        if (deferred > 0)
+            LastDrawStatus += $"; {deferred} enabled screen{(deferred == 1 ? string.Empty : "s")} deferred by the {Configuration.MaxActiveBrowserScreens}-browser resource budget";
     }
 
     private void DrawScreens(IEnumerable<WorldScreenInstance> screens)
@@ -375,6 +404,9 @@ public sealed class WorldScreenManager : IDisposable
         var activeIds = allowedScreens
             .Select(screen => screen.ScreenId)
             .ToHashSet(StringComparer.Ordinal);
+        var runningIds = ScreenLimitPolicy.GetActiveScreens(allowedScreens)
+            .Select(screen => screen.ScreenId)
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var screen in allowedScreens)
         {
@@ -398,7 +430,7 @@ public sealed class WorldScreenManager : IDisposable
             browserScreens.Remove(screenId);
         }
 
-        foreach (var screen in allowedScreens.Where(screen => !screen.Enabled))
+        foreach (var screen in allowedScreens.Where(screen => !runningIds.Contains(screen.ScreenId)))
         {
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
                 TryStopScreen(screen.ScreenId, instance);
@@ -466,6 +498,7 @@ public sealed class WorldScreenManager : IDisposable
         private long lastDrawFailureLogUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
         private long lastPauseCommandUnixMs;
+        private MediaPlaybackTelemetry? playbackTelemetry;
         private long fallbackFrameSequence = -1_000_000_000;
         private float smoothedEffectiveAudioVolume;
         private ResolvedScreenPlacement resolvedPlacement;
@@ -485,6 +518,7 @@ public sealed class WorldScreenManager : IDisposable
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";
         public string AudioStatus => GetBrowserAudioEnabled() ? "browser audio enabled" : "browser audio muted";
         public string SourceName => frameSource?.Name ?? "no source";
+        public bool IsBrowserRuntimeActive => frameSource?.IsRunning == true;
         public bool BrowserControlsAvailable
         {
             get
@@ -502,7 +536,7 @@ public sealed class WorldScreenManager : IDisposable
         public int TextureHeight => sharedTexture.NativeHandle != 0 ? sharedTexture.Height : dynamicTexture.Height;
         public long FrameAgeMilliseconds => lastFrameUnixMs == 0 ? 0 : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs;
         public string LastDrawStatus { get; private set; } = "not drawn yet";
-        public MediaPlaybackTelemetry? PlaybackTelemetry { get; private set; }
+        public MediaPlaybackTelemetry? PlaybackTelemetry => Volatile.Read(ref playbackTelemetry);
         public float AudioDistanceMeters { get; private set; }
         public float SpatialAudioAttenuation { get; private set; } = 1.0f;
         public float EffectiveAudioVolume { get; private set; }
@@ -665,7 +699,7 @@ public sealed class WorldScreenManager : IDisposable
             TryHideBrowserControls();
             frameSource?.Stop();
             ResetEffectiveAudioVolume();
-            PlaybackTelemetry = null;
+            Volatile.Write(ref playbackTelemetry, null);
             hasResolvedPlacement = false;
         }
 
@@ -703,7 +737,7 @@ public sealed class WorldScreenManager : IDisposable
             EnsureFrameSource();
             if (frameSource == null)
             {
-                PlaybackTelemetry = null;
+                Volatile.Write(ref playbackTelemetry, null);
                 return ResolveFallbackTexture();
             }
 
@@ -724,41 +758,48 @@ public sealed class WorldScreenManager : IDisposable
             var hasNativeFrame = frameSource is INativeVideoFrameSource nativeSource
                 && nativeSource.TryGetLatestNativeFrame(out nativeFrame);
             var hasByteFrame = frameSource.TryGetLatestFrame(out var frame);
-
-            if (hasNativeFrame && nativeFrame != null && (!hasByteFrame || nativeFrame.Sequence >= frame.Sequence))
+            try
             {
-                try
+                if (hasNativeFrame && nativeFrame != null && (!hasByteFrame || nativeFrame.Sequence >= frame.Sequence))
                 {
-                    if (sharedTexture.Upload(nativeFrame))
+                    try
                     {
-                        lastFrameUnixMs = nativeFrame.TimestampUnixMs;
-                        lastNativeTextureError = string.Empty;
-                    }
+                        if (sharedTexture.Upload(nativeFrame))
+                        {
+                            lastFrameUnixMs = nativeFrame.TimestampUnixMs;
+                            lastNativeTextureError = string.Empty;
+                        }
 
-                    if (sharedTexture.NativeHandle != 0)
-                        return new PreparedScreenTexture(sharedTexture.NativeHandle, sharedTexture.Width, sharedTexture.Height);
+                        if (sharedTexture.NativeHandle != 0)
+                            return new PreparedScreenTexture(sharedTexture.NativeHandle, sharedTexture.Width, sharedTexture.Height);
+                    }
+                    catch (Exception ex)
+                    {
+                        sharedTexture.Dispose();
+                        lastNativeTextureError = ex.GetBaseException().Message;
+                        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        if (now - lastNativeTextureErrorUnixMs >= 5000)
+                        {
+                            lastNativeTextureErrorUnixMs = now;
+                            Plugin.Log.Warning(ex, "Failed to open CrystalCast shared video texture.");
+                        }
+                    }
                 }
-                catch (Exception ex)
+
+                if (hasByteFrame)
                 {
                     sharedTexture.Dispose();
-                    lastNativeTextureError = ex.GetBaseException().Message;
-                    var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    if (now - lastNativeTextureErrorUnixMs >= 5000)
-                    {
-                        lastNativeTextureErrorUnixMs = now;
-                        Plugin.Log.Warning(ex, "Failed to open CrystalCast shared video texture.");
-                    }
+                    if (dynamicTexture.Upload(frame))
+                        lastFrameUnixMs = frame.TimestampUnixMs;
                 }
-            }
 
-            if (hasByteFrame)
+                return ToPreparedTexture(dynamicTexture.TextureWrap) ?? ResolveFallbackTexture();
+            }
+            finally
             {
-                sharedTexture.Dispose();
-                if (dynamicTexture.Upload(frame))
-                    lastFrameUnixMs = frame.TimestampUnixMs;
+                if (hasByteFrame)
+                    frame.Dispose();
             }
-
-            return ToPreparedTexture(dynamicTexture.TextureWrap) ?? ResolveFallbackTexture();
         }
 
         private PreparedScreenTexture? ResolveCurrentTexture()
@@ -986,10 +1027,11 @@ public sealed class WorldScreenManager : IDisposable
             var downAxis = Vector3.Normalize(down);
             var curveForward = -Vector3.Normalize(Vector3.Cross(rightAxis, downAxis));
             var curve = BuildCurve(panelSize.X, curveAmount);
-            for (var i = 0; i < CurvedScreenSegments; i++)
+            var segmentCount = CurvedScreenTessellation.GetSegmentCount(curve.HalfAngle);
+            for (var i = 0; i < segmentCount; i++)
             {
-                var u0 = (float)i / CurvedScreenSegments;
-                var u1 = (float)(i + 1) / CurvedScreenSegments;
+                var u0 = (float)i / segmentCount;
+                var u1 = (float)(i + 1) / segmentCount;
                 var start = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u0);
                 var stop = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u1);
                 var stripRight = stop - start;
@@ -1012,11 +1054,12 @@ public sealed class WorldScreenManager : IDisposable
             var curveForward = -Vector3.Normalize(Vector3.Cross(rightAxis, downAxis));
             var curve = BuildCurve(width, curveAmount);
             var minDistanceSquared = float.PositiveInfinity;
+            var segmentCount = CurvedScreenTessellation.GetSegmentCount(curve.HalfAngle);
 
-            for (var i = 0; i < CurvedScreenSegments; i++)
+            for (var i = 0; i < segmentCount; i++)
             {
-                var u0 = (float)i / CurvedScreenSegments;
-                var u1 = (float)(i + 1) / CurvedScreenSegments;
+                var u0 = (float)i / segmentCount;
+                var u1 = (float)(i + 1) / segmentCount;
                 var start = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u0);
                 var stop = GetCurvedScreenPoint(center, rightAxis, curveForward, curve.Radius, curve.HalfAngle, u1);
                 var stripRight = stop - start;
@@ -1032,11 +1075,11 @@ public sealed class WorldScreenManager : IDisposable
         {
             if (frameSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var telemetry))
             {
-                PlaybackTelemetry = telemetry;
+                Volatile.Write(ref playbackTelemetry, telemetry);
                 return;
             }
 
-            PlaybackTelemetry = null;
+            Volatile.Write(ref playbackTelemetry, null);
         }
 
         private PctDxParams BuildDxParams()

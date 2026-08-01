@@ -79,7 +79,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "YouTube",
         InvalidSourceMessage = "invalid YouTube URL, video ID, playlist, or live channel",
         LoadReason = "new video",
-        PreferredAutoEngine = BrowserMediaEngine.CefOffScreen,
+        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseYouTube,
         BuildHtml = (source, settings) => YouTubePlayerPage.BuildHtml(
             (YouTubeSourceReference)source,

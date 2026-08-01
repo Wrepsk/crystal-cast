@@ -56,6 +56,20 @@ internal static class ScreenLimitPolicy
         return allowed;
     }
 
+    public static IReadOnlyList<BrowserScreenProfile> GetActiveScreens(IEnumerable<BrowserScreenProfile> screens)
+    {
+        return GetAllowedScreens(screens)
+            .Where(screen => screen.Enabled)
+            .Take(Configuration.MaxActiveBrowserScreens)
+            .ToArray();
+    }
+
+    public static int CountDeferredActiveScreens(IEnumerable<BrowserScreenProfile> screens)
+    {
+        var enabledCount = GetAllowedScreens(screens).Count(screen => screen.Enabled);
+        return Math.Max(0, enabledCount - Configuration.MaxActiveBrowserScreens);
+    }
+
     public static bool DisableScreensOutsideLimits(IReadOnlyList<BrowserScreenProfile> screens)
     {
         var allowedIds = GetAllowedScreens(screens)

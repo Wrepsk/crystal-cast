@@ -24,7 +24,7 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 ## Tests
 
-The browser-only model, migration, provider URL parsers, source-kind compatibility, screen limits, IPC patching, remote-state sequencing, browser factory mapping, page isolation, lifecycle races, native graphics error classification, and placement-prediction resets are covered by the xUnit test project:
+The browser-only model, migration, provider URL parsers, source-kind compatibility, screen and runtime budgets, IPC change filtering, remote-state sequencing, browser factory mapping, page isolation, lifecycle races, pooled-frame leases, adaptive tessellation, native graphics error classification, and placement-prediction resets are covered by the xUnit test project:
 
 ```powershell
 dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
@@ -44,17 +44,19 @@ CrystalCast's intended render output is Pictomancy `SceneComposite`, which compo
 
 ## Browser compatibility
 
-CrystalCast supports two browser capture paths:
+CrystalCast supports three browser capture paths:
 
-- CEF offscreen capture, preferred when compatible.
+- WebView2 window capture, the preferred Auto path on Windows; it uses Windows Graphics Capture to avoid CPU readback when supported.
+- CEF offscreen capture, available as an explicit compatibility option or fallback.
 - WebView2 JPEG capture, a Windows fallback for sources that need the Microsoft Edge media stack.
-- WebView2 window capture, an experimental Windows Graphics Capture path that can avoid the JPEG readback path when supported.
 
-CrystalCast does not ship a proprietary-codec CEF build. Some streaming sources, especially Twitch and YouTube Live, may require codecs not included in the bundled CEF runtime. In Auto mode, CrystalCast uses each provider's preferred browser path and falls back between CEF offscreen capture and WebView2 capture on Windows when needed.
+CrystalCast does not ship a proprietary-codec CEF build. Some streaming sources, especially Twitch and YouTube Live, may require codecs not included in the bundled CEF runtime. In Auto mode, CrystalCast prefers WebView2 window capture and falls back to WebView2 JPEG or CEF capture when needed.
 
 WebView2 JPEG capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than CEF offscreen capture. WebView2 window capture uses Windows Graphics Capture, synchronizes its shared D3D texture with keyed mutexes, and falls back to JPEG capture if the OS, capture session, or graphics device becomes unavailable.
 
 Each WebView2 screen serves its player from a unique immutable in-memory page resource. Browser controls and telemetry use per-screen WebMessages protected by an instance nonce, so concurrent screens cannot overwrite a shared page or accept another screen's messages. Browser initialization and capture are cancellation-driven; commands and disposal do not synchronously wait on the render or UI thread.
+
+At most eight browser runtimes are active simultaneously. Additional enabled screens remain configured but are deferred in list order; the renderer and Diagnostics tab report this explicitly. GPU texture sampling diagnostics are disabled by default because they introduce a synchronous readback, and can be enabled temporarily from the Diagnostics tab.
 
 | Source | Windows CEF | Windows WebView2 | Notes |
 |---|---:|---:|---|

@@ -72,6 +72,23 @@ public sealed class BrowserFrameSourceFactoryTests
         Assert.Equal(expectedMode, factory.Request.GenericWebCaptureMode);
     }
 
+    [Fact]
+    public void CaptureFpsChangesAreAppliedToAnExistingSource()
+    {
+        var screen = new BrowserScreenProfile
+        {
+            ProviderKind = BrowserSourceProviderKind.YouTube,
+            YouTubeCaptureFpsManual = true,
+            YouTubeCaptureFps = 42.0f,
+        };
+        var factory = new RecordingBrowserFrameSourceFactory();
+        var source = BrowserSourceProviderRegistry.CreateFrameSource(screen, BrowserMediaEngine.Auto, factory);
+
+        BrowserSourceProviderRegistry.ApplyCaptureFps(source, screen);
+
+        Assert.Equal(42.0f, factory.Source.LastUpdatedCaptureFps);
+    }
+
     private sealed class RecordingBrowserFrameSourceFactory : IBrowserFrameSourceFactory
     {
         public BrowserFrameSourceRequest? Request { get; private set; }
@@ -80,12 +97,16 @@ public sealed class BrowserFrameSourceFactoryTests
         public IVideoFrameSource Create(BrowserFrameSourceRequest request)
         {
             Request = request;
+            Source.ProviderKind = request.ProviderKind;
             return Source;
         }
     }
 
-    private sealed class StubVideoFrameSource : IVideoFrameSource
+    private sealed class StubVideoFrameSource : IVideoFrameSource, IBrowserFrameSourceRuntime
     {
+        public BrowserSourceProviderKind ProviderKind { get; set; }
+        public float DetectedVideoFps => 0.0f;
+        public float LastUpdatedCaptureFps { get; private set; }
         public string Name => "stub";
         public int Width => 1;
         public int Height => 1;
@@ -100,6 +121,7 @@ public sealed class BrowserFrameSourceFactoryTests
             frame = null!;
             return false;
         }
+        public void UpdateCaptureFps(float fps) => LastUpdatedCaptureFps = fps;
         public void Dispose() { }
     }
 }

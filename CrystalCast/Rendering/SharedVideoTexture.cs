@@ -120,7 +120,16 @@ public sealed class SharedVideoTexture : IDisposable
         try
         {
             context.CopyResource(sharedTexture, texture);
-            UpdateDiagnosticStatus();
+            if (GraphicsDiagnostics.Enabled)
+            {
+                UpdateDiagnosticStatus();
+            }
+            else if (diagnosticStagingTexture != null)
+            {
+                diagnosticStagingTexture.Dispose();
+                diagnosticStagingTexture = null;
+                DiagnosticStatus = "GPU sampling disabled";
+            }
             context.Flush();
         }
         finally

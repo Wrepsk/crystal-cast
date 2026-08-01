@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.configuration }} x64
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.100
+          cache: true
+          cache-dependency-path: |
+            CrystalCast/packages.lock.json
+            CrystalCast.Tests/packages.lock.json
+            ThirdParty/ffxiv_pictomancy/Pictomancy/packages.lock.json
+
+      - name: Install Dalamud development files
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile dalamud.zip
+          Expand-Archive -Force dalamud.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+      - name: Restore locked dependencies
+        run: dotnet restore CrystalCast.sln --locked-mode -p:Platform=x64
+
+      - name: Build pinned Pictomancy source
+        run: dotnet build ThirdParty/ffxiv_pictomancy/Pictomancy/Pictomancy.csproj --configuration ${{ matrix.configuration }} --no-restore -p:Platform=x64 -p:RunAnalyzers=false
+
+      - name: Build CrystalCast and run analyzers
+        run: dotnet build CrystalCast/CrystalCast.csproj --configuration ${{ matrix.configuration }} --no-restore --no-dependencies -p:Platform=x64 -p:RunAnalyzers=true
+
+      - name: Build tests and run analyzers
+        run: dotnet build CrystalCast.Tests/CrystalCast.Tests.csproj --configuration ${{ matrix.configuration }} --no-restore --no-dependencies -p:Platform=x64 -p:RunAnalyzers=true
+
+      - name: Run tests
+        run: dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj --configuration ${{ matrix.configuration }} --no-build --no-restore -p:Platform=x64
+
+      - name: Verify release package
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: ./scripts/Verify-Package.ps1
+
+      - name: Upload release package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrystalCast-${{ github.sha }}
+          path: CrystalCast/bin/x64/Release/CrystalCast/latest.zip
+          if-no-files-found: error
+          retention-days: 7

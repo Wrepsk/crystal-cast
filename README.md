@@ -1,6 +1,6 @@
 # CrystalCast
 
-CrystalCast is a Dalamud API 15 prototype for rendering local world-space browser screens in FFXIV.
+CrystalCast is a Dalamud API 15 plugin for rendering local world-space browser screens in FFXIV.
 
 It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through WebView2.
 
@@ -8,16 +8,19 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 ## Build
 
+The repository pins its .NET SDK in `global.json`. A current Dalamud development installation is also required.
+
 1. Clone submodules:
 
    ```powershell
    git submodule update --init --recursive
    ```
 
-2. Build the solution:
+2. Restore locked dependencies and build the solution:
 
    ```powershell
-   dotnet build CrystalCast.sln -c Debug -p:Platform=x64
+   dotnet restore CrystalCast.sln --locked-mode -p:Platform=x64
+   dotnet build CrystalCast.sln -c Debug --no-restore -p:Platform=x64
    ```
 
 3. Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud dev plugin.
@@ -31,6 +34,8 @@ dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
 ```
 
 The tests use an injected browser-frame-source factory and do not start WebView2, Windows Graphics Capture, or D3D resources.
+
+Pull requests and pushes to `master` build and test both Debug and Release configurations. Release builds produce `CrystalCast/bin/x64/Release/CrystalCast/latest.zip`; CI verifies its exact runtime contents and generated manifest before uploading it.
 
 ## Usage
 
@@ -120,3 +125,9 @@ CrystalCast is a local media rendering plugin. It does not automate gameplay, se
 On source switches and plugin unload, CrystalCast is expected to dispose active browser frame sources, capture objects, and dynamic textures. Missing browser runtimes, bad URLs, and failed media loads should report clear errors without crashing the plugin.
 
 Configurations created before browser-only version 2 are migrated automatically. Existing browser screens are retained. If the active legacy source was local video, its screens are disabled during migration so browser media does not begin playing unexpectedly; the legacy placement is retained on the first browser screen, but local file and FFmpeg settings are discarded.
+
+## Development and releases
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release instructions, [CHANGELOG.md](CHANGELOG.md) for notable changes, [SECURITY.md](SECURITY.md) for vulnerability reporting and security boundaries, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency provenance.
+
+The Pictomancy submodule intentionally points to a pinned CrystalCast-specific fork derived from the upstream Pictomancy project. Tagged numeric versions trigger a Release build, tests, manifest/package verification, and GitHub Release publication.

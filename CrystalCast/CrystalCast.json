@@ -3,7 +3,7 @@
     "Name": "Crystal Cast",
     "InternalName": "CrystalCast",
     "AssemblyVersion": "0.5.1.0",
-    "Description": "Renders local-only world-space media screens through Pictomancy. Use /crystalcast to configure placement, source, and sync IPC state.",
+    "Description": "Renders browser media on configurable world-space screens through Pictomancy. Use /crystalcast to manage screens, sources, playback, and state-only sync IPC.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Wrepsk/crystal-cast",
     "Tags": [
@@ -12,8 +12,11 @@
         "pictomancy"
     ],
     "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
     "LoadPriority": 0,
     "IconUrl": "https://raw.githubusercontent.com/Wrepsk/repo/main/CrystalCast/images/icon.png",
-    "Punchline": "World-space media screen prototype.",
+    "Punchline": "World-space browser media screens for FFXIV.",
     "AcceptsFeedback": true
 }

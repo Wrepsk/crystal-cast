@@ -11,6 +11,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Default</AnalysisMode>
   </PropertyGroup>
 
   <ItemGroup>

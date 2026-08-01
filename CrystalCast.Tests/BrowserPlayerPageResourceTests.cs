@@ -42,6 +42,24 @@ public sealed class BrowserPlayerPageResourceTests
         Assert.True(first.Utf8Content.Length > 0);
     }
 
+    [Fact]
+    public void YouTubePageExposesNativePlayerSettingsInTheInteractionWindow()
+    {
+        var source = new YouTubeSourceReference(
+            YouTubeSourceKind.Video,
+            "dQw4w9WgXcQ",
+            string.Empty,
+            string.Empty);
+
+        var html = YouTubePlayerPage.BuildHtml(source, true, false, true, false, 0.7f, 1.0f);
+
+        Assert.Contains("controls: 1", html, StringComparison.Ordinal);
+        Assert.Contains("disablekb: 0", html, StringComparison.Ordinal);
+        Assert.Contains("&controls=1&disablekb=0", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("controls: 0", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("controls=0", html, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("play")]
     [InlineData("pause")]

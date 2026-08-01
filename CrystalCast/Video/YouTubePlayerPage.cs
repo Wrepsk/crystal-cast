@@ -468,8 +468,8 @@ internal static class YouTubePlayerPage
       debug("YouTube IFrame API ready");
       const playerVars = {
         autoplay: crystalCastConfig.autoplay ? 1 : 0,
-        controls: 0,
-        disablekb: 1,
+        controls: 1,
+        disablekb: 0,
         fs: 0,
         iv_load_policy: 3,
         loop: 0,
@@ -541,7 +541,7 @@ internal static class YouTubePlayerPage
         frame.src = "https://www.youtube.com/embed/live_stream?channel="
           + encodeURIComponent(crystalCastConfig.liveChannelId)
           + "&enablejsapi=1&autoplay=" + (crystalCastConfig.autoplay ? "1" : "0")
-          + "&controls=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&rel=0&origin="
+          + "&controls=1&disablekb=0&fs=0&iv_load_policy=3&playsinline=1&rel=0&origin="
           + encodeURIComponent(crystalCastConfig.origin);
         const host = document.getElementById("player");
         while (host.firstChild) {

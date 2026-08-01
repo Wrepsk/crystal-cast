@@ -207,7 +207,14 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(visible ? "Return the WebView2 page to capture mode" : "Bring the WebView2 page forward for mouse and keyboard input");
+        {
+            var tooltip = visible
+                ? "Return the WebView2 page to capture mode"
+                : descriptor.ProviderKind == BrowserSourceProviderKind.YouTube
+                    ? "Open YouTube's player controls for captions, quality, playback speed, and other settings"
+                    : "Bring the WebView2 page forward for mouse and keyboard input";
+            ImGui.SetTooltip(tooltip);
+        }
     }
 
     private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)

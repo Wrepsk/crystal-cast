@@ -1,10 +1,10 @@
 # CrystalCast
 
-CrystalCast is a Dalamud API 15 prototype for rendering local-only world-space media screens in FFXIV.
+CrystalCast is a Dalamud API 15 prototype for rendering local world-space browser screens in FFXIV.
 
-It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. Implemented sources are local video decoded through FFmpeg and browser-backed YouTube/Twitch/Dailymotion/Vimeo/Generic Web screens captured through CEF offscreen rendering or WebView2 capture.
+It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through CEF offscreen rendering or WebView2 capture.
 
-CrystalCast does not download or extract streaming media. Browser sources load the provider's embedded player locally and capture the resulting browser pixels into the same dynamic texture path used for local video.
+CrystalCast does not download or extract streaming media. Browser sources load the provider's embedded player locally and capture the resulting browser pixels for the world-space renderer.
 
 ## Build
 
@@ -26,7 +26,7 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 Open the controls with `/crystalcast`.
 
-Screens can be enabled, placed in front of the player, rotated/scaled, curved, and switched between source modes. The local video source expects an `ffmpeg.exe` path and a local video file path. Video frames are decoded to BGRA and uploaded into one stable dynamic D3D11 texture so Pictomancy can reuse the same texture handle across frames. Audio is decoded by a second FFmpeg process and played locally through the default Windows output device with a volume slider.
+Screens can be enabled, placed in front of the player, rotated/scaled, curved, and switched between supported browser providers.
 
 Browser screens currently support YouTube, Twitch, Dailymotion, Vimeo, and Generic Web. YouTube accepts video URLs/IDs, playlist URLs/IDs, playlist watch URLs, channel IDs, and channel live embeds. Twitch accepts channel and VOD URLs. Dailymotion accepts video URLs/IDs and playlist URLs. Vimeo accepts video URLs/IDs, including unlisted video URLs with hashes. Generic Web accepts HTTP/HTTPS page URLs and syncs playback when it can access a page `<video>` or `<audio>` element. Browser audio is local to the client when enabled, and browser sources start muted by default.
 
@@ -46,7 +46,6 @@ WebView2 JPEG capture uses browser screenshot capture rather than a direct raw f
 
 | Source | Windows CEF | Windows WebView2 | Notes |
 |---|---:|---:|---|
-| Local video | N/A | N/A | Decoded through FFmpeg, not the browser path. |
 | YouTube videos | Source-dependent | Supported | CEF compatibility depends on the required media codecs. |
 | YouTube Live | Partial/source-dependent | Supported | Live streams often need codecs not present in the bundled CEF runtime. |
 | Twitch | Partial/source-dependent | Supported | WebView2 is the main compatibility fallback on Windows. |
@@ -72,7 +71,7 @@ CrystalCast exposes state-only IPC for media-screen synchronization:
 - `CrystalCast.Screen.GetSourceState`
 - `CrystalCast.Screen.Changed`
 
-The IPC payload intentionally syncs screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. For browser sources, it includes provider-specific source identity and playback telemetry. It does not sync raw pixels, audio, or absolute local file paths.
+The IPC payload intentionally syncs screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. It includes provider-specific source identity and playback telemetry. It does not sync raw pixels or audio.
 
 `CrystalCast.Screen.Create`, `CrystalCast.Screen.Update`, `CrystalCast.Screen.UpdateSource`, and `CrystalCast.Screen.SetSourceLock` accept camel-case JSON strings and return a JSON result with `success`, `error`, `screenId`, and a screen summary when applicable. IPC-created browser screens are marked separately from user-created screens: the normal UI creation limit remains 8 screens, while IPC-created screens can render above that limit up to CrystalCast's render cap.
 
@@ -88,4 +87,6 @@ The IPC payload intentionally syncs screen pose, source identity, playback state
 
 CrystalCast is a local media rendering plugin. It does not automate gameplay, send game actions, spoof packets, parse combat data, collect account identifiers, or interact with FFXIV servers.
 
-On source switches and plugin unload, CrystalCast is expected to dispose active frame sources, browser capture objects, dynamic textures, and audio playback resources. Missing browser runtimes, missing FFmpeg paths, bad URLs, and failed media loads should report clear errors without crashing the plugin.
+On source switches and plugin unload, CrystalCast is expected to dispose active browser frame sources, capture objects, and dynamic textures. Missing browser runtimes, bad URLs, and failed media loads should report clear errors without crashing the plugin.
+
+Configurations created before browser-only version 2 are migrated automatically. Existing browser screens are retained. If the active legacy source was local video, its screens are disabled during migration so browser media does not begin playing unexpectedly; the legacy placement is retained on the first browser screen, but local file and FFmpeg settings are discarded.

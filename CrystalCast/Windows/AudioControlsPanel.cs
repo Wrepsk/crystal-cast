@@ -5,49 +5,17 @@ namespace CrystalCast.Windows;
 
 internal sealed class AudioControlsPanel(WorldScreenManager renderer)
 {
-    public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
+    public bool Draw(BrowserScreenProfile activeScreen)
     {
-        var changed = false;
-        switch (config.SourceKind)
+        var changed = activeScreen.ProviderKind switch
         {
-            case ScreenSourceKind.LocalVideo:
-                changed |= DrawLocalVideoAudio(config);
-                changed |= DrawSpatialAudio(config);
-                break;
-            case ScreenSourceKind.YouTubeBrowser:
-                changed |= activeScreen.ProviderKind switch
-                {
-                    BrowserSourceProviderKind.Twitch => DrawTwitchAudio(activeScreen),
-                    BrowserSourceProviderKind.Dailymotion => DrawDailymotionAudio(activeScreen),
-                    BrowserSourceProviderKind.Vimeo => DrawVimeoAudio(activeScreen),
-                    BrowserSourceProviderKind.GenericWeb => DrawGenericWebAudio(activeScreen),
-                    _ => DrawYouTubeAudio(activeScreen),
-                };
-                changed |= DrawSpatialAudio(activeScreen);
-                break;
-        }
-
-        return changed;
-    }
-
-    private static bool DrawLocalVideoAudio(Configuration config)
-    {
-        var changed = false;
-        var audioEnabled = config.AudioEnabled;
-        var audioVolume = config.AudioVolume;
-
-        ImGui.TextUnformatted("Playback audio");
-        if (ImGui.Checkbox("Enable local video audio", ref audioEnabled))
-        {
-            config.AudioEnabled = audioEnabled;
-            changed = true;
-        }
-
-        if (config.AudioEnabled && ImGui.SliderFloat("Audio volume", ref audioVolume, 0.0f, 1.0f))
-        {
-            config.AudioVolume = Math.Clamp(audioVolume, 0.0f, 1.0f);
-            changed = true;
-        }
+            BrowserSourceProviderKind.Twitch => DrawTwitchAudio(activeScreen),
+            BrowserSourceProviderKind.Dailymotion => DrawDailymotionAudio(activeScreen),
+            BrowserSourceProviderKind.Vimeo => DrawVimeoAudio(activeScreen),
+            BrowserSourceProviderKind.GenericWeb => DrawGenericWebAudio(activeScreen),
+            _ => DrawYouTubeAudio(activeScreen),
+        };
+        changed |= DrawSpatialAudio(activeScreen);
 
         return changed;
     }
@@ -157,49 +125,6 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         {
             screen.GenericWebVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
-        }
-
-        return changed;
-    }
-
-    private bool DrawSpatialAudio(Configuration config)
-    {
-        var changed = false;
-        var enabled = config.SpatialAudioEnabled;
-        var fullRadius = config.SpatialAudioFullVolumeRadiusMeters;
-        var silentRadius = config.SpatialAudioSilentRadiusMeters;
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted("Distance falloff");
-        if (ImGui.Checkbox("Spatial audio", ref enabled))
-        {
-            config.SpatialAudioEnabled = enabled;
-            changed = true;
-        }
-
-        if (config.SpatialAudioEnabled)
-        {
-            if (ImGui.InputFloat("Full volume radius", ref fullRadius, 0.5f, 2.0f))
-            {
-                config.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
-                if (config.SpatialAudioSilentRadiusMeters <= config.SpatialAudioFullVolumeRadiusMeters)
-                    config.SpatialAudioSilentRadiusMeters = config.SpatialAudioFullVolumeRadiusMeters + 0.1f;
-                changed = true;
-            }
-
-            if (ImGui.InputFloat("Silent radius", ref silentRadius, 0.5f, 2.0f))
-            {
-                config.SpatialAudioSilentRadiusMeters = Math.Max(config.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
-                changed = true;
-            }
-
-            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {FormatPercent(renderer.SpatialAudioAttenuation)}");
-            ImGui.TextDisabled($"Applied volume: {FormatPercent(renderer.EffectiveAudioVolume)}");
-        }
-        else
-        {
-            ImGui.TextDisabled("Distance falloff disabled");
         }
 
         return changed;

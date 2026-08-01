@@ -87,13 +87,12 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         var changed = false;
         var activeBrowserScreen = config.GetActiveBrowserScreen();
-        var browserVisual = config.SourceKind == ScreenSourceKind.YouTubeBrowser;
         var placement = activeBrowserScreen.Placement;
-        var occludedAlpha = browserVisual ? placement.OccludedAlpha : config.OccludedAlpha;
-        var tolerance = browserVisual ? placement.OcclusionTolerance : config.OcclusionTolerance;
-        var distanceFade = browserVisual ? placement.EnableDistanceFade : config.EnableDistanceFade;
-        var fadeStart = browserVisual ? placement.FadeStartMeters : config.FadeStartMeters;
-        var fadeStop = browserVisual ? placement.FadeStopMeters : config.FadeStopMeters;
+        var occludedAlpha = placement.OccludedAlpha;
+        var tolerance = placement.OcclusionTolerance;
+        var distanceFade = placement.EnableDistanceFade;
+        var fadeStart = placement.FadeStartMeters;
+        var fadeStop = placement.FadeStopMeters;
         var outputMode = GetOutputModeIndex(config.OutputMode);
 
         if (ImGui.BeginCombo("Output layer", OutputModeNames[outputMode]))
@@ -130,53 +129,36 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 #endif
 
-        ImGui.TextDisabled(browserVisual
-            ? $"Visual settings: {activeBrowserScreen.Name}"
-            : "Visual settings: Local video");
+        ImGui.TextDisabled($"Visual settings: {activeBrowserScreen.Name}");
 
         if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
         {
-            if (browserVisual)
-                placement.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
-            else
-                config.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
+            placement.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
             changed = true;
         }
 
         if (ImGui.InputFloat("Occlusion tolerance", ref tolerance, 0.01f, 0.1f))
         {
-            if (browserVisual)
-                placement.OcclusionTolerance = Math.Max(0.0f, tolerance);
-            else
-                config.OcclusionTolerance = Math.Max(0.0f, tolerance);
+            placement.OcclusionTolerance = Math.Max(0.0f, tolerance);
             changed = true;
         }
 
         if (ImGui.Button("Make fully visible"))
         {
-            if (browserVisual)
-                placement.OccludedAlpha = 1.0f;
-            else
-                config.OccludedAlpha = 1.0f;
+            placement.OccludedAlpha = 1.0f;
             changed = true;
         }
 
         ImGui.SameLine();
         if (ImGui.Button("Depth occlusion"))
         {
-            if (browserVisual)
-                placement.OccludedAlpha = 0.0f;
-            else
-                config.OccludedAlpha = 0.0f;
+            placement.OccludedAlpha = 0.0f;
             changed = true;
         }
 
         if (ImGui.Checkbox("Distance fade", ref distanceFade))
         {
-            if (browserVisual)
-                placement.EnableDistanceFade = distanceFade;
-            else
-                config.EnableDistanceFade = distanceFade;
+            placement.EnableDistanceFade = distanceFade;
             changed = true;
         }
 
@@ -184,19 +166,13 @@ public sealed class ConfigWindow : Window, IDisposable
         {
             if (ImGui.InputFloat("Fade start", ref fadeStart, 1.0f, 5.0f))
             {
-                if (browserVisual)
-                    placement.FadeStartMeters = Math.Max(0.0f, fadeStart);
-                else
-                    config.FadeStartMeters = Math.Max(0.0f, fadeStart);
+                placement.FadeStartMeters = Math.Max(0.0f, fadeStart);
                 changed = true;
             }
 
             if (ImGui.InputFloat("Fade stop", ref fadeStop, 1.0f, 5.0f))
             {
-                if (browserVisual)
-                    placement.FadeStopMeters = Math.Max(placement.FadeStartMeters + 0.01f, fadeStop);
-                else
-                    config.FadeStopMeters = Math.Max(config.FadeStartMeters + 0.01f, fadeStop);
+                placement.FadeStopMeters = Math.Max(placement.FadeStartMeters + 0.01f, fadeStop);
                 changed = true;
             }
         }

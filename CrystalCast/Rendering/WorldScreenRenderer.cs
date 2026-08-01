@@ -12,14 +12,12 @@ public sealed class WorldScreenManager : IDisposable
     private readonly record struct PreparedScreenTexture(nint NativeHandle, int Width, int Height);
 
     private readonly Configuration configuration;
-    private readonly WorldScreenInstance localScreen;
     private readonly Dictionary<string, WorldScreenInstance> browserScreens = new(StringComparer.Ordinal);
     private PctContext? pictomancyContext;
 
     public WorldScreenManager(Configuration configuration)
     {
         this.configuration = configuration;
-        localScreen = new WorldScreenInstance(configuration);
 
         try
         {
@@ -59,14 +57,9 @@ public sealed class WorldScreenManager : IDisposable
     {
         get
         {
-            if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
-            {
-                SyncBrowserScreens();
-                var activeScreen = configuration.GetActiveBrowserScreen();
-                return browserScreens.TryGetValue(activeScreen.ScreenId, out var instance) ? instance : null;
-            }
-
-            return localScreen;
+            SyncBrowserScreens();
+            var activeScreen = configuration.GetActiveBrowserScreen();
+            return browserScreens.TryGetValue(activeScreen.ScreenId, out var instance) ? instance : null;
         }
     }
 
@@ -89,15 +82,7 @@ public sealed class WorldScreenManager : IDisposable
             return;
         }
 
-        if (configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
-        {
-            localScreen.Stop();
-            DrawBrowserScreens();
-            return;
-        }
-
-        StopBrowserScreens();
-        DrawScreens([localScreen]);
+        DrawBrowserScreens();
     }
 
     public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
@@ -215,7 +200,6 @@ public sealed class WorldScreenManager : IDisposable
 
     public void Dispose()
     {
-        localScreen.Dispose();
         foreach (var instance in browserScreens.Values)
             instance.Dispose();
         browserScreens.Clear();
@@ -314,7 +298,6 @@ public sealed class WorldScreenManager : IDisposable
 
     private void StopAllScreens()
     {
-        localScreen.Stop();
         StopBrowserScreens();
     }
 
@@ -351,13 +334,11 @@ public sealed class WorldScreenManager : IDisposable
         private const float ScreenCurveEpsilonMeters = 0.001f;
 
         private readonly Configuration configuration;
-        private readonly BrowserScreenProfile? browserScreen;
+        private readonly BrowserScreenProfile browserScreen;
         private readonly DynamicVideoTexture dynamicTexture;
         private readonly SharedVideoTexture sharedTexture;
         private IVideoFrameSource? frameSource;
-        private FfmpegAudioPlayer? audioPlayer;
         private string frameSourceSignature = string.Empty;
-        private string audioSignature = string.Empty;
         private long lastFrameUnixMs;
         private string lastNativeTextureError = string.Empty;
         private long lastNativeTextureErrorUnixMs;
@@ -371,7 +352,7 @@ public sealed class WorldScreenManager : IDisposable
         private int fallbackPixelsWidth;
         private int fallbackPixelsHeight;
 
-        public WorldScreenInstance(Configuration configuration, BrowserScreenProfile? browserScreen = null)
+        public WorldScreenInstance(Configuration configuration, BrowserScreenProfile browserScreen)
         {
             this.configuration = configuration;
             this.browserScreen = browserScreen;
@@ -380,7 +361,7 @@ public sealed class WorldScreenManager : IDisposable
         }
 
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";
-        public string AudioStatus => audioPlayer?.Status ?? "audio stopped";
+        public string AudioStatus => GetBrowserAudioEnabled() ? "browser audio enabled" : "browser audio muted";
         public string SourceName => frameSource?.Name ?? "no source";
         public bool BrowserControlsAvailable
         {
@@ -452,7 +433,7 @@ public sealed class WorldScreenManager : IDisposable
             if (showDebugMarker)
             {
                 drawList.AddDot(center, 8.0f, 0xFF00FFFF);
-                drawList.AddText(center + new Vector3(0, panelSize.Y * 0.65f, 0), 0xFF00FFFF, browserScreen?.Name ?? "CrystalCast", 1.0f);
+                drawList.AddText(center + new Vector3(0, panelSize.Y * 0.65f, 0), 0xFF00FFFF, browserScreen.Name, 1.0f);
             }
 
             var curveAmount = GetScreenCurveAmount(panelSize.X);
@@ -464,15 +445,7 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
         {
-            if (browserScreen != null)
-                return ScreenPlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
-
-            var placement = configuration.GetLocalVideoPlacement();
-            if (!ScreenPlacementResolver.PlaceInFrontOfPlayer(placement, distanceMeters))
-                return false;
-
-            configuration.ApplyLocalVideoPlacement(placement);
-            return true;
+            return ScreenPlacementResolver.PlaceInFrontOfPlayer(browserScreen.Placement, distanceMeters);
         }
 
         public static bool PlacePlacementInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
@@ -558,7 +531,6 @@ public sealed class WorldScreenManager : IDisposable
         {
             TryHideBrowserControls();
             frameSource?.Stop();
-            StopAudio();
             ResetEffectiveAudioVolume();
             PlaybackTelemetry = null;
             hasResolvedPlacement = false;
@@ -568,8 +540,6 @@ public sealed class WorldScreenManager : IDisposable
         {
             frameSource?.Dispose();
             frameSource = null;
-            audioPlayer?.Dispose();
-            audioPlayer = null;
             dynamicTexture.Dispose();
             sharedTexture.Dispose();
         }
@@ -579,7 +549,6 @@ public sealed class WorldScreenManager : IDisposable
             EnsureFrameSource();
             if (frameSource == null)
             {
-                StopAudio();
                 PlaybackTelemetry = null;
                 return ResolveFallbackTexture();
             }
@@ -589,14 +558,12 @@ public sealed class WorldScreenManager : IDisposable
             {
                 frameSource.Stop();
                 TrySendPauseCommand(force: false);
-                StopAudio();
                 CalculateEffectiveAudioVolume(0.0f, smooth: false);
                 UpdatePlaybackTelemetry();
                 return ResolveCurrentTexture() ?? ResolveFallbackTexture();
             }
 
             frameSource.Start();
-            UpdateAudio();
             UpdatePlaybackTelemetry();
 
             NativeVideoFrame? nativeFrame = null;
@@ -650,9 +617,6 @@ public sealed class WorldScreenManager : IDisposable
 
         private PreparedScreenTexture? ResolveFallbackTexture()
         {
-            if (browserScreen == null)
-                return null;
-
             var width = Math.Clamp(GetBrowserWidth(), 320, 3840);
             var height = Math.Clamp(GetBrowserHeight(), 180, 2160);
             if (dynamicTexture.TextureWrap != null && dynamicTexture.Width == width && dynamicTexture.Height == height)
@@ -704,22 +668,7 @@ public sealed class WorldScreenManager : IDisposable
             lastNativeTextureErrorUnixMs = 0;
             lastPauseCommandUnixMs = 0;
 
-            switch (GetSourceKind())
-            {
-                case ScreenSourceKind.LocalVideo:
-                    frameSource = new FfmpegRawVideoFrameSource(
-                        configuration.FfmpegPath,
-                        configuration.LocalVideoPath,
-                        configuration.LocalVideoScalePercent,
-                        configuration.LocalVideoFps,
-                        configuration.LoopLocalVideo,
-                        configuration.LocalVideoWidth,
-                        configuration.LocalVideoHeight);
-                    break;
-                case ScreenSourceKind.YouTubeBrowser when browserScreen != null:
-                    frameSource = BrowserSourceProviderRegistry.CreateFrameSource(browserScreen, configuration.YouTubeBrowserEngine);
-                    break;
-            }
+            frameSource = BrowserSourceProviderRegistry.CreateFrameSource(browserScreen, configuration.YouTubeBrowserEngine);
         }
 
         private bool TrySendPauseCommand(bool force)
@@ -738,67 +687,14 @@ public sealed class WorldScreenManager : IDisposable
 
         private string BuildFrameSourceSignature()
         {
-            return GetSourceKind() switch
-            {
-                ScreenSourceKind.LocalVideo => string.Join('|',
-                    ScreenSourceKind.LocalVideo,
-                    configuration.FfmpegPath,
-                    configuration.LocalVideoPath,
-                    configuration.LocalVideoScalePercent,
-                    configuration.LocalVideoFps,
-                    configuration.LoopLocalVideo),
-                ScreenSourceKind.YouTubeBrowser when browserScreen != null => BrowserSourceProviderRegistry.BuildFrameSourceSignature(
-                    browserScreen,
-                    configuration.YouTubeBrowserEngine),
-                _ => GetSourceKind().ToString(),
-            };
-        }
-
-        private void UpdateAudio()
-        {
-            if (GetSourceKind() != ScreenSourceKind.LocalVideo)
-            {
-                StopAudio();
-                return;
-            }
-
-            if (!configuration.AudioEnabled)
-            {
-                CalculateEffectiveAudioVolume(0.0f, smooth: false);
-                StopAudio();
-                return;
-            }
-
-            var effectiveVolume = CalculateEffectiveAudioVolume(configuration.AudioVolume);
-            var signature = string.Join('|',
-                configuration.FfmpegPath,
-                configuration.LocalVideoPath,
-                configuration.LoopLocalVideo);
-
-            if (audioPlayer == null || signature != audioSignature)
-            {
-                audioPlayer?.Dispose();
-                audioSignature = signature;
-                audioPlayer = new FfmpegAudioPlayer(
-                    configuration.FfmpegPath,
-                    configuration.LocalVideoPath,
-                    configuration.LoopLocalVideo,
-                    effectiveVolume);
-            }
-
-            audioPlayer.SetVolume(effectiveVolume);
-            audioPlayer.Start();
-        }
-
-        private void StopAudio()
-        {
-            audioPlayer?.Stop();
-            audioSignature = string.Empty;
+            return BrowserSourceProviderRegistry.BuildFrameSourceSignature(
+                browserScreen,
+                configuration.YouTubeBrowserEngine);
         }
 
         private void ApplyLiveSourceSettings()
         {
-            if (browserScreen == null || frameSource is not IMediaPlaybackController controller)
+            if (frameSource is not IMediaPlaybackController controller)
                 return;
 
             var audioEnabled = GetBrowserAudioEnabled();
@@ -984,14 +880,14 @@ public sealed class WorldScreenManager : IDisposable
 
         private PctDxParams BuildDxParams()
         {
-            var placement = browserScreen?.Placement;
+            var placement = browserScreen.Placement;
             return new PctDxParams
             {
-                OccludedAlpha = Math.Clamp(placement?.OccludedAlpha ?? configuration.OccludedAlpha, 0.0f, 1.0f),
-                OcclusionTolerance = Math.Max(0.0f, placement?.OcclusionTolerance ?? configuration.OcclusionTolerance),
-                FadeStart = GetDistanceFadeEnabled() ? Math.Max(0.0f, placement?.FadeStartMeters ?? configuration.FadeStartMeters) : float.PositiveInfinity,
+                OccludedAlpha = Math.Clamp(placement.OccludedAlpha, 0.0f, 1.0f),
+                OcclusionTolerance = Math.Max(0.0f, placement.OcclusionTolerance),
+                FadeStart = GetDistanceFadeEnabled() ? Math.Max(0.0f, placement.FadeStartMeters) : float.PositiveInfinity,
                 FadeStop = GetDistanceFadeEnabled()
-                    ? Math.Max((placement?.FadeStartMeters ?? configuration.FadeStartMeters) + 0.01f, placement?.FadeStopMeters ?? configuration.FadeStopMeters)
+                    ? Math.Max(placement.FadeStartMeters + 0.01f, placement.FadeStopMeters)
                     : float.PositiveInfinity,
                 ProjectionHeight = 0.0f,
             };
@@ -1079,72 +975,63 @@ public sealed class WorldScreenManager : IDisposable
 
         private int GetBrowserWidth()
         {
-            return browserScreen == null
-                ? configuration.LocalVideoWidth
-                : BrowserSourceProviderRegistry.GetDimensions(browserScreen).Width;
+            return BrowserSourceProviderRegistry.GetDimensions(browserScreen).Width;
         }
 
         private int GetBrowserHeight()
         {
-            return browserScreen == null
-                ? configuration.LocalVideoHeight
-                : BrowserSourceProviderRegistry.GetDimensions(browserScreen).Height;
+            return BrowserSourceProviderRegistry.GetDimensions(browserScreen).Height;
         }
 
         private bool GetBrowserAudioEnabled()
         {
-            return browserScreen != null && BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).AudioEnabled;
+            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).AudioEnabled;
         }
 
         private float GetBrowserVolume()
         {
-            return browserScreen == null ? 0.0f : BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Volume;
+            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Volume;
         }
 
         private float GetBrowserPlaybackRate()
         {
-            return browserScreen == null ? 1.0f : BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaybackRate;
+            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaybackRate;
         }
 
         private bool GetBrowserLoop()
         {
-            return browserScreen != null && BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Loop;
+            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).Loop;
         }
 
         private bool GetBrowserPlaylistAutoplayNext()
         {
-            return browserScreen == null || BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaylistAutoplayNext;
+            return BrowserSourceProviderRegistry.GetRuntimeSettings(browserScreen).PlaylistAutoplayNext;
         }
 
         private void ApplyBrowserCaptureFps()
         {
-            if (browserScreen != null)
-                BrowserSourceProviderRegistry.ApplyCaptureFps(frameSource, browserScreen);
+            BrowserSourceProviderRegistry.ApplyCaptureFps(frameSource, browserScreen);
         }
 
-        private ScreenSourceKind GetSourceKind() => browserScreen == null ? ScreenSourceKind.LocalVideo : ScreenSourceKind.YouTubeBrowser;
-        private bool IsEnabled() => browserScreen?.Enabled ?? configuration.Enabled;
-        private bool IsPlaybackPaused() => browserScreen?.PlaybackPaused ?? configuration.PlaybackPaused;
+        private bool IsEnabled() => browserScreen.Enabled;
+        private bool IsPlaybackPaused() => browserScreen.PlaybackPaused;
 
         private void SetPlaybackPaused(bool paused)
         {
-            if (browserScreen != null)
-                browserScreen.PlaybackPaused = paused;
-            else
-                configuration.PlaybackPaused = paused;
+            browserScreen.PlaybackPaused = paused;
         }
 
-        private bool IsSpatialAudioEnabled() => browserScreen?.SpatialAudioEnabled ?? configuration.SpatialAudioEnabled;
-        private float GetSpatialFullVolumeRadiusMeters() => browserScreen?.SpatialAudioFullVolumeRadiusMeters ?? configuration.SpatialAudioFullVolumeRadiusMeters;
-        private float GetSpatialSilentRadiusMeters() => browserScreen?.SpatialAudioSilentRadiusMeters ?? configuration.SpatialAudioSilentRadiusMeters;
-        private bool GetDistanceFadeEnabled() => browserScreen?.Placement.EnableDistanceFade ?? configuration.EnableDistanceFade;
-        private float GetWidthMeters() => browserScreen?.Placement.WidthMeters ?? configuration.WidthMeters;
-        private float GetHeightMeters() => browserScreen?.Placement.HeightMeters ?? configuration.HeightMeters;
-        private float GetScreenCurveAmountMeters() => browserScreen?.Placement.ScreenCurveAmountMeters ?? configuration.ScreenCurveAmountMeters;
+        private bool IsSpatialAudioEnabled() => browserScreen.SpatialAudioEnabled;
+        private float GetSpatialFullVolumeRadiusMeters() => browserScreen.SpatialAudioFullVolumeRadiusMeters;
+        private float GetSpatialSilentRadiusMeters() => browserScreen.SpatialAudioSilentRadiusMeters;
+        private bool GetDistanceFadeEnabled() => browserScreen.Placement.EnableDistanceFade;
+        private float GetWidthMeters() => browserScreen.Placement.WidthMeters;
+        private float GetHeightMeters() => browserScreen.Placement.HeightMeters;
+        private float GetScreenCurveAmountMeters() => browserScreen.Placement.ScreenCurveAmountMeters;
 
         private ScreenPlacementSettings GetPlacementSettings()
         {
-            return browserScreen?.Placement ?? configuration.GetLocalVideoPlacement();
+            return browserScreen.Placement;
         }
 
         private bool TryResolvePlacement(out ResolvedScreenPlacement placement)

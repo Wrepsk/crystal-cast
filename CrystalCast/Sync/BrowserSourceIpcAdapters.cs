@@ -627,7 +627,7 @@ internal static class BrowserSourceIpcAdapters
             {
                 return new ScreenSourceState
                 {
-                    Kind = ScreenSourceKind.YouTubeBrowser,
+                    Kind = ScreenSourceKind.Browser,
                     Provider = ProviderKind.ToString(),
                     Identity = InvalidIdentity,
                     Title = InvalidTitle,
@@ -641,7 +641,7 @@ internal static class BrowserSourceIpcAdapters
             var canonicalUrl = Descriptor.BuildCanonicalSourceUrl(source, currentVideoId);
             return new ScreenSourceState
             {
-                Kind = ScreenSourceKind.YouTubeBrowser,
+                Kind = ScreenSourceKind.Browser,
                 Provider = ProviderKind.ToString(),
                 Identity = BuildIdentity(source),
                 Title = string.IsNullOrWhiteSpace(telemetry?.Title) ? DefaultTitle : telemetry.Title,

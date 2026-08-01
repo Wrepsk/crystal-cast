@@ -78,7 +78,6 @@ internal sealed class ScreenIpcMutationService
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
             configuration.BrowserScreens.Add(screen);
-            configuration.SourceKind = ScreenSourceKind.YouTubeBrowser;
             if (request.Activate)
                 configuration.ActiveBrowserScreenId = screen.ScreenId;
 
@@ -111,7 +110,6 @@ internal sealed class ScreenIpcMutationService
             if (!ScreenPatchApplier.ApplyScreenMutation(screen, request, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
-            configuration.SourceKind = ScreenSourceKind.YouTubeBrowser;
             if (request.Activate)
                 configuration.ActiveBrowserScreenId = screen.ScreenId;
 
@@ -177,7 +175,6 @@ internal sealed class ScreenIpcMutationService
             if (!ScreenPatchApplier.ApplyProviderPatch(screen, providerKind, request, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
 
-            configuration.SourceKind = ScreenSourceKind.YouTubeBrowser;
             if (request.Activate)
                 configuration.ActiveBrowserScreenId = screen.ScreenId;
 

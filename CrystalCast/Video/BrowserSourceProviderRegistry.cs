@@ -27,11 +27,11 @@ internal static class BrowserSourceProviderRegistry
     public static string BuildFrameSourceSignature(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
     {
         if (!Providers.TryGetValue(screen.ProviderKind, out var provider))
-            return string.Join('|', ScreenSourceKind.YouTubeBrowser, screen.ProviderKind);
+            return string.Join('|', ScreenSourceKind.Browser, screen.ProviderKind);
 
         var dimensions = provider.GetDimensions(screen);
         return string.Join('|',
-            ScreenSourceKind.YouTubeBrowser,
+            ScreenSourceKind.Browser,
             screen.ProviderKind,
             provider.GetUrl(screen),
             dimensions.Width,

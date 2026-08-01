@@ -14,16 +14,17 @@ public class Configuration : IPluginConfiguration
     public const int MaxIpcBrowserScreens = 56;
     public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
 
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
 
     public bool Enabled { get; set; } = true;
-    public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.LocalVideo;
+    public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.Browser;
 
     public string ScreenId { get; set; } = Guid.NewGuid().ToString("N");
     public string OwnerSessionId { get; set; } = Guid.NewGuid().ToString("N");
     public long LocalSequence { get; set; }
     public bool IpcEnabled { get; set; } = true;
 
+    // Version 1 compatibility fields. They are read only when creating the first browser screen.
     public ScreenPlacementMode LocalVideoPlacementMode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }
     public float PositionY { get; set; } = 1.6f;
@@ -46,15 +47,6 @@ public class Configuration : IPluginConfiguration
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
 
-    public string FfmpegPath { get; set; } = "ffmpeg.exe";
-    public string LocalVideoPath { get; set; } = string.Empty;
-    public int LocalVideoWidth { get; set; } = 512;
-    public int LocalVideoHeight { get; set; } = 288;
-    public float LocalVideoScalePercent { get; set; } = 50.0f;
-    public float LocalVideoFps { get; set; } = 30.0f;
-    public bool LoopLocalVideo { get; set; } = true;
-    public bool AudioEnabled { get; set; } = true;
-    public float AudioVolume { get; set; } = 0.7f;
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
     public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
@@ -84,6 +76,7 @@ public class Configuration : IPluginConfiguration
     public bool Normalize()
     {
         var changed = false;
+        var migratingFromLocalVideo = (int)SourceKind == 2;
 
         if (string.IsNullOrWhiteSpace(ScreenId))
         {
@@ -97,9 +90,9 @@ public class Configuration : IPluginConfiguration
             changed = true;
         }
 
-        if (SourceKind is not (ScreenSourceKind.LocalVideo or ScreenSourceKind.YouTubeBrowser))
+        if (SourceKind != ScreenSourceKind.Browser)
         {
-            SourceKind = ScreenSourceKind.LocalVideo;
+            SourceKind = ScreenSourceKind.Browser;
             changed = true;
         }
 
@@ -122,13 +115,22 @@ public class Configuration : IPluginConfiguration
         }
         if (BrowserScreens.Count == 0)
         {
-            BrowserScreens.Add(CreateBrowserScreenFromLegacy("Browser screen 1"));
+            BrowserScreens.Add(CreateBrowserScreenFromLegacySettings("Browser screen 1"));
             changed = true;
         }
 
         var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < BrowserScreens.Count; i++)
             changed |= BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);
+
+        if (migratingFromLocalVideo)
+        {
+            foreach (var screen in BrowserScreens.Where(screen => screen.Enabled))
+            {
+                screen.Enabled = false;
+                changed = true;
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(ActiveBrowserScreenId) || BrowserScreens.All(screen => screen.ScreenId != ActiveBrowserScreenId))
         {
@@ -157,6 +159,12 @@ public class Configuration : IPluginConfiguration
         else if (string.IsNullOrWhiteSpace(ActivePlacementPresetId) || PlacementPresets.All(preset => preset.PresetId != ActivePlacementPresetId))
         {
             ActivePlacementPresetId = PlacementPresets[0].PresetId;
+            changed = true;
+        }
+
+        if (Version < 2)
+        {
+            Version = 2;
             changed = true;
         }
 
@@ -199,52 +207,7 @@ public class Configuration : IPluginConfiguration
         return preset;
     }
 
-    public ScreenPlacementSettings GetLocalVideoPlacement()
-    {
-        var placement = new ScreenPlacementSettings
-        {
-            Mode = LocalVideoPlacementMode,
-            PositionX = PositionX,
-            PositionY = PositionY,
-            PositionZ = PositionZ,
-            YawRadians = YawRadians,
-            PitchRadians = PitchRadians,
-            RollRadians = RollRadians,
-            WidthMeters = WidthMeters,
-            HeightMeters = HeightMeters,
-            ScreenCurveAmountMeters = ScreenCurveAmountMeters,
-            OccludedAlpha = OccludedAlpha,
-            OcclusionTolerance = OcclusionTolerance,
-            EnableDistanceFade = EnableDistanceFade,
-            FadeStartMeters = FadeStartMeters,
-            FadeStopMeters = FadeStopMeters,
-        };
-        placement.Normalize();
-        return placement;
-    }
-
-    public void ApplyLocalVideoPlacement(ScreenPlacementSettings placement)
-    {
-        var copy = placement.Clone();
-        copy.Normalize();
-        LocalVideoPlacementMode = copy.Mode;
-        PositionX = copy.PositionX;
-        PositionY = copy.PositionY;
-        PositionZ = copy.PositionZ;
-        YawRadians = copy.YawRadians;
-        PitchRadians = copy.PitchRadians;
-        RollRadians = copy.RollRadians;
-        WidthMeters = copy.WidthMeters;
-        HeightMeters = copy.HeightMeters;
-        ScreenCurveAmountMeters = copy.ScreenCurveAmountMeters;
-        OccludedAlpha = copy.OccludedAlpha;
-        OcclusionTolerance = copy.OcclusionTolerance;
-        EnableDistanceFade = copy.EnableDistanceFade;
-        FadeStartMeters = copy.FadeStartMeters;
-        FadeStopMeters = copy.FadeStopMeters;
-    }
-
-    private BrowserScreenProfile CreateBrowserScreenFromLegacy(string name)
+    private BrowserScreenProfile CreateBrowserScreenFromLegacySettings(string name)
     {
         var screen = new BrowserScreenProfile
         {
@@ -276,7 +239,7 @@ public class Configuration : IPluginConfiguration
             YouTubeBrowserWidth = YouTubeBrowserWidth,
             YouTubeBrowserHeight = YouTubeBrowserHeight,
             YouTubeCaptureFps = YouTubeCaptureFps,
-            YouTubeCaptureFpsManual = Math.Abs(YouTubeCaptureFps - 15.0f) > 0.01f,
+            YouTubeCaptureFpsManual = Math.Abs(YouTubeCaptureFps - 60.0f) > 0.01f,
             YouTubeAutoplay = YouTubeAutoplay,
             LoopYouTube = LoopYouTube,
             YouTubeAudioEnabled = YouTubeAudioEnabled,
@@ -375,7 +338,7 @@ public sealed class BrowserScreenProfile
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
     public bool YouTubePlaylistAutoplayNext { get; set; } = true;
-    public bool YouTubeAudioEnabled { get; set; } = true;
+    public bool YouTubeAudioEnabled { get; set; }
     public float YouTubeVolume { get; set; } = 0.7f;
     public float YouTubePlaybackRate { get; set; } = 1.0f;
 
@@ -385,7 +348,7 @@ public sealed class BrowserScreenProfile
     public float TwitchCaptureFps { get; set; } = 60.0f;
     public bool TwitchCaptureFpsManual { get; set; }
     public bool TwitchAutoplay { get; set; } = true;
-    public bool TwitchAudioEnabled { get; set; } = true;
+    public bool TwitchAudioEnabled { get; set; }
     public float TwitchVolume { get; set; } = 0.7f;
 
     public string DailymotionUrl { get; set; } = string.Empty;
@@ -395,7 +358,7 @@ public sealed class BrowserScreenProfile
     public bool DailymotionCaptureFpsManual { get; set; }
     public bool DailymotionAutoplay { get; set; } = true;
     public bool LoopDailymotion { get; set; }
-    public bool DailymotionAudioEnabled { get; set; } = true;
+    public bool DailymotionAudioEnabled { get; set; }
     public float DailymotionVolume { get; set; } = 0.7f;
 
     public string VimeoUrl { get; set; } = string.Empty;
@@ -405,7 +368,7 @@ public sealed class BrowserScreenProfile
     public bool VimeoCaptureFpsManual { get; set; }
     public bool VimeoAutoplay { get; set; } = true;
     public bool LoopVimeo { get; set; }
-    public bool VimeoAudioEnabled { get; set; } = true;
+    public bool VimeoAudioEnabled { get; set; }
     public float VimeoVolume { get; set; } = 0.7f;
     public float VimeoPlaybackRate { get; set; } = 1.0f;
 
@@ -416,7 +379,7 @@ public sealed class BrowserScreenProfile
     public bool GenericWebCaptureFpsManual { get; set; }
     public bool GenericWebAutoplay { get; set; } = true;
     public bool LoopGenericWeb { get; set; }
-    public bool GenericWebAudioEnabled { get; set; } = true;
+    public bool GenericWebAudioEnabled { get; set; }
     public float GenericWebVolume { get; set; } = 0.7f;
     public float GenericWebPlaybackRate { get; set; } = 1.0f;
 

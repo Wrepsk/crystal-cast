@@ -142,7 +142,7 @@ public sealed class ScreenStateIpc : IDisposable
             return string.Empty;
 
         var states = new List<ScreenStateEnvelope>();
-        if (configuration.Enabled && configuration.SourceKind == ScreenSourceKind.YouTubeBrowser)
+        if (configuration.Enabled)
         {
             var screensToPublish = configuration.BrowserScreens
                 .Take(Configuration.MaxRenderableBrowserScreens)
@@ -156,15 +156,6 @@ public sealed class ScreenStateIpc : IDisposable
 
                 screen.LocalSequence++;
                 states.Add(stateBuilder.BuildBrowserScreenState(screen, resolved));
-            }
-        }
-        else if (configuration.Enabled)
-        {
-            var placement = configuration.GetLocalVideoPlacement();
-            if (ScreenStateBuilder.TryResolveForIpc(placement, out var resolved))
-            {
-                configuration.LocalSequence++;
-                states.Add(stateBuilder.BuildLocalVideoState(placement, resolved));
             }
         }
 

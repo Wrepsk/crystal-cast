@@ -100,14 +100,6 @@ public sealed class Plugin : IDalamudPlugin
     private bool PauseOwnedWorldScreensOnZoneChange()
     {
         var changed = false;
-        if (Configuration.SourceKind == ScreenSourceKind.LocalVideo
-            && Configuration.LocalVideoPlacementMode == ScreenPlacementMode.World
-            && !Configuration.PlaybackPaused)
-        {
-            Configuration.PlaybackPaused = true;
-            changed = true;
-        }
-
         Configuration.Normalize();
         foreach (var screen in Configuration.BrowserScreens.Where(screen => !screen.CreatedByIpc && screen.Placement.Mode == ScreenPlacementMode.World))
         {

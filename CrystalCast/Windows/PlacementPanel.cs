@@ -6,8 +6,6 @@ namespace CrystalCast.Windows;
 
 internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoService undoService)
 {
-    private const string LocalVideoUndoKey = "local-video";
-
     private static readonly string[] PlacementModeNames =
         ["World", "Follow player", "Follow camera"];
 
@@ -25,9 +23,7 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
     {
-        return config.SourceKind == ScreenSourceKind.YouTubeBrowser
-            ? DrawBrowserPlacement(config, activeScreen)
-            : DrawLocalVideoPlacement(config);
+        return DrawBrowserPlacement(config, activeScreen);
     }
 
     public bool DrawGizmo(Configuration config, BrowserScreenProfile activeScreen)
@@ -35,41 +31,15 @@ internal sealed class PlacementPanel(WorldScreenManager renderer, PlacementUndoS
         if (!config.PlacementGizmoEnabled)
             return false;
 
-        if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
-        {
-            if (IsPlacementControlsLocked(activeScreen))
-                return false;
-
-            var before = activeScreen.Placement.Clone();
-            if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation))
-                return false;
-
-            undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
-            return true;
-        }
-
-        var placement = config.GetLocalVideoPlacement();
-        if (!ScreenPlacementGizmo.Draw(placement, config.PlacementGizmoOperation))
+        if (IsPlacementControlsLocked(activeScreen))
             return false;
 
-        var beforeLocal = config.GetLocalVideoPlacement();
-        undoService.Capture(LocalVideoUndoKey, beforeLocal, placement);
-        config.ApplyLocalVideoPlacement(placement);
+        var before = activeScreen.Placement.Clone();
+        if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation))
+            return false;
+
+        undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
         return true;
-    }
-
-    private bool DrawLocalVideoPlacement(Configuration config)
-    {
-        var placement = config.GetLocalVideoPlacement();
-        var before = placement.Clone();
-        var changed = DrawPlacementSettings(config, LocalVideoUndoKey, placement);
-        if (changed)
-        {
-            undoService.Capture(LocalVideoUndoKey, before, placement);
-            config.ApplyLocalVideoPlacement(placement);
-        }
-
-        return changed;
     }
 
     private bool DrawBrowserPlacement(Configuration config, BrowserScreenProfile screen)

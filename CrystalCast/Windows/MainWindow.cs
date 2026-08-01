@@ -9,12 +9,6 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
-    private static readonly string[] SourceNames =
-        ["Local video", "Browser screens"];
-
-    private static readonly ScreenSourceKind[] SourceKinds =
-        [ScreenSourceKind.LocalVideo, ScreenSourceKind.YouTubeBrowser];
-
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
@@ -72,40 +66,8 @@ public sealed class MainWindow : Window, IDisposable
 
     private bool DrawTopControls(Configuration config, BrowserScreenProfile activeScreen)
     {
-        var changed = DrawSourceCombo(config);
-        if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
-        {
-            ImGui.Spacing();
-            changed |= screenListPanel.Draw(config, activeScreen, ClearDeletedScreenUiState);
-        }
-
-        return changed;
-    }
-
-    private static bool DrawSourceCombo(Configuration config)
-    {
-        var changed = false;
-        var current = FindSourceIndex(config.SourceKind);
-
-        if (ImGui.BeginCombo("Source", SourceNames[current]))
-        {
-            for (var i = 0; i < SourceNames.Length; i++)
-            {
-                var selected = i == current;
-                if (ImGui.Selectable(SourceNames[i], selected))
-                {
-                    config.SourceKind = SourceKinds[i];
-                    changed = true;
-                }
-
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
-        }
-
-        return changed;
+        ImGui.Spacing();
+        return screenListPanel.Draw(config, activeScreen, ClearDeletedScreenUiState);
     }
 
     private bool DrawPlaybackShell(Configuration config, BrowserScreenProfile activeScreen)
@@ -119,30 +81,17 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.SameLine();
-        var source = SourceNames[FindSourceIndex(config.SourceKind)];
-        ImGui.TextDisabled($"Source: {source}");
+        ImGui.TextDisabled("Source: Browser");
 
-        if (config.SourceKind == ScreenSourceKind.YouTubeBrowser)
-        {
-            var telemetry = renderer.PlaybackTelemetry;
-            var position = telemetry == null
-                ? "0:00"
-                : FormatPlaybackPosition(telemetry.PositionMs);
-            var state = GetYouTubePlaybackState(activeScreen, telemetry);
-            var duration = telemetry is { DurationMs: > 0 }
-                ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
-                : string.Empty;
-            ImGui.TextUnformatted($"{state} @ {position}{duration}");
-        }
-        else
-        {
-            var paused = config.PlaybackPaused;
-            if (ImGui.Checkbox("Paused", ref paused))
-            {
-                config.PlaybackPaused = paused;
-                changed = true;
-            }
-        }
+        var telemetry = renderer.PlaybackTelemetry;
+        var position = telemetry == null
+            ? "0:00"
+            : FormatPlaybackPosition(telemetry.PositionMs);
+        var state = GetBrowserPlaybackState(activeScreen, telemetry);
+        var duration = telemetry is { DurationMs: > 0 }
+            ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
+            : string.Empty;
+        ImGui.TextUnformatted($"{state} @ {position}{duration}");
 
         ImGui.TextDisabled(ShortStatus(renderer.SourceStatus));
         return changed;
@@ -158,14 +107,14 @@ public sealed class MainWindow : Window, IDisposable
             if (ImGui.BeginTabItem("Source settings"))
             {
                 ImGui.Spacing();
-                changed |= sourceControlsPanel.Draw(config, activeScreen);
+                changed |= sourceControlsPanel.Draw(activeScreen);
                 ImGui.EndTabItem();
             }
 
             if (ImGui.BeginTabItem("Audio"))
             {
                 ImGui.Spacing();
-                changed |= audioControlsPanel.Draw(config, activeScreen);
+                changed |= audioControlsPanel.Draw(activeScreen);
                 ImGui.EndTabItem();
             }
 
@@ -182,18 +131,7 @@ public sealed class MainWindow : Window, IDisposable
         return changed;
     }
 
-    private static int FindSourceIndex(ScreenSourceKind sourceKind)
-    {
-        for (var i = 0; i < SourceKinds.Length; i++)
-        {
-            if (SourceKinds[i] == sourceKind)
-                return i;
-        }
-
-        return 0;
-    }
-
-    private static ScreenPlaybackState GetYouTubePlaybackState(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)
+    private static ScreenPlaybackState GetBrowserPlaybackState(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)
     {
         if (screen.PlaybackPaused)
             return ScreenPlaybackState.Paused;

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
@@ -27,18 +28,26 @@ internal sealed class WebView2HostWindow : IDisposable
     private const uint SwpFrameChanged = 0x0020;
     private const uint SwpShowWindow = 0x0040;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private const uint WmClose = 0x0010;
+    private const uint GaRoot = 2;
+    private const long InteractionActivationGraceMilliseconds = 500;
+    private const long InteractionReopenCooldownMilliseconds = 500;
     private static readonly IntPtr HwndTop = IntPtr.Zero;
     private static readonly IntPtr HwndBottom = new(1);
     private const uint CaptureWindowStyle = WsPopup | WsClipChildren | WsClipSiblings;
     private const uint InteractionWindowStyle = WsPopup | WsCaption | WsClipChildren | WsClipSiblings;
 
     private static readonly object RegisterLock = new();
+    private static readonly ConcurrentDictionary<IntPtr, WeakReference<WebView2HostWindow>> Windows = new();
     private static readonly WndProcDelegate WindowProcDelegate = WindowProc;
     private static bool registered;
 
     private IntPtr hwnd;
     private readonly int width;
     private readonly int height;
+    private bool interactionVisible;
+    private bool interactionWasForeground;
+    private long interactionShownAtTick;
 
     private WebView2HostWindow(IntPtr hwnd, int width, int height)
     {
@@ -48,6 +57,7 @@ internal sealed class WebView2HostWindow : IDisposable
     }
 
     public IntPtr Hwnd => hwnd;
+    public event Action? InteractionDismissed;
 
     public (int Width, int Height) GetInteractionClientSize()
     {
@@ -85,7 +95,9 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to create WebView2 capture host window.");
 
-        return new WebView2HostWindow(hwnd, Math.Max(1, width), Math.Max(1, height));
+        var window = new WebView2HostWindow(hwnd, Math.Max(1, width), Math.Max(1, height));
+        Windows[hwnd] = new WeakReference<WebView2HostWindow>(window);
+        return window;
     }
 
     public void ShowForCapture()
@@ -93,6 +105,7 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             return;
 
+        interactionVisible = false;
         var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
         if ((exStyle & WsExNoActivate) == 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
@@ -110,6 +123,9 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             return;
 
+        interactionVisible = true;
+        interactionWasForeground = false;
+        interactionShownAtTick = Environment.TickCount64;
         var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
         if ((exStyle & WsExNoActivate) != 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle & ~WsExNoActivate));
@@ -130,6 +146,7 @@ internal sealed class WebView2HostWindow : IDisposable
         SetForegroundWindow(hwnd);
         SetFocus(hwnd);
         UpdateWindow(hwnd);
+        interactionWasForeground = IsInteractionForeground();
     }
 
     public void ReturnToCapture()
@@ -137,6 +154,7 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             return;
 
+        interactionVisible = false;
         var x = GetSystemMetrics(SmXVirtualScreen);
         var y = GetSystemMetrics(SmYVirtualScreen);
         var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
@@ -149,6 +167,23 @@ internal sealed class WebView2HostWindow : IDisposable
         UpdateWindow(hwnd);
     }
 
+    public void PollInteractionFocus()
+    {
+        if (!interactionVisible || hwnd == IntPtr.Zero)
+            return;
+
+        var isForeground = IsInteractionForeground();
+        var elapsedMilliseconds = Math.Max(0, Environment.TickCount64 - interactionShownAtTick);
+        if (!ShouldDismissInteraction(isForeground, interactionWasForeground, elapsedMilliseconds))
+        {
+            interactionWasForeground |= isForeground;
+            return;
+        }
+
+        interactionVisible = false;
+        NotifyInteractionDismissed();
+    }
+
     public void Dispose()
     {
         if (hwnd == IntPtr.Zero)
@@ -156,6 +191,7 @@ internal sealed class WebView2HostWindow : IDisposable
 
         var current = hwnd;
         hwnd = IntPtr.Zero;
+        Windows.TryRemove(current, out _);
         DestroyWindow(current);
     }
 
@@ -198,7 +234,52 @@ internal sealed class WebView2HostWindow : IDisposable
 
     private static IntPtr WindowProc(IntPtr hWnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (IsInteractionDismissMessage(message)
+            && Windows.TryGetValue(hWnd, out var weakWindow)
+            && weakWindow.TryGetTarget(out var window))
+        {
+            window.NotifyInteractionDismissed();
+            if (message == WmClose)
+                return IntPtr.Zero;
+        }
+
         return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+
+    internal static bool IsInteractionDismissMessage(uint message)
+    {
+        return message == WmClose;
+    }
+
+    internal static bool ShouldDismissInteraction(bool isForeground, bool wasForeground, long elapsedMilliseconds)
+    {
+        return !isForeground
+            && (wasForeground || elapsedMilliseconds >= InteractionActivationGraceMilliseconds);
+    }
+
+    internal static bool CanReopenInteraction(long dismissedAtTick, long currentTick)
+    {
+        return dismissedAtTick <= 0
+            || Math.Max(0, currentTick - dismissedAtTick) >= InteractionReopenCooldownMilliseconds;
+    }
+
+    private bool IsInteractionForeground()
+    {
+        var foregroundWindow = GetForegroundWindow();
+        return foregroundWindow != IntPtr.Zero
+            && (foregroundWindow == hwnd || GetAncestor(foregroundWindow, GaRoot) == hwnd);
+    }
+
+    private void NotifyInteractionDismissed()
+    {
+        try
+        {
+            InteractionDismissed?.Invoke();
+        }
+        catch
+        {
+            // Never allow managed event handlers to unwind through the native window procedure.
+        }
     }
 
     private static Rect GetWindowRectForClient(int clientWidth, int clientHeight, uint style, uint exStyle)
@@ -258,6 +339,12 @@ internal sealed class WebView2HostWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetFocus(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     [DllImport("user32.dll")]
     private static extern bool UpdateWindow(IntPtr hwnd);

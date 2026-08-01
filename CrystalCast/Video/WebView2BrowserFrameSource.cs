@@ -234,8 +234,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         if (!EnsureBrowserThread())
             return false;
 
-        browserThread?.ShowBrowserControls();
-        return true;
+        return browserThread?.ShowBrowserControls() == true;
     }
 
     public bool HideBrowserControls()
@@ -489,6 +488,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         private bool windowCaptureStartRequested;
         private bool playerReady;
         private volatile bool browserControlsVisible;
+        private long interactionDismissedAtTick;
 
         public BrowserThread(WebView2BrowserFrameSource owner)
         {
@@ -541,8 +541,15 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             PostPlayerMessage(BrowserPageMessaging.Restart(GetMessageNonce()));
         }
 
-        public void ShowBrowserControls()
+        public bool ShowBrowserControls()
         {
+            if (!WebView2HostWindow.CanReopenInteraction(
+                    Volatile.Read(ref interactionDismissedAtTick),
+                    Environment.TickCount64))
+            {
+                return false;
+            }
+
             browserControlsVisible = true;
             Post(() =>
             {
@@ -556,6 +563,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 owner.browserStatus = "WebView2 browser controls visible";
                 return Task.CompletedTask;
             });
+            return true;
         }
 
         public void HideBrowserControls()
@@ -563,17 +571,32 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             browserControlsVisible = false;
             Post(() =>
             {
-                if (hostWindow != null && controller != null)
-                {
-                    controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
-                    hostWindow.ReturnToCapture();
-                }
-
-                owner.browserStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                    ? "WebView2 window capture controls hidden"
-                    : "WebView2 JPEG capture controls hidden";
+                ReturnToCaptureMode();
                 return Task.CompletedTask;
             });
+        }
+
+        private void OnInteractionDismissed()
+        {
+            if (!browserControlsVisible)
+                return;
+
+            Volatile.Write(ref interactionDismissedAtTick, Environment.TickCount64);
+            browserControlsVisible = false;
+            ReturnToCaptureMode();
+        }
+
+        private void ReturnToCaptureMode()
+        {
+            if (hostWindow != null && controller != null)
+            {
+                controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
+                hostWindow.ReturnToCapture();
+            }
+
+            owner.browserStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                ? "WebView2 window capture controls hidden"
+                : "WebView2 JPEG capture controls hidden";
         }
 
         public void Dispose()
@@ -672,6 +695,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
                     shutdownRequested = shouldQuit;
                     context.ExecutePending();
+                    hostWindow?.PollInteractionFocus();
                     BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 50);
                 }
 
@@ -708,6 +732,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     DisposeWindowCaptureSession();
                     controller?.Close();
                     controller = null;
+                    if (hostWindow != null)
+                        hostWindow.InteractionDismissed -= OnInteractionDismissed;
                     hostWindow?.Dispose();
                     hostWindow = null;
                 }
@@ -733,6 +759,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
+                hostWindow.InteractionDismissed += OnInteractionDismissed;
                 var parentHwnd = hostWindow.Hwnd;
 
                 if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))

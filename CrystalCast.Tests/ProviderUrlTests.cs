@@ -17,6 +17,8 @@ public sealed class ProviderUrlTests
 
     [Theory]
     [InlineData("https://evilyoutube.com/watch?v=dQw4w9WgXcQ")]
+    [InlineData("https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ")]
+    [InlineData("https://www.youtube.com@evil.example/watch?v=dQw4w9WgXcQ")]
     [InlineData("ftp://www.youtube.com/watch?v=dQw4w9WgXcQ")]
     [InlineData("https://example.com/watch?v=dQw4w9WgXcQ")]
     public void YouTubeRejectsSpoofedHostsAndUnsupportedSchemes(string input)
@@ -38,6 +40,8 @@ public sealed class ProviderUrlTests
     [InlineData("ftp://www.twitch.tv/videos/123456789")]
     [InlineData("https://clips.twitch.tv/ExampleClip")]
     [InlineData("https://example.com/videos/123456789")]
+    [InlineData("https://www.twitch.tv.evil.example/videos/123456789")]
+    [InlineData("https://www.twitch.tv@evil.example/videos/123456789")]
     public void TwitchRejectsUnsupportedSources(string input)
     {
         Assert.False(TwitchVideoId.TryParseSource(input, out _));
@@ -56,6 +60,8 @@ public sealed class ProviderUrlTests
     [Theory]
     [InlineData("ftp://www.dailymotion.com/video/x8abcde")]
     [InlineData("https://example.com/video/x8abcde")]
+    [InlineData("https://www.dailymotion.com.evil.example/video/x8abcde")]
+    [InlineData("https://www.dailymotion.com@evil.example/video/x8abcde")]
     public void DailymotionRejectsUnsupportedSources(string input)
     {
         Assert.False(DailymotionVideoId.TryParseSource(input, out _));
@@ -72,6 +78,8 @@ public sealed class ProviderUrlTests
     [Theory]
     [InlineData("ftp://vimeo.com/123456789")]
     [InlineData("https://example.com/123456789")]
+    [InlineData("https://vimeo.com.evil.example/123456789")]
+    [InlineData("https://vimeo.com@evil.example/123456789")]
     public void VimeoRejectsUnsupportedSources(string input)
     {
         Assert.False(VimeoVideoId.TryParseSource(input, out _));
@@ -88,6 +96,7 @@ public sealed class ProviderUrlTests
     [Theory]
     [InlineData("file:///C:/video.html")]
     [InlineData("javascript:alert(1)")]
+    [InlineData("https://user:password@example.com/media")]
     [InlineData("not a URL")]
     public void GenericWebRejectsOtherSchemesAndInvalidUrls(string input)
     {

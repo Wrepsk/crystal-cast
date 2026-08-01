@@ -29,18 +29,12 @@ public static partial class YouTubeVideoId
             return true;
         }
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        if (!BrowserUriPolicy.TryCreateHttpUri(input, out var uri))
             return false;
 
-        if (uri.Scheme is not ("http" or "https"))
-            return false;
-
-        var host = uri.Host.ToLowerInvariant();
-        if (host is not "youtube.com" and not "www.youtube.com"
-            && !host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase)
-            && host is not "youtube-nocookie.com" and not "www.youtube-nocookie.com"
-            && !host.EndsWith(".youtube-nocookie.com", StringComparison.OrdinalIgnoreCase)
-            && host is not "youtu.be" and not "www.youtu.be")
+        var host = uri.IdnHost.ToLowerInvariant();
+        if (!BrowserUriPolicy.IsHostOrSubdomain(uri, "youtube.com", "youtube-nocookie.com")
+            && !BrowserUriPolicy.IsExactHost(uri, "youtu.be", "www.youtu.be"))
         {
             return false;
         }

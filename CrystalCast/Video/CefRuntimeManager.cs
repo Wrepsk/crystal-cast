@@ -71,10 +71,7 @@ internal static class CefRuntimeManager
                     return true;
                 }
 
-                var cacheRoot = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "CrystalCast",
-                    "Cef");
+                var cacheRoot = BrowserProfileManager.GetCefRoot();
                 Directory.CreateDirectory(cacheRoot);
 
                 var cefSharpSettingsType = GetRequiredType(assemblies, "CefSharp", "CefSharp.CefSharpSettings");

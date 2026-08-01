@@ -1,6 +1,7 @@
 using System.Numerics;
 using CrystalCast.Rendering;
 using CrystalCast.Sync;
+using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
@@ -24,6 +25,7 @@ public sealed class ConfigWindow : Window, IDisposable
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
+    private string browserDataStatus = string.Empty;
 
     public ConfigWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast Settings###CrystalCastConfig")
@@ -186,7 +188,7 @@ public sealed class ConfigWindow : Window, IDisposable
         return 0;
     }
 
-    private static bool DrawBrowserMedia(Configuration config)
+    private bool DrawBrowserMedia(Configuration config)
     {
         var changed = false;
         var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
@@ -210,6 +212,22 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.TextDisabled("Auto uses each source's preferred backend and falls back when available.");
+        ImGui.Spacing();
+        if (ImGui.Button("Clear browser data on restart"))
+        {
+            try
+            {
+                browserDataStatus = BrowserProfileManager.RequestClearOnNextStart();
+            }
+            catch (Exception ex)
+            {
+                browserDataStatus = $"Could not schedule browser data clearing: {ex.GetBaseException().Message}";
+            }
+        }
+
+        ImGui.TextDisabled("Clears cookies, local storage, cache, and saved browser state after restarting CrystalCast.");
+        if (!string.IsNullOrEmpty(browserDataStatus))
+            ImGui.TextWrapped(browserDataStatus);
         return changed;
     }
 

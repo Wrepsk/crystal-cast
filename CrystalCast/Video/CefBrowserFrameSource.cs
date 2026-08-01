@@ -18,6 +18,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private readonly IBrowserSourceReference source;
     private readonly bool isValidSource;
     private readonly bool autoplay;
+    private readonly BrowserPlaybackIntent playbackIntent;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly object telemetryLock = new();
     private readonly object browserStartupGate = new();
@@ -48,6 +49,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     private double lastPaintMilliseconds;
     private float detectedVideoFps;
     private bool playerReady;
+    private string currentPlayerPageUrl = string.Empty;
     private bool playerFailed;
     private volatile bool disposed;
     private volatile bool browserStartupFailed;
@@ -76,6 +78,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         Height = Math.Clamp(height, 180, 2160);
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
         this.autoplay = autoplay;
+        playbackIntent = new BrowserPlaybackIntent(autoplay);
         this.loop = loop;
         this.playlistAutoplayNext = playlistAutoplayNext;
         this.audioEnabled = audioEnabled;
@@ -127,7 +130,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         }
 
         MaybeReloadPlayerIfNotReady();
-        if (!wasCaptureEnabled)
+        if (!wasCaptureEnabled && playbackIntent.IsPlayRequested)
             Play();
     }
 
@@ -136,7 +139,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         var wasCaptureEnabled = captureEnabled;
         captureEnabled = false;
         if (wasCaptureEnabled)
-            Pause();
+            ExecutePlayerScript("crystalCastPause");
 
         UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
     }
@@ -173,6 +176,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     public void Play()
     {
+        playbackIntent.RequestPlay();
         captureEnabled = true;
         if (GetTelemetryState() != ScreenPlaybackState.Playing)
             SendPlayerActivationClick();
@@ -182,6 +186,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     public void Pause()
     {
+        playbackIntent.RequestPause();
         captureEnabled = false;
         ExecutePlayerScript("crystalCastPause");
         UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
@@ -199,6 +204,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
     public void Restart()
     {
+        playbackIntent.RequestPlay();
         captureEnabled = true;
         ExecutePlayerScript("crystalCastRestart");
     }
@@ -261,6 +267,10 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
 
             candidate = CreateChromiumBrowser(chromiumBrowserType, browserSettings);
             SetInstanceProperty(candidate, "Size", new System.Drawing.Size(Width, Height));
+            SetInstanceProperty(candidate, "RequestHandler", CreateBrowserPolicyHandler("CefSharp.IRequestHandler"));
+            SetInstanceProperty(candidate, "LifeSpanHandler", CreateBrowserPolicyHandler("CefSharp.ILifeSpanHandler"));
+            SetInstanceProperty(candidate, "DownloadHandler", CreateBrowserPolicyHandler("CefSharp.IDownloadHandler"));
+            SetInstanceProperty(candidate, "PermissionHandler", CreateBrowserPolicyHandler("CefSharp.IPermissionHandler"));
             AddBrowserEventHandler(candidate, "Paint", nameof(OnPaint));
             AddBrowserEventHandler(candidate, "JavascriptMessageReceived", nameof(OnJavascriptMessageReceived));
             AddBrowserEventHandler(candidate, "LoadError", nameof(OnLoadError));
@@ -310,7 +320,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
                 try
                 {
                     CreateBrowser();
-                    if (!disposed && captureEnabled && browser != null)
+                    if (!disposed && captureEnabled && playbackIntent.IsPlayRequested && browser != null)
                         Play();
                 }
                 catch (Exception ex)
@@ -371,6 +381,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         playerStatus = "player not ready";
         var sequence = Interlocked.Increment(ref globalPlayerPageSequence);
         var pageUrl = $"{descriptor.PlayerOrigin}/player.html?source={Uri.EscapeDataString(source.DisplayName)}&attempt={playerLoadAttempt}&seq={sequence}";
+        currentPlayerPageUrl = pageUrl;
         var html = descriptor.BuildHtml(source, new BrowserPlaybackSettings(autoplay, loop, playlistAutoplayNext, audioEnabled, volume, playbackRate));
         html = BrowserPageMessaging.AttachOutboundNonce(html, messageNonce);
         InvokeWebBrowserExtension("LoadHtml", currentBrowser, html, pageUrl);
@@ -612,6 +623,14 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             return type;
 
         throw new InvalidOperationException(cefStatus);
+    }
+
+    private object CreateBrowserPolicyHandler(string interfaceName)
+    {
+        var interfaceType = GetCefType("CefSharp", interfaceName);
+        return CefBrowserPolicyProxy.Create(
+            interfaceType,
+            candidate => BrowserNavigationPolicy.IsAllowedProviderDocument(candidate, currentPlayerPageUrl));
     }
 
     private static object CreateChromiumBrowser(Type chromiumBrowserType, object browserSettings)
@@ -857,10 +876,26 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
     {
         try
         {
+            var frame = GetInstanceProperty<object?>(args, "Frame");
+            var frameUrl = frame == null ? null : GetInstanceProperty<string?>(frame, "Url");
+            if (frame == null
+                || !GetInstanceProperty<bool>(frame, "IsMain")
+                || !BrowserNavigationPolicy.IsExpectedMessageSource(frameUrl, currentPlayerPageUrl))
+            {
+                playerStatus = "ignored CEF browser message from an unexpected document";
+                return;
+            }
+
             var message = GetInstanceProperty<object?>(args, "Message");
             var json = message as string ?? JsonSerializer.Serialize(message, descriptor.JsonOptions);
-            using var document = JsonDocument.Parse(json);
-            UpdateFromWebMessage(document.RootElement);
+            if (!BrowserMessageValidator.TryParseAuthenticated(json, messageNonce, out var document, out var error))
+            {
+                playerStatus = $"invalid CEF browser message: {error}";
+                return;
+            }
+
+            using (document!)
+                UpdateFromWebMessage(document!.RootElement);
         }
         catch (Exception ex)
         {
@@ -893,21 +928,21 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
         var message = GetInstanceProperty<string?>(args, "Message");
         var line = GetInstanceProperty<int>(args, "Line");
         if (!string.IsNullOrWhiteSpace(message))
-            playerStatus = $"CEF console: {message} (line {line})";
+            playerStatus = $"CEF console: {BrowserMessageValidator.BoundText(message, string.Empty)} (line {line})";
     }
 
     private void OnStatusMessage(object? sender, object args)
     {
         var value = GetInstanceProperty<string?>(args, "Value");
         if (!string.IsNullOrWhiteSpace(value))
-            browserStatus = $"CEF status: {value}";
+            browserStatus = $"CEF status: {BrowserMessageValidator.BoundText(value, string.Empty)}";
     }
 
     private void OnTitleChanged(object? sender, object args)
     {
         var title = GetInstanceProperty<string?>(args, "Title");
         if (!string.IsNullOrWhiteSpace(title) && title.StartsWith("CrystalCast:", StringComparison.Ordinal))
-            playerStatus = title["CrystalCast:".Length..];
+            playerStatus = BrowserMessageValidator.BoundText(title["CrystalCast:".Length..], string.Empty);
     }
 
     private void UpdateFromWebMessage(JsonElement root)
@@ -924,7 +959,7 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
                 playerFailed = false;
                 playerReadyUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 playerStatus = $"player ready: {source.DisplayName}";
-                if (autoplay && captureEnabled)
+                if (playbackIntent.IsPlayRequested && captureEnabled)
                     Play();
                 break;
             case "status":
@@ -961,8 +996,8 @@ internal sealed class CefBrowserFrameSource : IVideoFrameSource, IMediaPlaybackT
             _ => ScreenPlaybackState.Stopped,
         };
 
-        var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
-        var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
+        var positionMs = BrowserMessageValidator.ToBoundedMilliseconds(positionSeconds);
+        var durationMs = BrowserMessageValidator.ToBoundedMilliseconds(durationSeconds);
         UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
         playerStatus = descriptor.FormatPlayerStatus(title, stateCode, positionSeconds, durationSeconds, root);
     }

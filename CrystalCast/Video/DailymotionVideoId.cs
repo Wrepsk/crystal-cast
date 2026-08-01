@@ -23,14 +23,11 @@ public static partial class DailymotionVideoId
             return true;
         }
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        if (!BrowserUriPolicy.TryCreateHttpUri(input, out var uri))
             return false;
 
-        if (uri.Scheme is not ("http" or "https"))
-            return false;
-
-        var host = uri.Host.ToLowerInvariant();
-        if (host is "dai.ly" or "www.dai.ly")
+        var host = uri.IdnHost.ToLowerInvariant();
+        if (BrowserUriPolicy.IsExactHost(uri, "dai.ly", "www.dai.ly"))
         {
             var shortSegments = GetPathSegments(uri);
             if (TryExtractVideoId(shortSegments.FirstOrDefault(), out var shortVideoId))
@@ -42,8 +39,7 @@ public static partial class DailymotionVideoId
             return false;
         }
 
-        if (host is not "dailymotion.com" and not "www.dailymotion.com" and not "geo.dailymotion.com"
-            && !host.EndsWith(".dailymotion.com", StringComparison.OrdinalIgnoreCase))
+        if (!BrowserUriPolicy.IsHostOrSubdomain(uri, "dailymotion.com"))
         {
             return false;
         }

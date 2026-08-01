@@ -29,7 +29,6 @@ internal sealed class BrowserSourceDescriptor
 
     public string VirtualHostName { get; init; } = "crystalcast.local";
     public string PlayerOrigin => $"https://{VirtualHostName}";
-    public string WebView2UserDataFolderName { get; init; } = "WebView2";
     public string? WebView2AdditionalBrowserArguments { get; init; }
     public bool FailCefWhenReadyTimeoutExhausted { get; init; }
     public Func<JsonElement, string>? FormatStatusSuffix { get; init; }
@@ -93,7 +92,7 @@ internal static class BrowserSourceDescriptors
         IsValidVideoId = YouTubeVideoId.IsValidVideoId,
         DescribeError = root => DescribeProviderError(root, "YouTube", "IFrame API"),
         JsonOptions = YouTubePlayerPage.JsonOptions,
-        WebView2UserDataFolderName = "WebView2",
+        WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
     };
 
     public static readonly BrowserSourceDescriptor Twitch = new()
@@ -113,7 +112,7 @@ internal static class BrowserSourceDescriptors
         IsValidVideoId = TwitchVideoId.IsValidVideoId,
         DescribeError = root => DescribeProviderError(root, "Twitch", "embed API"),
         JsonOptions = TwitchPlayerPage.JsonOptions,
-        WebView2UserDataFolderName = "WebView2",
+        WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
         FailCefWhenReadyTimeoutExhausted = true,
     };
 
@@ -135,7 +134,6 @@ internal static class BrowserSourceDescriptors
         IsValidVideoId = DailymotionVideoId.IsValidVideoId,
         DescribeError = root => DescribeProviderError(root, "Dailymotion", "player API"),
         JsonOptions = DailymotionPlayerPage.JsonOptions,
-        WebView2UserDataFolderName = "WebView2Dailymotion",
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
         FailCefWhenReadyTimeoutExhausted = true,
         FormatStatusSuffix = FormatDailymotionStatusSuffix,
@@ -160,7 +158,6 @@ internal static class BrowserSourceDescriptors
         IsValidVideoId = VimeoVideoId.IsValidVideoId,
         DescribeError = root => DescribeProviderError(root, "Vimeo", "Player SDK"),
         JsonOptions = VimeoPlayerPage.JsonOptions,
-        WebView2UserDataFolderName = "WebView2Vimeo",
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
         FailCefWhenReadyTimeoutExhausted = true,
     };
@@ -177,7 +174,6 @@ internal static class BrowserSourceDescriptors
         BuildCanonicalSourceUrl = (source, _) => ((GenericWebSourceReference)source).Url,
         IsValidVideoId = _ => true,
         DescribeError = root => DescribeProviderError(root, "Generic Web", "media controller"),
-        WebView2UserDataFolderName = "WebView2GenericWeb",
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
     };
 
@@ -265,7 +261,7 @@ internal static class BrowserSourceDescriptors
     private static string DescribeProviderError(JsonElement root, string providerName, string apiName)
     {
         if (root.TryGetProperty("message", out var messageProperty) && messageProperty.ValueKind == JsonValueKind.String)
-            return messageProperty.GetString() ?? $"{providerName} player error";
+            return BrowserMessageValidator.BoundText(messageProperty.GetString(), $"{providerName} player error");
 
         var code = TryGetInt(root, "code", 0);
         return code switch
@@ -297,16 +293,22 @@ internal static class BrowserSourceDescriptors
         return pipDetail + embedDetail;
     }
 
-    internal static string TryGetString(JsonElement root, string propertyName, string fallback)
+    internal static string TryGetString(
+        JsonElement root,
+        string propertyName,
+        string fallback,
+        int maximumLength = BrowserMessageValidator.MaximumTextLength)
     {
         return root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString() ?? fallback
+            ? BrowserMessageValidator.BoundText(property.GetString(), fallback, maximumLength)
             : fallback;
     }
 
     internal static double TryGetDouble(JsonElement root, string propertyName, double fallback)
     {
-        return root.TryGetProperty(propertyName, out var property) && property.TryGetDouble(out var value)
+        return root.TryGetProperty(propertyName, out var property)
+            && property.TryGetDouble(out var value)
+            && double.IsFinite(value)
             ? value
             : fallback;
     }

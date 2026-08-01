@@ -31,6 +31,17 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        try
+        {
+            var browserDataClearStatus = BrowserProfileManager.ApplyPendingClearRequest();
+            if (!string.IsNullOrEmpty(browserDataClearStatus))
+                Log.Information("{BrowserDataClearStatus}", browserDataClearStatus);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not apply the pending CrystalCast browser-data clear request; it will be retried on the next load.");
+        }
+
         var placementResolver = new ScreenPlacementResolver(ObjectTable, ClientState);
         var services = new CrystalCastServices(
             PluginInterface,

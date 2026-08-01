@@ -8,10 +8,7 @@ public static class GenericWebUrl
         if (string.IsNullOrWhiteSpace(input))
             return false;
 
-        if (!Uri.TryCreate(input.Trim(), UriKind.Absolute, out var uri))
-            return false;
-
-        if (uri.Scheme is not ("http" or "https"))
+        if (!BrowserUriPolicy.TryCreateHttpUri(input, out var uri))
             return false;
 
         source = new GenericWebSourceReference(uri.AbsoluteUri);

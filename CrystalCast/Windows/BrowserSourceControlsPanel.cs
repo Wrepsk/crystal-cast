@@ -28,6 +28,14 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         var uiState = GetUiState(screen, descriptor);
         var changed = false;
 
+        if (descriptor.ProviderKind == BrowserSourceProviderKind.GenericWeb)
+        {
+            ImGui.PushTextWrapPos();
+            ImGui.TextColored(new Vector4(1.0f, 0.75f, 0.25f, 1.0f), BrowserNavigationPolicy.GenericWebTrustWarning);
+            ImGui.PopTextWrapPos();
+            ImGui.Spacing();
+        }
+
         changed |= DrawUrlControls(screen, descriptor, uiState);
         changed |= DrawPlaybackControls(screen, descriptor, uiState);
         DrawBrowserControlWindow(screen, descriptor, capabilities);

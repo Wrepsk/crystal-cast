@@ -13,7 +13,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private readonly string input;
     private readonly GenericWebSourceReference source;
     private readonly bool isValidSource;
-    private readonly bool autoplay;
+    private readonly BrowserPlaybackIntent playbackIntent;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly WebView2CaptureMode captureMode;
     private readonly IPluginLog log;
@@ -57,7 +57,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         Width = Math.Clamp(width, 320, 3840);
         Height = Math.Clamp(height, 180, 2160);
         FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
-        this.autoplay = autoplay;
+        playbackIntent = new BrowserPlaybackIntent(autoplay);
         this.loop = loop;
         this.audioEnabled = audioEnabled;
         this.volume = QuantizeVolume(volume);
@@ -108,7 +108,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             return;
 
         captureEnabled = true;
-        if (!wasCaptureEnabled && autoplay)
+        if (!wasCaptureEnabled && playbackIntent.IsPlayRequested)
             browserThread.Play();
     }
 
@@ -172,6 +172,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public void Play()
     {
+        playbackIntent.RequestPlay();
         EnsureBrowserThread();
         captureEnabled = true;
         browserThread?.Play();
@@ -179,6 +180,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public void Pause()
     {
+        playbackIntent.RequestPause();
         captureEnabled = false;
         browserThread?.Pause();
         UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle(), GetTelemetryUrl());
@@ -196,6 +198,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public void Restart()
     {
+        playbackIntent.RequestPlay();
         EnsureBrowserThread();
         captureEnabled = true;
         browserThread?.Restart();
@@ -320,7 +323,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 browserThread?.MarkPlayerReady();
                 browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
                 settingsPublished = true;
-                if (autoplay && captureEnabled)
+                if (playbackIntent.IsPlayRequested && captureEnabled)
                     browserThread?.Play();
                 break;
             case "status":
@@ -338,7 +341,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private void UpdateFromStatusMessage(JsonElement root)
     {
         var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
-        var url = BrowserSourceDescriptors.TryGetString(root, "url", source.Url);
+        var url = BrowserSourceDescriptors.TryGetString(root, "url", source.Url, BrowserUriPolicy.MaximumUrlLength);
         var noMedia = BrowserSourceDescriptors.TryGetBool(root, "noMedia", false);
         var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
         var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
@@ -353,8 +356,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 _ => ScreenPlaybackState.Stopped,
             };
 
-        var positionMs = (long)Math.Max(0.0, positionSeconds * 1000.0);
-        var durationMs = (long)Math.Max(0.0, durationSeconds * 1000.0);
+        var positionMs = BrowserMessageValidator.ToBoundedMilliseconds(positionSeconds);
+        var durationMs = BrowserMessageValidator.ToBoundedMilliseconds(durationSeconds);
         UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, url);
         playerStatus = noMedia
             ? PlaybackUnavailableStatus
@@ -664,6 +667,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                         webView.NavigationStarting -= OnNavigationStarting;
                         webView.NavigationCompleted -= OnNavigationCompleted;
                         webView.ProcessFailed -= OnProcessFailed;
+                        webView.NewWindowRequested -= OnNewWindowRequested;
+                        webView.PermissionRequested -= OnPermissionRequested;
+                        webView.DownloadStarting -= OnDownloadStarting;
                     }
                     webView = null;
                     DisposeWindowCaptureSession();
@@ -687,10 +693,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             try
             {
-                var userDataFolder = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "CrystalCast",
-                    "WebView2GenericWeb");
+                var userDataFolder = BrowserProfileManager.GetWebView2UserDataFolder(BrowserSourceProviderKind.GenericWeb);
                 Directory.CreateDirectory(userDataFolder);
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -715,6 +718,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 webView.NavigationStarting += OnNavigationStarting;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
+                webView.NewWindowRequested += OnNewWindowRequested;
+                webView.PermissionRequested += OnPermissionRequested;
+                webView.DownloadStarting += OnDownloadStarting;
                 await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript(owner.messageNonce));
                 cancellationToken.ThrowIfCancellationRequested();
                 playerReady = false;
@@ -810,6 +816,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.Settings.IsStatusBarEnabled = false;
             webView.Settings.IsZoomControlEnabled = false;
+            webView.Settings.AreHostObjectsAllowed = false;
+            webView.Settings.IsGeneralAutofillEnabled = false;
+            webView.Settings.IsPasswordAutosaveEnabled = false;
         }
 
         private void ApplyBrowserMute(bool audioEnabled, float volume)
@@ -922,6 +931,11 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
         {
             playerReady = false;
+            if (!BrowserNavigationPolicy.IsAllowedGenericDocument(args.Uri))
+            {
+                args.Cancel = true;
+                owner.browserStatus = "blocked non-HTTP browser navigation";
+            }
         }
 
         private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs args)
@@ -931,15 +945,42 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
         {
-            try
+            var expectedSource = webView?.Source;
+            if (!BrowserNavigationPolicy.IsExpectedMessageSource(args.Source, expectedSource))
             {
-                using var document = JsonDocument.Parse(args.WebMessageAsJson);
-                owner.UpdateFromWebMessage(document.RootElement);
+                owner.playerStatus = "ignored browser message from an unexpected document";
+                return;
             }
-            catch (Exception ex)
+
+            if (!BrowserMessageValidator.TryParseAuthenticated(
+                    args.WebMessageAsJson,
+                    owner.messageNonce,
+                    out var document,
+                    out var error))
             {
-                owner.playerStatus = $"invalid browser message: {ex.Message}";
+                owner.playerStatus = $"invalid browser message: {error}";
+                return;
             }
+
+            using (document!)
+                owner.UpdateFromWebMessage(document!.RootElement);
+        }
+
+        private static void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs args)
+        {
+            args.Handled = true;
+        }
+
+        private static void OnPermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs args)
+        {
+            args.State = BrowserPermissionPolicy.IsAllowed(args.PermissionKind.ToString())
+                ? CoreWebView2PermissionState.Allow
+                : CoreWebView2PermissionState.Deny;
+        }
+
+        private static void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs args)
+        {
+            args.Cancel = true;
         }
     }
 

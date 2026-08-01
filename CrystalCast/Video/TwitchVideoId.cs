@@ -23,17 +23,14 @@ public static partial class TwitchVideoId
             return true;
         }
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        if (!BrowserUriPolicy.TryCreateHttpUri(input, out var uri))
             return false;
 
-        if (uri.Scheme is not ("http" or "https"))
+        var host = uri.IdnHost.ToLowerInvariant();
+        if (BrowserUriPolicy.IsHostOrSubdomain(uri, "clips.twitch.tv"))
             return false;
 
-        var host = uri.Host.ToLowerInvariant();
-        if (host is "clips.twitch.tv" || host.EndsWith(".clips.twitch.tv", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (host is not "twitch.tv" and not "www.twitch.tv" && !host.EndsWith(".twitch.tv", StringComparison.OrdinalIgnoreCase))
+        if (!BrowserUriPolicy.IsHostOrSubdomain(uri, "twitch.tv"))
             return false;
 
         var segments = GetPathSegments(uri);

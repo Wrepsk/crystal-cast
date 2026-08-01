@@ -17,15 +17,10 @@ public static partial class VimeoVideoId
             return true;
         }
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        if (!BrowserUriPolicy.TryCreateHttpUri(input, out var uri))
             return false;
 
-        if (uri.Scheme is not ("http" or "https"))
-            return false;
-
-        var host = uri.Host.ToLowerInvariant();
-        if (host is not "vimeo.com" and not "www.vimeo.com" and not "player.vimeo.com"
-            && !host.EndsWith(".vimeo.com", StringComparison.OrdinalIgnoreCase))
+        if (!BrowserUriPolicy.IsHostOrSubdomain(uri, "vimeo.com"))
         {
             return false;
         }

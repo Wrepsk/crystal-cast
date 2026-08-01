@@ -2,7 +2,7 @@
 
 CrystalCast is a Dalamud API 15 prototype for rendering local world-space browser screens in FFXIV.
 
-It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through CEF offscreen rendering or WebView2 capture.
+It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through WebView2.
 
 CrystalCast does not download or extract streaming media. Browser sources load the provider's embedded player locally and capture the resulting browser pixels for the world-space renderer.
 
@@ -30,7 +30,7 @@ The browser-only model, migration, provider URL parsers, source-kind compatibili
 dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
 ```
 
-The tests use an injected browser-frame-source factory and do not start CEF, WebView2, Windows Graphics Capture, or D3D resources.
+The tests use an injected browser-frame-source factory and do not start WebView2, Windows Graphics Capture, or D3D resources.
 
 ## Usage
 
@@ -44,38 +44,43 @@ CrystalCast's intended render output is Pictomancy `SceneComposite`, which compo
 
 ## Browser compatibility
 
-CrystalCast supports three browser capture paths:
+CrystalCast supports two WebView2 capture paths:
 
 - WebView2 window capture, the preferred Auto path on Windows; it uses Windows Graphics Capture to avoid CPU readback when supported.
-- CEF offscreen capture, available as an explicit compatibility option or fallback.
-- WebView2 JPEG capture, a Windows fallback for sources that need the Microsoft Edge media stack.
+- WebView2 JPEG capture, used as the Windows fallback and forced when running under Wine.
 
-CrystalCast does not ship a proprietary-codec CEF build. Some streaming sources, especially Twitch and YouTube Live, may require codecs not included in the bundled CEF runtime. In Auto mode, CrystalCast prefers WebView2 window capture and falls back to WebView2 JPEG or CEF capture when needed.
+In Auto mode on Windows, CrystalCast prefers WebView2 window capture and falls back to WebView2 JPEG capture when Windows Graphics Capture is unavailable.
 
-WebView2 JPEG capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than CEF offscreen capture. WebView2 window capture uses Windows Graphics Capture, synchronizes its shared D3D texture with keyed mutexes, and falls back to JPEG capture if the OS, capture session, or graphics device becomes unavailable.
+WebView2 JPEG capture uses browser screenshot capture rather than a direct raw frame or texture feed, so it may have lower quality or higher overhead than window capture. WebView2 window capture uses Windows Graphics Capture, synchronizes its shared D3D texture with keyed mutexes, and falls back to JPEG capture if the OS, capture session, or graphics device becomes unavailable.
+
+### Experimental Wine support
+
+Microsoft does not officially support WebView2 on Linux or Wine. CrystalCast detects Wine, disables Windows Graphics Capture, and uses JPEG capture only. If WebView2 is missing, first-time Wine users see a setup assistant with the command `WINEPREFIX="/path/to/your/ffxiv-wine-prefix" winetricks webview2`.
+
+Use a recent Winetricks release and install WebView2 into the exact Wine prefix that runs FFXIV. Check the generated prefix path before running the command and back up important prefixes first. This path is intentionally manual: CrystalCast does not download installers or modify a Wine prefix itself. Wine support remains experimental and is not yet tested on a real Linux installation.
 
 Each WebView2 screen serves its player from a unique immutable in-memory page resource. Browser controls and telemetry use per-screen WebMessages protected by an instance nonce, so concurrent screens cannot overwrite a shared page or accept another screen's messages. Browser initialization and capture are cancellation-driven; commands and disposal do not synchronously wait on the render or UI thread.
 
 ### Browser security and privacy
 
-Provider URLs accept only credential-free HTTP/HTTPS URLs on the provider's exact host or a real subdomain; lookalike suffixes such as `youtube.com.example.org` are rejected. Provider player documents cannot navigate their top-level browser outside the generated player page. Both WebView2 and CEF block popups, downloads, external URL schemes, and sensitive browser permissions such as camera, microphone, location, notifications, and file access. WebView2 allows only its media-autoplay permission so host Play commands can operate embedded players. Browser telemetry is accepted only from the expected main document with the current screen nonce, and message size, JSON depth, text, URL, and media-time values are bounded.
+Provider URLs accept only credential-free HTTP/HTTPS URLs on the provider's exact host or a real subdomain; lookalike suffixes such as `youtube.com.example.org` are rejected. Provider player documents cannot navigate their top-level browser outside the generated player page. WebView2 blocks popups, downloads, external URL schemes, and sensitive browser permissions such as camera, microphone, location, notifications, and file access. It allows only its media-autoplay permission so host Play commands can operate embedded players. Browser telemetry is accepted only from the expected main document with the current screen nonce, and message size, JSON depth, text, URL, and media-time values are bounded.
 
-WebView2 stores each provider in a separate profile, while CEF uses its own storage root. The Browser settings tab can schedule all CrystalCast browser cookies, local storage, cache, and saved state for deletion on the next plugin load, before a browser runtime starts. Legacy CrystalCast browser-profile locations are included in that cleanup.
+WebView2 stores each provider in a separate profile. The Browser settings tab can schedule all CrystalCast browser cookies, local storage, cache, and saved state for deletion on the next plugin load, before a browser runtime starts. Legacy CrystalCast browser-profile locations are included in that cleanup.
 
 Generic Web intentionally has a broader trust surface: it runs CrystalCast's media-control script inside the HTTP/HTTPS page supplied by the user. That page can track the user, navigate to other HTTP/HTTPS pages, and observe or fabricate its own playback telemetry. The nonce prevents cross-screen message confusion, but it does not make an untrusted Generic Web page trustworthy. Load only sites you trust; popups, downloads, external schemes, and sensitive browser permissions remain blocked, while media autoplay is allowed for playback control.
 
 At most eight browser runtimes are active simultaneously. Additional enabled screens remain configured but are deferred in list order; the renderer and Diagnostics tab report this explicitly. GPU texture sampling diagnostics are disabled by default because they introduce a synchronous readback, and can be enabled temporarily from the Diagnostics tab.
 
-| Source | Windows CEF | Windows WebView2 | Notes |
+| Source | Windows WebView2 | Experimental Wine WebView2 | Notes |
 |---|---:|---:|---|
-| YouTube videos | Source-dependent | Supported | CEF compatibility depends on the required media codecs. |
-| YouTube Live | Partial/source-dependent | Supported | Live streams often need codecs not present in the bundled CEF runtime. |
-| Twitch | Partial/source-dependent | Supported | WebView2 is the main compatibility fallback on Windows. |
-| Dailymotion | Partial/source-dependent | Supported | WebView2 is the main compatibility fallback on Windows. |
-| Vimeo | Partial/source-dependent | Supported | WebView2 is the main compatibility fallback on Windows. |
-| Generic Web | Not supported in v1 | Supported | Playback sync is best effort for browser-accessible HTML media; otherwise URL/page capture still works. |
+| YouTube videos | Supported | Untested | Wine forces JPEG capture. |
+| YouTube Live | Supported | Untested | Wine forces JPEG capture. |
+| Twitch | Supported | Untested | Wine forces JPEG capture. |
+| Dailymotion | Supported | Untested | Wine forces JPEG capture. |
+| Vimeo | Supported | Untested | Wine forces JPEG capture. |
+| Generic Web | Supported | Untested | Playback sync is best effort for browser-accessible HTML media; otherwise URL/page capture still works. |
 
-If CEF or WebView2 is missing or unsupported for a source, CrystalCast reports the failure in the UI/status path and keeps the plugin running.
+If WebView2 is missing or unsupported for a source, CrystalCast reports the failure in the UI/status path and keeps the plugin running.
 
 ## IPC
 

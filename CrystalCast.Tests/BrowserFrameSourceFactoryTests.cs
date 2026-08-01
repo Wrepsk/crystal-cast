@@ -41,14 +41,14 @@ public sealed class BrowserFrameSourceFactoryTests
         };
         var factory = new RecordingBrowserFrameSourceFactory();
 
-        BrowserSourceProviderRegistry.CreateFrameSource(screen, BrowserMediaEngine.CefOffScreen, factory);
+        BrowserSourceProviderRegistry.CreateFrameSource(screen, BrowserMediaEngine.WebView2Capture, factory);
 
         var request = Assert.IsType<BrowserFrameSourceRequest>(factory.Request);
         Assert.Equal("dQw4w9WgXcQ", request.Input);
         Assert.Equal(1920, request.Width);
         Assert.Equal(1080, request.Height);
         Assert.Equal(30, request.CaptureFps);
-        Assert.Equal(BrowserMediaEngine.CefOffScreen, request.EnginePreference);
+        Assert.Equal(BrowserMediaEngine.WebView2Capture, request.EnginePreference);
         Assert.False(request.Autoplay);
         Assert.True(request.Loop);
         Assert.False(request.PlaylistAutoplayNext);
@@ -58,10 +58,10 @@ public sealed class BrowserFrameSourceFactoryTests
     }
 
     [Theory]
-    [InlineData(BrowserMediaEngine.Auto, WebView2CaptureMode.WindowGraphicsCapture)]
-    [InlineData(BrowserMediaEngine.WebView2WindowCapture, WebView2CaptureMode.WindowGraphicsCapture)]
-    [InlineData(BrowserMediaEngine.WebView2Capture, WebView2CaptureMode.PreviewJpeg)]
-    public void GenericWebMapsEngineToCaptureMode(BrowserMediaEngine engine, WebView2CaptureMode expectedMode)
+    [InlineData(BrowserMediaEngine.Auto)]
+    [InlineData(BrowserMediaEngine.WebView2WindowCapture)]
+    [InlineData(BrowserMediaEngine.WebView2Capture)]
+    public void GenericWebPassesEnginePreferenceToFactory(BrowserMediaEngine engine)
     {
         var screen = new BrowserScreenProfile { ProviderKind = BrowserSourceProviderKind.GenericWeb };
         var factory = new RecordingBrowserFrameSourceFactory();
@@ -69,7 +69,7 @@ public sealed class BrowserFrameSourceFactoryTests
         BrowserSourceProviderRegistry.CreateFrameSource(screen, engine, factory);
 
         Assert.NotNull(factory.Request);
-        Assert.Equal(expectedMode, factory.Request.GenericWebCaptureMode);
+        Assert.Equal(engine, factory.Request.EnginePreference);
     }
 
     [Fact]

@@ -15,8 +15,7 @@ internal sealed record BrowserFrameSourceRequest(
     bool PlaylistAutoplayNext,
     bool AudioEnabled,
     float Volume,
-    float PlaybackRate,
-    WebView2CaptureMode GenericWebCaptureMode = WebView2CaptureMode.PreviewJpeg);
+    float PlaybackRate);
 
 internal interface IBrowserFrameSourceFactory
 {
@@ -26,12 +25,10 @@ internal interface IBrowserFrameSourceFactory
 internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
 {
     private readonly IPluginLog log;
-    private readonly string? pluginDirectory;
 
-    public BrowserFrameSourceFactory(IPluginLog log, string? pluginDirectory)
+    public BrowserFrameSourceFactory(IPluginLog log)
     {
         this.log = log;
-        this.pluginDirectory = pluginDirectory;
     }
 
     public IVideoFrameSource Create(BrowserFrameSourceRequest request)
@@ -48,7 +45,7 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
                 request.AudioEnabled,
                 request.Volume,
                 request.PlaybackRate,
-                request.GenericWebCaptureMode,
+                BrowserPlatformPolicy.ResolveCaptureMode(request.EnginePreference, WineEnvironment.IsWine),
                 log);
         }
 
@@ -68,7 +65,6 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
             request.AudioEnabled,
             request.Volume,
             request.PlaybackRate,
-            log,
-            pluginDirectory);
+            log);
     }
 }

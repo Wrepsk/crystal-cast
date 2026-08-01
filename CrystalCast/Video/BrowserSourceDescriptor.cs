@@ -16,7 +16,6 @@ internal sealed class BrowserSourceDescriptor
     public required string DisplayName { get; init; }
     public required string InvalidSourceMessage { get; init; }
     public required string LoadReason { get; init; }
-    public required BrowserMediaEngine PreferredAutoEngine { get; init; }
     public required TryParseBrowserSource TryParse { get; init; }
     public required Func<IBrowserSourceReference, BrowserPlaybackSettings, string> BuildHtml { get; init; }
     public required Func<IBrowserSourceReference, string, string> BuildCanonicalSourceUrl { get; init; }
@@ -30,7 +29,6 @@ internal sealed class BrowserSourceDescriptor
     public string VirtualHostName { get; init; } = "crystalcast.local";
     public string PlayerOrigin => $"https://{VirtualHostName}";
     public string? WebView2AdditionalBrowserArguments { get; init; }
-    public bool FailCefWhenReadyTimeoutExhausted { get; init; }
     public Func<JsonElement, string>? FormatStatusSuffix { get; init; }
 
     public string ParseInvalidInputStatus(string input)
@@ -78,7 +76,6 @@ internal static class BrowserSourceDescriptors
         DisplayName = "YouTube",
         InvalidSourceMessage = "invalid YouTube URL, video ID, playlist, or live channel",
         LoadReason = "new video",
-        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseYouTube,
         BuildHtml = (source, settings) => YouTubePlayerPage.BuildHtml(
             (YouTubeSourceReference)source,
@@ -101,7 +98,6 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Twitch",
         InvalidSourceMessage = "invalid Twitch channel or VOD URL",
         LoadReason = "new source",
-        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseTwitch,
         BuildHtml = (source, settings) => TwitchPlayerPage.BuildHtml(
             (TwitchSourceReference)source,
@@ -113,7 +109,6 @@ internal static class BrowserSourceDescriptors
         DescribeError = root => DescribeProviderError(root, "Twitch", "embed API"),
         JsonOptions = TwitchPlayerPage.JsonOptions,
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
-        FailCefWhenReadyTimeoutExhausted = true,
     };
 
     public static readonly BrowserSourceDescriptor Dailymotion = new()
@@ -122,7 +117,6 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Dailymotion",
         InvalidSourceMessage = "invalid Dailymotion URL, video ID, or playlist",
         LoadReason = "new source",
-        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseDailymotion,
         BuildHtml = (source, settings) => DailymotionPlayerPage.BuildHtml(
             (DailymotionSourceReference)source,
@@ -135,7 +129,6 @@ internal static class BrowserSourceDescriptors
         DescribeError = root => DescribeProviderError(root, "Dailymotion", "player API"),
         JsonOptions = DailymotionPlayerPage.JsonOptions,
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
-        FailCefWhenReadyTimeoutExhausted = true,
         FormatStatusSuffix = FormatDailymotionStatusSuffix,
     };
 
@@ -145,7 +138,6 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Vimeo",
         InvalidSourceMessage = "invalid Vimeo URL or video ID",
         LoadReason = "new source",
-        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseVimeo,
         BuildHtml = (source, settings) => VimeoPlayerPage.BuildHtml(
             (VimeoSourceReference)source,
@@ -159,7 +151,6 @@ internal static class BrowserSourceDescriptors
         DescribeError = root => DescribeProviderError(root, "Vimeo", "Player SDK"),
         JsonOptions = VimeoPlayerPage.JsonOptions,
         WebView2AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
-        FailCefWhenReadyTimeoutExhausted = true,
     };
 
     public static readonly BrowserSourceDescriptor GenericWeb = new()
@@ -168,7 +159,6 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Generic Web",
         InvalidSourceMessage = "invalid Generic Web URL",
         LoadReason = "new page",
-        PreferredAutoEngine = BrowserMediaEngine.WebView2Capture,
         TryParse = TryParseGenericWeb,
         BuildHtml = (_, _) => string.Empty,
         BuildCanonicalSourceUrl = (source, _) => ((GenericWebSourceReference)source).Url,

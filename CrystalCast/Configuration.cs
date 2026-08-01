@@ -15,7 +15,7 @@ public class Configuration : IPluginConfiguration
     public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
     public const int MaxActiveBrowserScreens = 8;
 
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     public bool Enabled { get; set; } = true;
     public ScreenSourceKind SourceKind { get; set; } = ScreenSourceKind.Browser;
@@ -46,6 +46,7 @@ public class Configuration : IPluginConfiguration
     public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
+    public bool WineWebView2SetupDismissed { get; set; }
 
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;

@@ -145,8 +145,6 @@ internal static class TwitchPlayerPage
       payload.type = type;
       if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(payload);
-      } else if (window.CefSharp && window.CefSharp.PostMessage) {
-        window.CefSharp.PostMessage(JSON.stringify(payload));
       }
     }
 

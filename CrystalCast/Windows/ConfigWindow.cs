@@ -17,10 +17,10 @@ public sealed class ConfigWindow : Window, IDisposable
     ];
 
     private static readonly string[] BrowserEngineNames =
-        ["Auto (WGC preferred)", "CEF offscreen", "WebView2 JPEG capture", "WebView2 window capture"];
+        ["Auto", "WebView2 JPEG capture", "WebView2 window capture"];
 
     private static readonly BrowserMediaEngine[] BrowserEngines =
-        [BrowserMediaEngine.Auto, BrowserMediaEngine.CefOffScreen, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture];
+        [BrowserMediaEngine.Auto, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture];
 
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
@@ -211,7 +211,20 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled("Auto uses each source's preferred backend and falls back when available.");
+        ImGui.TextDisabled(WineEnvironment.IsWine
+            ? "Wine detected: WebView2 JPEG capture is forced for every browser option."
+            : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
+
+        if (WineEnvironment.IsWine)
+        {
+            var runtimeAvailable = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError);
+            ImGui.TextWrapped(runtimeAvailable
+                ? $"Experimental Wine support; WebView2 detected: {runtimeVersion}"
+                : $"Experimental Wine support; {runtimeError}");
+            if (ImGui.Button("Open Wine WebView2 setup"))
+                plugin.ShowWineWebView2Setup();
+        }
+
         ImGui.Spacing();
         if (ImGui.Button("Clear browser data on restart"))
         {

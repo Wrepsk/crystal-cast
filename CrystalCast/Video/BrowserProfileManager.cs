@@ -22,8 +22,6 @@ internal static class BrowserProfileManager
         return Path.Combine(ProfileRoot, "WebView2", providerKind.ToString());
     }
 
-    public static string GetCefRoot() => Path.Combine(ProfileRoot, "Cef");
-
     public static string RequestClearOnNextStart()
     {
         Directory.CreateDirectory(ProfileRoot);
@@ -71,7 +69,6 @@ internal static class BrowserProfileManager
         var directories = new List<string>
         {
             Path.Combine(ProfileRoot, "WebView2"),
-            GetCefRoot(),
         };
         directories.AddRange(LegacyProfileDirectoryNames.Select(name => Path.Combine(applicationRoot, name)));
         return directories.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

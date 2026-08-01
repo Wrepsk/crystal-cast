@@ -95,19 +95,33 @@ public sealed class BrowserSecurityPolicyTests
         Assert.Contains("only load sites you trust", BrowserNavigationPolicy.GenericWebTrustWarning, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void CefPolicyProxyBlocksUnexpectedMainFrameNavigationButAllowsSubframes()
+    [Theory]
+    [InlineData(BrowserMediaEngine.Auto, false, WebView2CaptureMode.WindowGraphicsCapture)]
+    [InlineData(BrowserMediaEngine.WebView2WindowCapture, false, WebView2CaptureMode.WindowGraphicsCapture)]
+    [InlineData(BrowserMediaEngine.WebView2Capture, false, WebView2CaptureMode.PreviewJpeg)]
+    [InlineData(BrowserMediaEngine.Auto, true, WebView2CaptureMode.PreviewJpeg)]
+    [InlineData(BrowserMediaEngine.WebView2WindowCapture, true, WebView2CaptureMode.PreviewJpeg)]
+    [InlineData(BrowserMediaEngine.WebView2Capture, true, WebView2CaptureMode.PreviewJpeg)]
+    public void CaptureModeHonorsEngineOnWindowsAndForcesJpegUnderWine(
+        BrowserMediaEngine engine,
+        bool isWine,
+        WebView2CaptureMode expected)
     {
-        var proxy = (ITestCefRequestHandler)CefBrowserPolicyProxy.Create(
-            typeof(ITestCefRequestHandler),
-            candidate => BrowserNavigationPolicy.IsAllowedProviderDocument(
-                candidate,
-                "https://crystalcast.local/player.html"));
+        Assert.Equal(expected, BrowserPlatformPolicy.ResolveCaptureMode(engine, isWine));
+    }
 
-        Assert.False(proxy.OnBeforeBrowse(null, null, new TestCefFrame(true), new TestCefRequest("https://crystalcast.local/player.html"), false, false));
-        Assert.True(proxy.OnBeforeBrowse(null, null, new TestCefFrame(true), new TestCefRequest("https://evil.example/"), false, false));
-        Assert.False(proxy.OnBeforeBrowse(null, null, new TestCefFrame(false), new TestCefRequest("https://evil.example/"), false, false));
-        Assert.True(proxy.OnOpenUrlFromTab(null, null, null, "https://evil.example/", null, false));
+    [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, false)]
+    public void WineSetupAppearsOnlyWhenRuntimeIsMissingAndPromptIsEnabled(
+        bool isWine,
+        bool dismissed,
+        bool runtimeAvailable,
+        bool expected)
+    {
+        Assert.Equal(expected, WineWebView2SetupPolicy.ShouldShow(isWine, dismissed, runtimeAvailable));
     }
 
     [Theory]
@@ -152,12 +166,4 @@ public sealed class BrowserSecurityPolicyTests
         Assert.True(new BrowserPlaybackIntent(autoplay: true).IsPlayRequested);
     }
 
-    public interface ITestCefRequestHandler
-    {
-        bool OnBeforeBrowse(object? webBrowser, object? browser, TestCefFrame frame, TestCefRequest request, bool userGesture, bool redirect);
-        bool OnOpenUrlFromTab(object? webBrowser, object? browser, object? frame, string targetUrl, object? disposition, bool userGesture);
-    }
-
-    public sealed record TestCefFrame(bool IsMain);
-    public sealed record TestCefRequest(string Url);
 }

@@ -231,10 +231,7 @@ internal static class BrowserSourceProviderRegistry
                     BrowserSourceProviderKind.GenericWeb, null, screen.GenericWebUrl,
                     screen.GenericWebBrowserWidth, screen.GenericWebBrowserHeight, screen.GenericWebCaptureFps, engine,
                     screen.GenericWebAutoplay, screen.LoopGenericWeb, true,
-                    screen.GenericWebAudioEnabled, screen.GenericWebVolume, screen.GenericWebPlaybackRate,
-                    engine is BrowserMediaEngine.Auto or BrowserMediaEngine.WebView2WindowCapture
-                        ? WebView2CaptureMode.WindowGraphicsCapture
-                        : WebView2CaptureMode.PreviewJpeg),
+                    screen.GenericWebAudioEnabled, screen.GenericWebVolume, screen.GenericWebPlaybackRate),
                 screen => screen.GenericWebBrowserWidth, (screen, value) => screen.GenericWebBrowserWidth = value,
                 screen => screen.GenericWebBrowserHeight, (screen, value) => screen.GenericWebBrowserHeight = value,
                 screen => screen.GenericWebCaptureFps, (screen, value) => screen.GenericWebCaptureFps = value,

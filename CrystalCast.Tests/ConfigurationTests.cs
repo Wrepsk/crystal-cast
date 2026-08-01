@@ -10,7 +10,7 @@ public sealed class ConfigurationTests
         var changed = configuration.Normalize();
 
         Assert.True(changed);
-        Assert.Equal(2, configuration.Version);
+        Assert.Equal(3, configuration.Version);
         Assert.Equal(ScreenSourceKind.Browser, configuration.SourceKind);
         Assert.Single(configuration.BrowserScreens);
     }
@@ -34,7 +34,7 @@ public sealed class ConfigurationTests
         Assert.True(configuration.Normalize());
 
         var screen = Assert.Single(configuration.BrowserScreens);
-        Assert.Equal(2, configuration.Version);
+        Assert.Equal(3, configuration.Version);
         Assert.Equal(ScreenSourceKind.Browser, configuration.SourceKind);
         Assert.False(screen.Enabled);
         Assert.Equal(ScreenPlacementMode.FollowPlayer, screen.Placement.Mode);
@@ -61,7 +61,21 @@ public sealed class ConfigurationTests
 
         Assert.True(screen.Enabled);
         Assert.Equal("dQw4w9WgXcQ", screen.YouTubeUrl);
-        Assert.Equal(2, configuration.Version);
+        Assert.Equal(3, configuration.Version);
+    }
+
+    [Fact]
+    public void RemovedLegacyBrowserEngineMigratesToAuto()
+    {
+        var configuration = new Configuration
+        {
+            Version = 2,
+            YouTubeBrowserEngine = (BrowserMediaEngine)1,
+        };
+
+        Assert.True(configuration.Normalize());
+        Assert.Equal(3, configuration.Version);
+        Assert.Equal(BrowserMediaEngine.Auto, configuration.YouTubeBrowserEngine);
     }
 
     [Fact]

@@ -49,6 +49,13 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
+        var normalizedBrowserEngine = BrowserMediaEnginePolicy.Normalize(configuration.YouTubeBrowserEngine);
+        if (configuration.YouTubeBrowserEngine != normalizedBrowserEngine)
+        {
+            configuration.YouTubeBrowserEngine = normalizedBrowserEngine;
+            changed = true;
+        }
+
         var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < configuration.BrowserScreens.Count; i++)
             changed |= configuration.BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);
@@ -96,9 +103,9 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
-        if (configuration.Version < 2)
+        if (configuration.Version < 3)
         {
-            configuration.Version = 2;
+            configuration.Version = 3;
             changed = true;
         }
 

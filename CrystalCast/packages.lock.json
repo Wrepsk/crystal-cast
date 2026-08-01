@@ -2,15 +2,6 @@
   "version": 1,
   "dependencies": {
     "net10.0-windows7.0": {
-      "CefSharp.OffScreen.NETCore": {
-        "type": "Direct",
-        "requested": "[147.0.100, )",
-        "resolved": "147.0.100",
-        "contentHash": "eYkd6J7rPGAttEAZvhKTJX3SHodfSAOdeZLh/A/VYc65AfWnEK2UIorjgD0SNSoCyg5BYXX57M/ADu5sgVyHIA==",
-        "dependencies": {
-          "CefSharp.Common.NETCore": "[147.0.100]"
-        }
-      },
       "DalamudPackager": {
         "type": "Direct",
         "requested": "[15.0.0, )",
@@ -34,19 +25,6 @@
         "requested": "[3.1.12, )",
         "resolved": "3.1.12",
         "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
-      },
-      "CefSharp.Common.NETCore": {
-        "type": "Transitive",
-        "resolved": "147.0.100",
-        "contentHash": "tJhTM56zUpXUfalPHuI0PXKZuuJxUGJqGdr3K3nWEECmYkv1KqBSiEjXGXccWeBo8qEahjxwo3ngDNdIKXhmAA==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime": "[147.0.10]"
-        }
-      },
-      "chromiumembeddedframework.runtime": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "AuudjXcJe1ZHyo/6r007Y2Oibf4IDo9HILaUFAdENvdRFDY25kL2KR0y7PUSozTw+8wxlGNdoDQ2GI8klUzmjw=="
       },
       "KamiToolKit": {
         "type": "Transitive",
@@ -141,27 +119,6 @@
         "requested": "[1.0.3967.48, )",
         "resolved": "1.0.3967.48",
         "contentHash": "b7dZ5kZ9bfU5Yo11M8feCOoiyalXCN+2Gsw674RBDBmQ2dJV5EOXb8/ivN2LuLJ+VO2V7FmK6l6LsyfEnG1lXw=="
-      },
-      "CefSharp.Common.NETCore": {
-        "type": "Transitive",
-        "resolved": "147.0.100",
-        "contentHash": "tJhTM56zUpXUfalPHuI0PXKZuuJxUGJqGdr3K3nWEECmYkv1KqBSiEjXGXccWeBo8qEahjxwo3ngDNdIKXhmAA==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime": "[147.0.10]"
-        }
-      },
-      "chromiumembeddedframework.runtime": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "AuudjXcJe1ZHyo/6r007Y2Oibf4IDo9HILaUFAdENvdRFDY25kL2KR0y7PUSozTw+8wxlGNdoDQ2GI8klUzmjw==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime.win-x64": "147.0.10"
-        }
-      },
-      "chromiumembeddedframework.runtime.win-x64": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "Oolc8ND6CGy/zXenYFSHhvKeWegEagOkH0aDG6FJvz69sMHwa+3N8raHYOyOiKQPKjZ1ijM1soGKZYEiG8m2DA=="
       }
     }
   }

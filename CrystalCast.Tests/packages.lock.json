@@ -27,27 +27,6 @@
           "xunit.v3.mtp-v1": "[3.2.2]"
         }
       },
-      "CefSharp.Common.NETCore": {
-        "type": "Transitive",
-        "resolved": "147.0.100",
-        "contentHash": "tJhTM56zUpXUfalPHuI0PXKZuuJxUGJqGdr3K3nWEECmYkv1KqBSiEjXGXccWeBo8qEahjxwo3ngDNdIKXhmAA==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime": "[147.0.10]"
-        }
-      },
-      "CefSharp.OffScreen.NETCore": {
-        "type": "Transitive",
-        "resolved": "147.0.100",
-        "contentHash": "eYkd6J7rPGAttEAZvhKTJX3SHodfSAOdeZLh/A/VYc65AfWnEK2UIorjgD0SNSoCyg5BYXX57M/ADu5sgVyHIA==",
-        "dependencies": {
-          "CefSharp.Common.NETCore": "[147.0.100]"
-        }
-      },
-      "chromiumembeddedframework.runtime": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "AuudjXcJe1ZHyo/6r007Y2Oibf4IDo9HILaUFAdENvdRFDY25kL2KR0y7PUSozTw+8wxlGNdoDQ2GI8klUzmjw=="
-      },
       "DalamudPackager": {
         "type": "Transitive",
         "resolved": "15.0.0",
@@ -272,7 +251,6 @@
       "crystalcast": {
         "type": "Project",
         "dependencies": {
-          "CefSharp.OffScreen.NETCore": "[147.0.100, )",
           "DalamudPackager": "[15.0.0, )",
           "Microsoft.Web.WebView2": "[1.0.3967.48, )",
           "Pictomancy": "[1.0.9, )",
@@ -291,27 +269,6 @@
       }
     },
     "net10.0-windows7.0/win-x64": {
-      "CefSharp.Common.NETCore": {
-        "type": "Transitive",
-        "resolved": "147.0.100",
-        "contentHash": "tJhTM56zUpXUfalPHuI0PXKZuuJxUGJqGdr3K3nWEECmYkv1KqBSiEjXGXccWeBo8qEahjxwo3ngDNdIKXhmAA==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime": "[147.0.10]"
-        }
-      },
-      "chromiumembeddedframework.runtime": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "AuudjXcJe1ZHyo/6r007Y2Oibf4IDo9HILaUFAdENvdRFDY25kL2KR0y7PUSozTw+8wxlGNdoDQ2GI8klUzmjw==",
-        "dependencies": {
-          "chromiumembeddedframework.runtime.win-x64": "147.0.10"
-        }
-      },
-      "chromiumembeddedframework.runtime.win-x64": {
-        "type": "Transitive",
-        "resolved": "147.0.10",
-        "contentHash": "Oolc8ND6CGy/zXenYFSHhvKeWegEagOkH0aDG6FJvz69sMHwa+3N8raHYOyOiKQPKjZ1ijM1soGKZYEiG8m2DA=="
-      },
       "Microsoft.Web.WebView2": {
         "type": "Transitive",
         "resolved": "1.0.3967.48",

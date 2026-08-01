@@ -26,6 +26,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem windowSystem = new("CrystalCast");
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
+    private readonly WineWebView2SetupWindow? wineWebView2SetupWindow;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
 
@@ -51,7 +52,7 @@ public sealed class Plugin : IDalamudPlugin
             GameGui,
             Log,
             placementResolver,
-            new BrowserFrameSourceFactory(Log, PluginInterface.AssemblyLocation.Directory?.FullName));
+            new BrowserFrameSourceFactory(Log));
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
         if (Configuration.Normalize())
@@ -61,8 +62,11 @@ public sealed class Plugin : IDalamudPlugin
         ipc = new ScreenStateIpc(Configuration, renderer, services);
         mainWindow = new MainWindow(this, renderer, ipc, placementResolver);
         configWindow = new ConfigWindow(this, renderer, ipc);
+        wineWebView2SetupWindow = WineEnvironment.IsWine ? new WineWebView2SetupWindow(this) : null;
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
+        if (wineWebView2SetupWindow != null)
+            windowSystem.AddWindow(wineWebView2SetupWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -95,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();
         configWindow.Dispose();
+        wineWebView2SetupWindow?.Dispose();
         ipc.Dispose();
         renderer.Dispose();
         Configuration.FlushPendingSave();
@@ -102,6 +107,16 @@ public sealed class Plugin : IDalamudPlugin
 
     public void ToggleMainUi() => mainWindow.Toggle();
     public void ToggleConfigUi() => configWindow.Toggle();
+
+    internal void ShowWineWebView2Setup()
+    {
+        if (wineWebView2SetupWindow == null)
+            return;
+
+        Configuration.WineWebView2SetupDismissed = false;
+        Configuration.Save();
+        wineWebView2SetupWindow.IsOpen = true;
+    }
 
     private void OnCommand(string command, string args) => ToggleMainUi();
     private void OnSettingsCommand(string command, string args) => ToggleConfigUi();

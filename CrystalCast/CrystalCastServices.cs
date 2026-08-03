@@ -10,6 +10,7 @@ internal sealed record CrystalCastServices(
     ITextureProvider TextureProvider,
     IClientState ClientState,
     IObjectTable ObjectTable,
+    IFramework Framework,
     IGameGui GameGui,
     IPluginLog Log,
     ScreenPlacementResolver PlacementResolver,

@@ -16,23 +16,29 @@ public readonly record struct ResolvedScreenPlacement(
 
 internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientState clientState)
 {
-    private const float MinPredictionSampleSeconds = 0.002f;
-    private const float MaxPredictionSampleSeconds = 0.25f;
-    private const float MaxPredictionLeadSeconds = 0.05f;
-    private const float MaxPredictionStepMeters = 20.0f;
-    private const float VelocityBlend = 0.65f;
+    private const float MaxRenderPositionOffsetMeters = 10.0f;
+    private const float MaxRenderYawDifferenceRadians = MathF.PI * 0.5f;
 
-    private FramePredictionState playerPrediction;
-    private FramePredictionState cameraPrediction;
+    private readonly FollowFramePredictor playerPrediction = new();
+    private readonly FollowFramePredictor cameraPrediction = new();
     private readonly PlacementPredictionContext predictionContext = new();
     private readonly object predictionGate = new();
 
     public bool TryResolve(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
     {
-        return TryResolve(placement, 0.0f, out resolved);
+        return TryResolve(placement, 0.0f, applyFollowPrediction: false, out resolved);
     }
 
-    public bool TryResolve(ScreenPlacementSettings placement, float predictionFrames, out ResolvedScreenPlacement resolved)
+    public bool TryResolve(ScreenPlacementSettings placement, float predictionSeconds, out ResolvedScreenPlacement resolved)
+    {
+        return TryResolve(placement, predictionSeconds, applyFollowPrediction: true, out resolved);
+    }
+
+    private bool TryResolve(
+        ScreenPlacementSettings placement,
+        float predictionSeconds,
+        bool applyFollowPrediction,
+        out ResolvedScreenPlacement resolved)
     {
         if (placement.Mode != ScreenPlacementMode.World)
         {
@@ -42,7 +48,8 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
                 return false;
             }
 
-            ApplyFramePrediction(placement.Mode, ref framePosition, ref frameYaw, predictionFrames);
+            if (applyFollowPrediction)
+                ApplyFramePrediction(placement.Mode, ref framePosition, ref frameYaw, predictionSeconds);
             BuildHorizontalAxes(frameYaw, out forward, out right);
             resolved = new ResolvedScreenPlacement(
                 framePosition
@@ -200,8 +207,38 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         if (!IsFinite(position) || !float.IsFinite(yaw))
             return ClearFrame(out position, out yaw, out forward, out right);
 
+        TryApplyPlayerRenderTransform(player.Address, ref position, ref yaw);
+
         BuildHorizontalAxes(yaw, out forward, out right);
         return true;
+    }
+
+    private static unsafe void TryApplyPlayerRenderTransform(nint playerAddress, ref Vector3 position, ref float yaw)
+    {
+        if (playerAddress == nint.Zero)
+            return;
+
+        var nativePlayer = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)playerAddress;
+        var drawObject = nativePlayer->DrawObject;
+        if (drawObject == null)
+            return;
+
+        var renderPosition = (Vector3)drawObject->Position;
+        if (!IsFinite(renderPosition)
+            || Vector3.DistanceSquared(renderPosition, position) > MaxRenderPositionOffsetMeters * MaxRenderPositionOffsetMeters)
+        {
+            return;
+        }
+
+        position = renderPosition;
+        var renderRotation = (Quaternion)drawObject->Rotation;
+        if (!TryGetYawPitchRoll(renderRotation, out var renderYaw, out _, out _)
+            || MathF.Abs(NormalizeRadians(renderYaw - yaw)) > MaxRenderYawDifferenceRadians)
+        {
+            return;
+        }
+
+        yaw = renderYaw;
     }
 
     private unsafe bool TryGetCameraFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
@@ -257,57 +294,27 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         right = new Vector3(MathF.Cos(yaw), 0.0f, -MathF.Sin(yaw));
     }
 
-    private void ApplyFramePrediction(ScreenPlacementMode mode, ref Vector3 position, ref float yaw, float predictionFrames)
+    private void ApplyFramePrediction(ScreenPlacementMode mode, ref Vector3 position, ref float yaw, float predictionSeconds)
     {
         if (mode is not (ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
             return;
 
         lock (predictionGate)
         {
-            ref var state = ref GetPredictionState(mode);
-            var now = Stopwatch.GetTimestamp();
-            if (!state.HasSample)
-            {
-                state = FramePredictionState.Create(now, position, yaw);
-                return;
-            }
-
-            var elapsedSeconds = (float)((now - state.LastTimestamp) / (double)Stopwatch.Frequency);
-            if (elapsedSeconds >= MinPredictionSampleSeconds)
-            {
-                var step = position - state.LastPosition;
-                if (elapsedSeconds > MaxPredictionSampleSeconds
-                    || !IsFinite(position)
-                    || !float.IsFinite(yaw)
-                    || step.LengthSquared() > MaxPredictionStepMeters * MaxPredictionStepMeters)
-                {
-                    state = FramePredictionState.Create(now, position, yaw);
-                    return;
-                }
-
-                var sampleVelocity = step / elapsedSeconds;
-                var sampleYawVelocity = NormalizeRadians(yaw - state.LastYaw) / elapsedSeconds;
-                state.Velocity = Vector3.Lerp(state.Velocity, sampleVelocity, VelocityBlend);
-                state.YawVelocity += (sampleYawVelocity - state.YawVelocity) * VelocityBlend;
-                state.LastDeltaSeconds = elapsedSeconds;
-                state.LastTimestamp = now;
-                state.LastPosition = position;
-                state.LastYaw = yaw;
-            }
-
-            var predictionSeconds = Math.Clamp(predictionFrames, 0.0f, 3.0f) * state.LastDeltaSeconds;
-            predictionSeconds = Math.Clamp(predictionSeconds, 0.0f, MaxPredictionLeadSeconds);
-            position += state.Velocity * predictionSeconds;
-            yaw = NormalizeRadians(yaw + (state.YawVelocity * predictionSeconds));
+            GetPredictionState(mode).Apply(
+                ref position,
+                ref yaw,
+                predictionSeconds,
+                Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         }
     }
 
-    private ref FramePredictionState GetPredictionState(ScreenPlacementMode mode)
+    private FollowFramePredictor GetPredictionState(ScreenPlacementMode mode)
     {
         if (mode == ScreenPlacementMode.FollowCamera)
-            return ref cameraPrediction;
+            return cameraPrediction;
 
-        return ref playerPrediction;
+        return playerPrediction;
     }
 
     private void RefreshPredictionContext(nint playerAddress)
@@ -318,8 +325,8 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             if (!predictionContext.Update(territoryId, playerAddress))
                 return;
 
-            playerPrediction = default;
-            cameraPrediction = default;
+            playerPrediction.Reset();
+            cameraPrediction.Reset();
         }
     }
 
@@ -413,26 +420,4 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         return value;
     }
 
-    private struct FramePredictionState
-    {
-        public bool HasSample;
-        public long LastTimestamp;
-        public float LastDeltaSeconds;
-        public Vector3 LastPosition;
-        public float LastYaw;
-        public Vector3 Velocity;
-        public float YawVelocity;
-
-        public static FramePredictionState Create(long timestamp, Vector3 position, float yaw)
-        {
-            return new FramePredictionState
-            {
-                HasSample = true,
-                LastTimestamp = timestamp,
-                LastDeltaSeconds = 1.0f / 60.0f,
-                LastPosition = position,
-                LastYaw = yaw,
-            };
-        }
-    }
 }

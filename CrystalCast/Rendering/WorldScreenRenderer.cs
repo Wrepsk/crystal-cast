@@ -1339,20 +1339,21 @@ public sealed class WorldScreenManager : IDisposable
 
         private bool TryResolvePlacement(out ResolvedScreenPlacement placement)
         {
-            return services.PlacementResolver.TryResolve(GetPlacementSettings(), GetFollowPredictionFrames(), out placement);
+            return services.PlacementResolver.TryResolve(GetPlacementSettings(), GetFollowPredictionSeconds(), out placement);
         }
 
-        private float GetFollowPredictionFrames()
+        private float GetFollowPredictionSeconds()
         {
             if (GetPlacementSettings().Mode == ScreenPlacementMode.World)
                 return 0.0f;
 
-            return configuration.OutputMode switch
-            {
-                ScreenOutputMode.NativeOverlay => 1.0f,
-                ScreenOutputMode.SceneComposite => 1.0f,
-                _ => 0.0f,
-            };
+            if (configuration.OutputMode is not (ScreenOutputMode.NativeOverlay or ScreenOutputMode.SceneComposite))
+                return 0.0f;
+
+            var frameSeconds = (float)services.Framework.UpdateDelta.TotalSeconds;
+            return float.IsFinite(frameSeconds)
+                ? Math.Clamp(frameSeconds, 0.0f, 0.05f)
+                : 0.0f;
         }
 
         private bool TryGetResolvedPlacement(out ResolvedScreenPlacement placement)

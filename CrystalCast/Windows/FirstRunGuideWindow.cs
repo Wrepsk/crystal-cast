@@ -196,9 +196,10 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
             "PlacementShape",
             "Shape, move, and reuse",
             accent,
-            "Width controls size; height is calculated automatically from the browser aspect ratio.",
-            "Curve amount bends the panel. The placement gizmo lets you move or rotate it directly.",
-            "Undo restores recent edits, while presets save layouts for later.");
+            "Width controls size; height is calculated automatically from the browser aspect ratio. Curve amount bends the panel.",
+            "The placement gizmo lets you move or rotate the screen directly.",
+            "Copy placement captures the complete layout and remains available even when an IPC-owned screen is locked.",
+            "Switch to an editable screen and use Paste placement to apply it. Undo restores recent edits, while presets save layouts for later.");
 
         DrawCallout("ZONE CHANGES", "CrystalCast pauses its own fixed world screens when you change zones so playback does not continue somewhere unexpected.", accent);
     }
@@ -207,11 +208,12 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
     {
         DrawCard(
             "TroubleshootingOutput",
-            "Invisible screen? Try another output layer",
+            "Choose how the screen is layered",
             accent,
-            "Scene composite is the Windows default and draws into the game scene.",
-            "Native overlay uses Dalamud's native overlay path.",
-            "ImGui overlay is the compatibility option drawn through the plugin UI layer.");
+            "Scene composite places the screen behind everything, including object and player nameplates.",
+            "Native overlay places the screen behind everything except object and player nameplates.",
+            "ImGui overlay places the screen in front of all UI elements.",
+            "If a screen is invisible or does not render correctly on your PC, try a different output layer in Settings > Rendering.");
 
         DrawCard(
             "TroubleshootingBrowser",

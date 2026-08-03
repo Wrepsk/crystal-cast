@@ -58,6 +58,10 @@ public sealed class ConfigWindow : Window, IDisposable
             "Rendering, browser capture, diagnostics, and integrations.");
         ImGui.Spacing();
 
+        if (ImGui.Button("Open onboarding guide"))
+            plugin.ShowFirstRunGuide();
+        ImGui.Spacing();
+
         CrystalCastUiTheme.PushTabStyle();
         if (ImGui.BeginTabBar("CrystalCastSettingsTabs"))
         {

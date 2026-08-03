@@ -23,6 +23,8 @@ internal sealed class PlacementPanel(
 
     private string renamingPresetId = string.Empty;
     private string presetRenameDraft = string.Empty;
+    private ScreenPlacementSettings? copiedPlacement;
+    private long placementCopiedAtTick;
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
     {
@@ -52,10 +54,11 @@ internal sealed class PlacementPanel(
             DrawLockedControlsMessage(screen, "Placement controls");
 
         var before = screen.Placement.Clone();
+        var changed = DrawPlacementCopyPaste(screen.Placement, placementLocked);
         if (placementLocked)
             ImGui.BeginDisabled();
 
-        var changed = DrawPlacementSettings(config, screen.ScreenId, screen.Placement);
+        changed |= DrawPlacementSettings(config, screen.ScreenId, screen.Placement);
 
         if (placementLocked)
             ImGui.EndDisabled();
@@ -64,6 +67,37 @@ internal sealed class PlacementPanel(
             undoService.Capture(screen.ScreenId, before, screen.Placement);
 
         return changed;
+    }
+
+    private bool DrawPlacementCopyPaste(ScreenPlacementSettings placement, bool placementLocked)
+    {
+        if (ImGui.Button("Copy placement"))
+        {
+            copiedPlacement = placement.Clone();
+            placementCopiedAtTick = Environment.TickCount64;
+        }
+
+        ImGui.SameLine();
+        var canPaste = copiedPlacement != null && !placementLocked;
+        if (!canPaste)
+            ImGui.BeginDisabled();
+        var pasted = ImGui.Button("Paste placement") && canPaste;
+        if (!canPaste)
+            ImGui.EndDisabled();
+
+        if (pasted)
+        {
+            placement.CopyFrom(copiedPlacement!);
+            placement.Normalize();
+        }
+
+        if (placementCopiedAtTick > 0 && Environment.TickCount64 - placementCopiedAtTick < 2000)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Copied!");
+        }
+
+        return pasted;
     }
 
     private bool DrawPlacementSettings(Configuration config, string undoKey, ScreenPlacementSettings placement)

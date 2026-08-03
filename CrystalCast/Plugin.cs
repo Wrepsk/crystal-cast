@@ -126,14 +126,10 @@ public sealed class Plugin : IDalamudPlugin
         wineWebView2SetupWindow.IsOpen = true;
     }
 
-#if DEBUG
     internal void ShowFirstRunGuide()
     {
-        Configuration.FirstRunGuideCompleted = false;
-        Configuration.Save();
         firstRunGuideWindow.Show();
     }
-#endif
 
     private void OnCommand(string command, string args) => ToggleMainUi();
     private void OnSettingsCommand(string command, string args) => ToggleConfigUi();

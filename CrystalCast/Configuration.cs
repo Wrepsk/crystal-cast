@@ -47,6 +47,7 @@ public class Configuration : IPluginConfiguration
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
     public bool WineWebView2SetupDismissed { get; set; }
+    public bool FirstRunGuideCompleted { get; set; }
 
     public bool SpatialAudioEnabled { get; set; } = true;
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;

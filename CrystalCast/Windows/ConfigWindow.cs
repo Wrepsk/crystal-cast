@@ -81,6 +81,15 @@ public sealed class ConfigWindow : Window, IDisposable
                 ImGui.EndTabItem();
             }
 
+#if DEBUG
+            if (ImGui.BeginTabItem("Debug"))
+            {
+                ImGui.Spacing();
+                DrawDebugWindows();
+                ImGui.EndTabItem();
+            }
+#endif
+
             ImGui.EndTabBar();
         }
 
@@ -318,4 +327,19 @@ public sealed class ConfigWindow : Window, IDisposable
             config.IpcEnabled = enabled;
         }
     }
+
+#if DEBUG
+    private void DrawDebugWindows()
+    {
+        ImGui.TextUnformatted("First-run windows");
+        ImGui.TextDisabled("Preview these windows without editing the saved configuration manually.");
+        ImGui.Spacing();
+
+        if (ImGui.Button("Open Wine WebView2 setup"))
+            plugin.ShowWineWebView2Setup();
+
+        if (ImGui.Button("Open onboarding guide"))
+            plugin.ShowFirstRunGuide();
+    }
+#endif
 }

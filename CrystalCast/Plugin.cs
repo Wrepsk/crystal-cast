@@ -27,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly WineWebView2SetupWindow? wineWebView2SetupWindow;
+    private readonly FirstRunGuideWindow firstRunGuideWindow;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
 
@@ -62,11 +63,17 @@ public sealed class Plugin : IDalamudPlugin
         ipc = new ScreenStateIpc(Configuration, renderer, services);
         mainWindow = new MainWindow(this, renderer, ipc, placementResolver);
         configWindow = new ConfigWindow(this, renderer, ipc);
+#if DEBUG
+        wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
+#else
         wineWebView2SetupWindow = WineEnvironment.IsWine ? new WineWebView2SetupWindow(this) : null;
+#endif
+        firstRunGuideWindow = new FirstRunGuideWindow(this);
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
         if (wineWebView2SetupWindow != null)
             windowSystem.AddWindow(wineWebView2SetupWindow);
+        windowSystem.AddWindow(firstRunGuideWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -100,6 +107,7 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.Dispose();
         configWindow.Dispose();
         wineWebView2SetupWindow?.Dispose();
+        firstRunGuideWindow.Dispose();
         ipc.Dispose();
         renderer.Dispose();
         Configuration.FlushPendingSave();
@@ -118,14 +126,46 @@ public sealed class Plugin : IDalamudPlugin
         wineWebView2SetupWindow.IsOpen = true;
     }
 
+#if DEBUG
+    internal void ShowFirstRunGuide()
+    {
+        Configuration.FirstRunGuideCompleted = false;
+        Configuration.Save();
+        firstRunGuideWindow.Show();
+    }
+#endif
+
     private void OnCommand(string command, string args) => ToggleMainUi();
     private void OnSettingsCommand(string command, string args) => ToggleConfigUi();
 
     private void OnDraw()
     {
+        UpdateFirstRunGuide();
         windowSystem.Draw();
         renderer.DrawWorld();
         Configuration.ProcessPendingSave();
+    }
+
+    private void UpdateFirstRunGuide()
+    {
+        if (Configuration.FirstRunGuideCompleted)
+            return;
+
+        if (firstRunGuideWindow.WasShown)
+        {
+            if (!firstRunGuideWindow.IsOpen)
+                firstRunGuideWindow.Complete();
+
+            return;
+        }
+
+        if (FirstRunGuidePolicy.ShouldShow(
+                Configuration.FirstRunGuideCompleted,
+                Configuration.Enabled,
+                wineWebView2SetupWindow?.IsOpen == true))
+        {
+            firstRunGuideWindow.Show();
+        }
     }
 
     private void OnTerritoryChanged(uint territoryId)

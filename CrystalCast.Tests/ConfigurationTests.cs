@@ -109,6 +109,35 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void NewlyCreatedScreenEnablesAudioForEveryProvider()
+    {
+        var configuration = new Configuration();
+
+        var screen = configuration.CreateDefaultBrowserScreen("New screen");
+
+        Assert.True(screen.YouTubeAudioEnabled);
+        Assert.True(screen.TwitchAudioEnabled);
+        Assert.True(screen.DailymotionAudioEnabled);
+        Assert.True(screen.VimeoAudioEnabled);
+        Assert.True(screen.GenericWebAudioEnabled);
+    }
+
+    [Fact]
+    public void FirstScreenStartsWithAudioEnabledForEveryProvider()
+    {
+        var configuration = new Configuration();
+
+        configuration.Normalize();
+
+        var screen = Assert.Single(configuration.BrowserScreens);
+        Assert.True(screen.YouTubeAudioEnabled);
+        Assert.True(screen.TwitchAudioEnabled);
+        Assert.True(screen.DailymotionAudioEnabled);
+        Assert.True(screen.VimeoAudioEnabled);
+        Assert.True(screen.GenericWebAudioEnabled);
+    }
+
+    [Fact]
     public void NormalizeRepairsDuplicateScreenIds()
     {
         const string duplicateId = "duplicate";

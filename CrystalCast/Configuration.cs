@@ -60,7 +60,7 @@ public class Configuration : IPluginConfiguration
     public BrowserMediaEngine YouTubeBrowserEngine { get; set; } = BrowserMediaEngine.Auto;
     public bool YouTubeAutoplay { get; set; } = true;
     public bool LoopYouTube { get; set; }
-    public bool YouTubeAudioEnabled { get; set; }
+    public bool YouTubeAudioEnabled { get; set; } = true;
     public float YouTubeVolume { get; set; } = 0.7f;
     public float YouTubePlaybackRate { get; set; } = 1.0f;
 
@@ -96,6 +96,11 @@ public class Configuration : IPluginConfiguration
             CreatedByIpc = createdByIpc,
             Placement = new ScreenPlacementSettings(),
             SpatialAudioEnabled = createdByIpc,
+            YouTubeAudioEnabled = true,
+            TwitchAudioEnabled = true,
+            DailymotionAudioEnabled = true,
+            VimeoAudioEnabled = true,
+            GenericWebAudioEnabled = true,
         };
         screen.Normalize(name, new HashSet<string>(StringComparer.Ordinal));
         return screen;
@@ -156,6 +161,10 @@ public class Configuration : IPluginConfiguration
             YouTubeAudioEnabled = YouTubeAudioEnabled,
             YouTubeVolume = YouTubeVolume,
             YouTubePlaybackRate = YouTubePlaybackRate,
+            TwitchAudioEnabled = true,
+            DailymotionAudioEnabled = true,
+            VimeoAudioEnabled = true,
+            GenericWebAudioEnabled = true,
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,

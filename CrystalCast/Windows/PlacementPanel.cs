@@ -147,7 +147,7 @@ internal sealed class PlacementPanel(
             ? "Local position (right / up / forward)"
             : "Position";
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
-        if (ImGui.InputFloat3(positionLabel, ref position))
+        if (CrystalCastUiWidgets.DragFloat3(positionLabel, ref position, 0.01f))
         {
             placement.PositionX = position.X;
             placement.PositionY = position.Y;
@@ -159,7 +159,7 @@ internal sealed class PlacementPanel(
             ? "Local yaw / pitch / roll"
             : "Yaw / Pitch / Roll";
         var rotation = new Vector3(placement.YawRadians, placement.PitchRadians, placement.RollRadians);
-        if (ImGui.InputFloat3(rotationLabel, ref rotation))
+        if (CrystalCastUiWidgets.DragFloat3(rotationLabel, ref rotation, 0.01f))
         {
             placement.YawRadians = rotation.X;
             placement.PitchRadians = rotation.Y;
@@ -349,7 +349,7 @@ internal sealed class PlacementPanel(
     {
         var changed = false;
         var width = placement.WidthMeters;
-        if (ImGui.InputFloat("Width meters", ref width, 0.1f, 0.5f))
+        if (CrystalCastUiWidgets.DragFloat("Width meters", ref width, 0.01f))
         {
             placement.WidthMeters = Math.Max(0.1f, width);
             changed = true;
@@ -367,7 +367,7 @@ internal sealed class PlacementPanel(
             changed = true;
         }
 
-        if (ImGui.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
+        if (CrystalCastUiWidgets.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
         {
             placement.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
             changed = true;

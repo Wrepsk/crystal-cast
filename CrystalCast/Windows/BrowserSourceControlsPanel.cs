@@ -262,7 +262,13 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         if (descriptor.GetCaptureFpsManual(screen))
         {
             var fps = descriptor.GetCaptureFps(screen);
-            if (ImGui.InputFloat($"Capture FPS##{descriptor.ProviderKind}Fps", ref fps, 1.0f, 5.0f))
+            if (CrystalCastUiWidgets.DragFloat(
+                    $"Capture FPS##{descriptor.ProviderKind}Fps",
+                    ref fps,
+                    1.0f,
+                    1.0f,
+                    120.0f,
+                    "%.1f"))
             {
                 descriptor.SetCaptureFps(screen, Math.Clamp(fps, 1.0f, 120.0f));
                 changed = true;
@@ -320,7 +326,11 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         if (capabilities.SupportsPlaybackRate)
         {
             var rate = descriptor.GetPlaybackRate(screen);
-            if (ImGui.SliderFloat($"Playback rate##{descriptor.ProviderKind}Rate", ref rate, 0.25f, 2.0f))
+            if (CrystalCastUiWidgets.SliderFloat(
+                    $"Playback rate##{descriptor.ProviderKind}Rate",
+                    ref rate,
+                    0.25f,
+                    2.0f))
             {
                 descriptor.SetPlaybackRate(screen, Math.Clamp(rate, 0.25f, 2.0f));
                 changed = true;

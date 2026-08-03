@@ -33,7 +33,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (screen.YouTubeAudioEnabled && ImGui.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
+        if (screen.YouTubeAudioEnabled && CrystalCastUiWidgets.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
         {
             screen.YouTubeVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
@@ -55,7 +55,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (screen.TwitchAudioEnabled && ImGui.SliderFloat("Twitch volume", ref volume, 0.0f, 1.0f))
+        if (screen.TwitchAudioEnabled && CrystalCastUiWidgets.SliderFloat("Twitch volume", ref volume, 0.0f, 1.0f))
         {
             screen.TwitchVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
@@ -77,7 +77,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (screen.DailymotionAudioEnabled && ImGui.SliderFloat("Dailymotion volume", ref volume, 0.0f, 1.0f))
+        if (screen.DailymotionAudioEnabled && CrystalCastUiWidgets.SliderFloat("Dailymotion volume", ref volume, 0.0f, 1.0f))
         {
             screen.DailymotionVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
@@ -99,7 +99,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (screen.VimeoAudioEnabled && ImGui.SliderFloat("Vimeo volume", ref volume, 0.0f, 1.0f))
+        if (screen.VimeoAudioEnabled && CrystalCastUiWidgets.SliderFloat("Vimeo volume", ref volume, 0.0f, 1.0f))
         {
             screen.VimeoVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
@@ -121,7 +121,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             changed = true;
         }
 
-        if (screen.GenericWebAudioEnabled && ImGui.SliderFloat("Generic Web volume", ref volume, 0.0f, 1.0f))
+        if (screen.GenericWebAudioEnabled && CrystalCastUiWidgets.SliderFloat("Generic Web volume", ref volume, 0.0f, 1.0f))
         {
             screen.GenericWebVolume = Math.Clamp(volume, 0.0f, 1.0f);
             changed = true;
@@ -149,7 +149,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
 
         if (screen.SpatialAudioEnabled)
         {
-            if (ImGui.InputFloat("Full volume radius", ref fullRadius, 0.5f, 2.0f))
+            if (CrystalCastUiWidgets.DragFloat("Full volume radius", ref fullRadius, 0.1f))
             {
                 screen.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
                 if (screen.SpatialAudioSilentRadiusMeters <= screen.SpatialAudioFullVolumeRadiusMeters)
@@ -157,7 +157,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
                 changed = true;
             }
 
-            if (ImGui.InputFloat("Silent radius", ref silentRadius, 0.5f, 2.0f))
+            if (CrystalCastUiWidgets.DragFloat("Silent radius", ref silentRadius, 0.1f))
             {
                 screen.SpatialAudioSilentRadiusMeters = Math.Max(screen.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
                 changed = true;

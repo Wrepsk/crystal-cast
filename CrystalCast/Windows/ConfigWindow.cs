@@ -167,13 +167,13 @@ public sealed class ConfigWindow : Window, IDisposable
         var fadeStop = placement.FadeStopMeters;
         CrystalCastUiTheme.DrawSectionHeader("Visibility and occlusion", $"Applies to the selected screen: {activeBrowserScreen.Name}");
 
-        if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
+        if (CrystalCastUiWidgets.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
         {
             placement.OccludedAlpha = Math.Clamp(occludedAlpha, 0.0f, 1.0f);
             changed = true;
         }
 
-        if (ImGui.InputFloat("Occlusion tolerance", ref tolerance, 0.01f, 0.1f))
+        if (CrystalCastUiWidgets.DragFloat("Occlusion tolerance", ref tolerance, 0.005f))
         {
             placement.OcclusionTolerance = Math.Max(0.0f, tolerance);
             changed = true;
@@ -205,13 +205,13 @@ public sealed class ConfigWindow : Window, IDisposable
 
         if (distanceFade)
         {
-            if (ImGui.InputFloat("Fade start", ref fadeStart, 1.0f, 5.0f))
+            if (CrystalCastUiWidgets.DragFloat("Fade start", ref fadeStart, 0.1f))
             {
                 placement.FadeStartMeters = Math.Max(0.0f, fadeStart);
                 changed = true;
             }
 
-            if (ImGui.InputFloat("Fade stop", ref fadeStop, 1.0f, 5.0f))
+            if (CrystalCastUiWidgets.DragFloat("Fade stop", ref fadeStop, 0.1f))
             {
                 placement.FadeStopMeters = Math.Max(placement.FadeStartMeters + 0.01f, fadeStop);
                 changed = true;

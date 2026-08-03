@@ -73,6 +73,29 @@ public sealed class BrowserFrameSourceFactoryTests
     }
 
     [Fact]
+    public void GenericWebPassesApprovedNavigationPolicyAndStartAddressToFactory()
+    {
+        var screen = new BrowserScreenProfile
+        {
+            ProviderKind = BrowserSourceProviderKind.GenericWeb,
+            GenericWebUrl = "https://example.com/original",
+        };
+        var factory = new RecordingBrowserFrameSourceFactory();
+        Func<string, bool> navigationPolicy = _ => true;
+
+        BrowserSourceProviderRegistry.CreateFrameSource(
+            screen,
+            BrowserMediaEngine.Auto,
+            factory,
+            navigationPolicy,
+            "https://redirect.example.net/approved");
+
+        Assert.NotNull(factory.Request);
+        Assert.Same(navigationPolicy, factory.Request.IsNavigationAllowed);
+        Assert.Equal("https://redirect.example.net/approved", factory.Request.Input);
+    }
+
+    [Fact]
     public void CaptureFpsChangesAreAppliedToAnExistingSource()
     {
         var screen = new BrowserScreenProfile

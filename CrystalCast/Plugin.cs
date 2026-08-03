@@ -29,6 +29,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ConfigWindow configWindow;
     private readonly WineWebView2SetupWindow? wineWebView2SetupWindow;
     private readonly FirstRunGuideWindow firstRunGuideWindow;
+    private readonly GenericWebIpcApprovalWindow genericWebIpcApprovalWindow;
+    private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
 
@@ -46,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var placementResolver = new ScreenPlacementResolver(ObjectTable, ClientState);
+        genericWebIpcApprovals = new GenericWebIpcApprovalService();
         var services = new CrystalCastServices(
             PluginInterface,
             TextureProvider,
@@ -55,7 +58,8 @@ public sealed class Plugin : IDalamudPlugin
             GameGui,
             Log,
             placementResolver,
-            new BrowserFrameSourceFactory(Log));
+            new BrowserFrameSourceFactory(Log),
+            genericWebIpcApprovals);
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
         if (Configuration.Normalize())
@@ -71,11 +75,13 @@ public sealed class Plugin : IDalamudPlugin
         wineWebView2SetupWindow = WineEnvironment.IsWine ? new WineWebView2SetupWindow(this) : null;
 #endif
         firstRunGuideWindow = new FirstRunGuideWindow(this);
+        genericWebIpcApprovalWindow = new GenericWebIpcApprovalWindow(genericWebIpcApprovals);
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
         if (wineWebView2SetupWindow != null)
             windowSystem.AddWindow(wineWebView2SetupWindow);
         windowSystem.AddWindow(firstRunGuideWindow);
+        windowSystem.AddWindow(genericWebIpcApprovalWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -110,8 +116,10 @@ public sealed class Plugin : IDalamudPlugin
         configWindow.Dispose();
         wineWebView2SetupWindow?.Dispose();
         firstRunGuideWindow.Dispose();
+        genericWebIpcApprovalWindow.Dispose();
         ipc.Dispose();
         renderer.Dispose();
+        genericWebIpcApprovals.Dispose();
         Configuration.FlushPendingSave();
     }
 
@@ -133,12 +141,18 @@ public sealed class Plugin : IDalamudPlugin
         firstRunGuideWindow.Show();
     }
 
+    internal void ResetIpcWebDomainMemory()
+    {
+        genericWebIpcApprovals.ResetSessionDecisions();
+    }
+
     private void OnCommand(string command, string args) => ToggleMainUi();
     private void OnSettingsCommand(string command, string args) => ToggleConfigUi();
 
     private void OnDraw()
     {
         UpdateFirstRunGuide();
+        genericWebIpcApprovalWindow.RefreshState();
         windowSystem.Draw();
         renderer.DrawWorld();
         Configuration.ProcessPendingSave();

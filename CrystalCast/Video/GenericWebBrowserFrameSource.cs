@@ -17,6 +17,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly WebView2CaptureMode captureMode;
     private readonly IPluginLog log;
+    private readonly Func<string, bool>? isNavigationAllowed;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
     private BrowserThread? browserThread;
@@ -50,7 +51,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         float volume,
         float playbackRate,
         WebView2CaptureMode captureMode,
-        IPluginLog log)
+        IPluginLog log,
+        Func<string, bool>? isNavigationAllowed = null)
     {
         this.input = input;
         isValidSource = GenericWebUrl.TryParseSource(input, out source);
@@ -64,6 +66,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         this.playbackRate = ClampPlaybackRate(playbackRate);
         this.captureMode = captureMode;
         this.log = log;
+        this.isNavigationAllowed = isNavigationAllowed;
 
         if (!isValidSource)
             browserStatus = BrowserSourceDescriptors.GenericWeb.InvalidSourceMessage;
@@ -962,6 +965,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             {
                 args.Cancel = true;
                 owner.browserStatus = "blocked non-HTTP browser navigation";
+                return;
+            }
+
+            if (owner.isNavigationAllowed?.Invoke(args.Uri) == false)
+            {
+                args.Cancel = true;
+                owner.browserStatus = "waiting for approval for cross-domain navigation";
             }
         }
 

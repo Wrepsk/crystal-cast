@@ -26,11 +26,24 @@ internal static class BrowserSourceProviderRegistry
     internal static IVideoFrameSource? CreateFrameSource(
         BrowserScreenProfile screen,
         BrowserMediaEngine enginePreference,
-        IBrowserFrameSourceFactory factory)
+        IBrowserFrameSourceFactory factory,
+        Func<string, bool>? genericWebNavigationAllowed = null,
+        string? genericWebInputOverride = null)
     {
-        return Providers.TryGetValue(screen.ProviderKind, out var provider)
-            ? factory.Create(provider.CreateRequest(screen, enginePreference))
-            : null;
+        if (!Providers.TryGetValue(screen.ProviderKind, out var provider))
+            return null;
+
+        var request = provider.CreateRequest(screen, enginePreference);
+        if (screen.ProviderKind == BrowserSourceProviderKind.GenericWeb)
+        {
+            request = request with
+            {
+                Input = string.IsNullOrWhiteSpace(genericWebInputOverride) ? request.Input : genericWebInputOverride,
+                IsNavigationAllowed = genericWebNavigationAllowed,
+            };
+        }
+
+        return factory.Create(request);
     }
 
     public static string BuildFrameSourceSignature(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)

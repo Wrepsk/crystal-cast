@@ -29,6 +29,7 @@ public sealed class ConfigWindow : Window, IDisposable
     private string diagnosticsReport = string.Empty;
     private long diagnosticsReportUpdatedAtTick;
     private long diagnosticsCopiedAtTick;
+    private long ipcDomainMemoryClearedAtTick;
 
     public ConfigWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast Settings###CrystalCastConfig")
@@ -386,6 +387,22 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.TextDisabled(enabled
             ? "IPC endpoints are registered and available to integrations."
             : "IPC-created screens are removed while integration support is disabled.");
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader(
+            "Generic Web domain memory",
+            "Clear temporary trusted and blocked IPC website decisions without reloading CrystalCast.");
+        if (ImGui.Button("Reset domain memory"))
+        {
+            plugin.ResetIpcWebDomainMemory();
+            ipcDomainMemoryClearedAtTick = Environment.TickCount64;
+        }
+
+        ImGui.TextDisabled("Active IPC Generic Web screens will ask for permission again before loading.");
+        if (ipcDomainMemoryClearedAtTick > 0 && Environment.TickCount64 - ipcDomainMemoryClearedAtTick < 3000)
+            ImGui.TextColored(CrystalCastUiTheme.AccentText, "Domain memory cleared.");
     }
 
 #if DEBUG

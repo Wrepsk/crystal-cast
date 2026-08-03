@@ -1,4 +1,5 @@
 using System.Numerics;
+using CrystalCast.Sync;
 using CrystalCast.Video;
 using Dalamud.Interface.Textures.TextureWraps;
 using Pictomancy;
@@ -491,6 +492,13 @@ public sealed class WorldScreenManager : IDisposable
 
         foreach (var screen in allowedScreens)
         {
+            if (!screen.Enabled
+                || !screen.CreatedByIpc
+                || screen.ProviderKind != BrowserSourceProviderKind.GenericWeb)
+            {
+                services.GenericWebIpcApprovals.RemoveScreen(screen.ScreenId);
+            }
+
             if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
                 instance.UpdateProfile(screen);
             else
@@ -511,6 +519,7 @@ public sealed class WorldScreenManager : IDisposable
                 services.Log.Debug(ex, "Failed to dispose CrystalCast screen {ScreenId}.", screenId);
             }
             browserScreens.Remove(screenId);
+            services.GenericWebIpcApprovals.RemoveScreen(screenId);
         }
 
         foreach (var screen in allowedScreens.Where(screen => !runningIds.Contains(screen.ScreenId)))
@@ -573,6 +582,7 @@ public sealed class WorldScreenManager : IDisposable
         private string frameSourceSignature = string.Empty;
         private long lastFrameUnixMs;
         private string lastNativeTextureError = string.Empty;
+        private string sourceAuthorizationStatus = string.Empty;
         private long lastNativeTextureErrorUnixMs;
         private long lastDrawFailureLogUnixMs;
         private long lastEffectiveAudioVolumeUnixMs;
@@ -603,7 +613,8 @@ public sealed class WorldScreenManager : IDisposable
             browserScreen = profile;
         }
 
-        public string SourceStatus => frameSource?.Status ?? "no dynamic source";
+        public string SourceStatus => frameSource?.Status
+            ?? (!string.IsNullOrEmpty(sourceAuthorizationStatus) ? sourceAuthorizationStatus : "no dynamic source");
         public string AudioStatus => BrowserSourceProviderRegistry.GetSnapshot(browserScreen).RuntimeSettings.AudioEnabled
             ? "browser audio enabled"
             : "browser audio muted";
@@ -874,6 +885,9 @@ public sealed class WorldScreenManager : IDisposable
             if (frameSource == null)
             {
                 Volatile.Write(ref playbackTelemetry, null);
+                if (!string.IsNullOrEmpty(sourceAuthorizationStatus))
+                    return null;
+
                 return ResolveFallbackTexture();
             }
 
@@ -986,7 +1000,22 @@ public sealed class WorldScreenManager : IDisposable
 
         private void EnsureFrameSource()
         {
+            var approvalRequired = browserScreen.CreatedByIpc
+                && browserScreen.ProviderKind == BrowserSourceProviderKind.GenericWeb;
+            var access = approvalRequired
+                ? services.GenericWebIpcApprovals.EvaluateInitial(browserScreen)
+                : GenericWebIpcAccess.Allowed;
             var signature = BuildFrameSourceSignature();
+            if (approvalRequired)
+            {
+                signature = string.Join(
+                    '|',
+                    signature,
+                    "ipc-generic-web-approval",
+                    access,
+                    services.GenericWebIpcApprovals.GetScreenRevision(browserScreen.ScreenId));
+            }
+
             if (signature == frameSourceSignature)
                 return;
 
@@ -1000,6 +1029,12 @@ public sealed class WorldScreenManager : IDisposable
             }
             frameSource = null;
             frameSourceSignature = signature;
+            sourceAuthorizationStatus = access switch
+            {
+                GenericWebIpcAccess.Pending => "waiting for approval to open this IPC Generic Web address",
+                GenericWebIpcAccess.Denied => "IPC Generic Web address blocked for this session",
+                _ => string.Empty,
+            };
             dynamicTexture.Dispose();
             sharedTexture.Dispose();
             lastFrameUnixMs = 0;
@@ -1007,10 +1042,19 @@ public sealed class WorldScreenManager : IDisposable
             lastNativeTextureErrorUnixMs = 0;
             lastPauseCommandUnixMs = 0;
 
+            if (access != GenericWebIpcAccess.Allowed)
+                return;
+
             frameSource = BrowserSourceProviderRegistry.CreateFrameSource(
                 browserScreen,
                 configuration.YouTubeBrowserEngine,
-                services.BrowserFrameSourceFactory);
+                services.BrowserFrameSourceFactory,
+                approvalRequired
+                    ? candidate => services.GenericWebIpcApprovals.IsNavigationAllowed(browserScreen, candidate)
+                    : null,
+                approvalRequired
+                    ? services.GenericWebIpcApprovals.GetApprovedStartUrl(browserScreen)
+                    : null);
         }
 
         private bool TrySendPauseCommand(bool force)

@@ -15,7 +15,10 @@ internal sealed record BrowserFrameSourceRequest(
     bool PlaylistAutoplayNext,
     bool AudioEnabled,
     float Volume,
-    float PlaybackRate);
+    float PlaybackRate)
+{
+    public Func<string, bool>? IsNavigationAllowed { get; init; }
+}
 
 internal interface IBrowserFrameSourceFactory
 {
@@ -46,7 +49,8 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
                 request.Volume,
                 request.PlaybackRate,
                 BrowserPlatformPolicy.ResolveCaptureMode(request.EnginePreference, WineEnvironment.IsWine),
-                log);
+                log,
+                request.IsNavigationAllowed);
         }
 
         if (request.Descriptor == null)

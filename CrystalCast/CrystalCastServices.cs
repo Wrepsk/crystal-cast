@@ -2,6 +2,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using CrystalCast.Video;
 using CrystalCast.Rendering;
+using CrystalCast.Sync;
 
 namespace CrystalCast;
 
@@ -14,4 +15,5 @@ internal sealed record CrystalCastServices(
     IGameGui GameGui,
     IPluginLog Log,
     ScreenPlacementResolver PlacementResolver,
-    IBrowserFrameSourceFactory BrowserFrameSourceFactory);
+    IBrowserFrameSourceFactory BrowserFrameSourceFactory,
+    GenericWebIpcApprovalService GenericWebIpcApprovals);

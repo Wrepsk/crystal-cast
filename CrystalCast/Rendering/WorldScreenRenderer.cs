@@ -88,6 +88,7 @@ public sealed class WorldScreenManager : IDisposable
         if (!configuration.Enabled)
         {
             LastDrawStatus = "disabled";
+            PctService.HideNativeOverlay();
             ReleaseAllBrowserRuntimes();
             return;
         }
@@ -98,10 +99,12 @@ public sealed class WorldScreenManager : IDisposable
         }
         catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
         {
+            PctService.HideNativeOverlay();
             HandleGraphicsDeviceLoss(ex);
         }
         catch (Exception ex)
         {
+            PctService.HideNativeOverlay();
             LastDrawStatus = $"draw pipeline failed: {ex.GetBaseException().Message}";
             LastGraphicsError = DescribeDiagnosticException(ex);
             LogGlobalDrawFailure(ex);
@@ -427,6 +430,7 @@ public sealed class WorldScreenManager : IDisposable
 
         if (prepared.Count == 0)
         {
+            PctService.HideNativeOverlay();
             LastDrawStatus = screenList.Count switch
             {
                 0 => "no enabled screens",
@@ -446,6 +450,7 @@ public sealed class WorldScreenManager : IDisposable
 
         if (drawList == null)
         {
+            PctService.HideNativeOverlay();
             LastDrawStatus = autoDraw == AutoDraw.SceneComposite
                 ? $"scene composite waiting; {PctService.SceneCompositeStatus}"
                 : "Pictomancy skipped this frame";

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.6.1.0</Version>
+    <Version>0.7.0.0</Version>
     <Authors>Wrepsk</Authors>
     <PackageProjectUrl>https://github.com/Wrepsk/crystal-cast</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Wrepsk/crystal-cast.git</RepositoryUrl>
@@ -15,11 +15,16 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisMode>Default</AnalysisMode>
     <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
+    <CsWinRTIncludesPrivate>Windows.Foundation.TypedEventHandler;Windows.Foundation.FoundationContract;Windows.Foundation.UniversalApiContract;Windows.Foundation.Metadata.ContractVersionAttribute;Windows.Graphics.SizeInt32;Windows.Graphics.DirectX.DirectXPixelFormat;Windows.Graphics.Capture.IDirect3D11CaptureFramePool;Windows.Graphics.Capture.Direct3D11CaptureFramePool</CsWinRTIncludesPrivate>
+    <CsWinRTPrivateProjection>true</CsWinRTPrivateProjection>
+    <CsWinRTEmbedded>true</CsWinRTEmbedded>
+    <CsWinRTAotOptimizerEnabled>false</CsWinRTAotOptimizerEnabled>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,6 +40,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.3.1" ExcludeAssets="compile;runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.17763.1000" PrivateAssets="all" />
+    <PackageReference Include="System.Runtime.WindowsRuntime" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
+    <PackageReference Include="System.Runtime.WindowsRuntime.UI.Xaml" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" ExcludeAssets="build;buildTransitive;compile;runtime" GeneratePathProperty="true" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
@@ -50,4 +59,10 @@
       <Visible>false</Visible>
     </Content>
   </ItemGroup>
+
+  <Target Name="RemoveEmbeddedCsWinRTPlatformMarker" AfterTargets="CsWinRTIncludeProjection" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Compile Remove="$(CsWinRTGeneratedFilesDir)Module.cs" />
+    </ItemGroup>
+  </Target>
 </Project>

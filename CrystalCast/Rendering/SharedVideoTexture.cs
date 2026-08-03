@@ -108,14 +108,8 @@ public sealed class SharedVideoTexture : IDisposable
         if (context == null || sharedTexture == null || sharedTextureMutex == null || texture == null)
             return false;
 
-        try
-        {
-            sharedTextureMutex.Acquire(1, 5);
-        }
-        catch (Exception ex) when (NativeGraphicsError.IsWaitTimeout(ex))
-        {
+        if (!KeyedMutexSynchronization.TryAcquire(sharedTextureMutex, 1, 5))
             return false;
-        }
 
         try
         {

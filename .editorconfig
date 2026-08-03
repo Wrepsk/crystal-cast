@@ -131,6 +131,31 @@ resharper_suggest_var_or_type_simple_types_highlighting = hint
 resharper_unused_auto_property_accessor_global_highlighting = none
 csharp_style_deconstructed_variable_declaration=true:silent
 
+# CsWinRT's embedded runtime sources target several framework versions and are
+# not nullable-clean under .NET 10. Keep these vendor warnings scoped to the
+# generated directory so CrystalCast's own warnings remain errors.
+[CrystalCast/obj/**/Generated Files/CsWinRT/*.cs]
+generated_code = true
+dotnet_diagnostic.CS0618.severity = none
+dotnet_diagnostic.CS8600.severity = none
+dotnet_diagnostic.CS8601.severity = none
+dotnet_diagnostic.CS8602.severity = none
+dotnet_diagnostic.CS8603.severity = none
+dotnet_diagnostic.CS8604.severity = none
+dotnet_diagnostic.CS8605.severity = none
+dotnet_diagnostic.CS8610.severity = none
+dotnet_diagnostic.CS8615.severity = none
+dotnet_diagnostic.CS8618.severity = none
+dotnet_diagnostic.CS8619.severity = none
+dotnet_diagnostic.CS8622.severity = none
+dotnet_diagnostic.CS8625.severity = none
+dotnet_diagnostic.CS8629.severity = none
+dotnet_diagnostic.CS8714.severity = none
+dotnet_diagnostic.CS8765.severity = none
+dotnet_diagnostic.CS8767.severity = none
+dotnet_diagnostic.CS8769.severity = none
+dotnet_diagnostic.CS9191.severity = none
+
 [*.{appxmanifest,asax,ascx,aspx,axaml,axml,build,c,c++,cc,cginc,compute,config,cp,cpp,cs,cshtml,csproj,css,cu,cuh,cxx,dbml,discomap,dtd,h,hh,hlsl,hlsli,hlslinc,hpp,htm,html,hxx,inc,inl,ino,ipp,js,json,jsproj,jsx,lsproj,master,mpp,mq4,mq5,mqh,njsproj,nuspec,paml,proj,props,proto,razor,resjson,resw,resx,skin,StyleCop,targets,tasks,tpp,ts,tsx,usf,ush,vb,vbproj,xaml,xamlx,xml,xoml,xsd}]
 indent_style = space
 indent_size = 4

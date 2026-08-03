@@ -937,6 +937,8 @@ public sealed class WorldScreenManager : IDisposable
                         {
                             lastFrameUnixMs = nativeFrame.TimestampUnixMs;
                             lastNativeTextureError = string.Empty;
+                            if (frameSource is INativeVideoFrameAcknowledgement acknowledgement)
+                                acknowledgement.AcknowledgeNativeFrame(nativeFrame.SharedHandle);
                         }
 
                         if (sharedTexture.NativeHandle != 0)

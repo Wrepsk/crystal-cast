@@ -18,6 +18,7 @@ namespace CrystalCast.Video;
 [SupportedOSPlatform("windows10.0.19041")]
 internal sealed class WebView2WindowCaptureSession : IDisposable
 {
+    private const int MaxRetiredSharedTextures = 4;
     private const int DirectXPixelFormatB8G8R8A8UIntNormalized = 87;
     private const int FramePoolBufferCount = 2;
     private const int RoInitSingleThreaded = 0;
@@ -39,7 +40,10 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private readonly Action<double> reportCaptureMilliseconds;
     private readonly Action<string> reportStatus;
     private readonly Action<Exception> reportFatalError;
-    private readonly object frameProcessingLock = new();
+    private readonly CaptureCallbackCoordinator callbackCoordinator = new();
+    private readonly CaptureFrameRateLimiter frameRateLimiter = new();
+    private readonly CaptureResourceRetirementQueue<RetiredSharedTexture> retiredSharedTextures =
+        new(MaxRetiredSharedTextures);
     private readonly D3D11Device d3dDevice;
     private readonly DeviceContext d3dContext;
     private readonly bool uninitializeWinRt;
@@ -47,19 +51,29 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private IntPtr item;
     private IntPtr framePool;
     private IntPtr session;
-    private CancellationTokenSource? captureCancellation;
-    private Task? captureTask;
+    private global::Windows.Graphics.Capture.Direct3D11CaptureFramePool? projectedFramePool;
+    private global::Windows.Foundation.TypedEventHandler<global::Windows.Graphics.Capture.Direct3D11CaptureFramePool, object>? frameArrivedHandler;
     private D3D11Texture2D? sharedTexture;
     private KeyedMutex? sharedTextureMutex;
     private D3D11Texture2D? diagnosticStagingTexture;
     private IntPtr sharedTextureHandle;
     private SizeInt32 captureSize;
-    private long lastPublishedTicks;
+    private long lastFramePublishedTicks;
+    private long lastFrameArrivedTicks;
+    private long frameArrivedCount;
+    private long framesDrainedCount;
+    private long framesPublishedCount;
+    private long fpsLimitedCount;
+    private long resizeCount;
+    private long mutexBusyCount;
+    private long callbackErrorCount;
     private long lastDiagnosticTicks;
+    private long lastStatusTicks;
     private string lastDiagnosticStatus = "diagnostic pending";
-    private string capturePumpStatus = "starting";
+    private string capturePumpStatus = "WGC event starting";
+    private string lastFatalError = "none";
     private bool started;
-    private bool disposed;
+    private volatile bool disposed;
 
     [SupportedOSPlatform("windows10.0.19041")]
     public WebView2WindowCaptureSession(
@@ -117,6 +131,16 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         item = nextItem;
         framePool = nextFramePool;
         session = nextSession;
+        try
+        {
+            projectedFramePool = global::Windows.Graphics.Capture.Direct3D11CaptureFramePool.FromAbi(framePool)
+                ?? throw new InvalidOperationException("C#/WinRT could not project the WGC frame pool.");
+        }
+        catch
+        {
+            DisposeNativeResources();
+            throw;
+        }
     }
 
     [SupportedOSPlatformGuard("windows10.0.19041")]
@@ -159,53 +183,86 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         if (started)
             return;
 
-        StartCapture(session);
-        started = true;
-        capturePumpStatus = "poll";
-        captureCancellation = new CancellationTokenSource();
-        captureTask = Task.Run(() => CaptureLoopAsync(captureCancellation.Token));
-        reportStatus("WebView2 window capture running");
+        var currentFramePool = projectedFramePool
+            ?? throw new InvalidOperationException("The WGC frame pool projection is unavailable.");
+        frameArrivedHandler ??= OnFrameArrived;
+        currentFramePool.FrameArrived += frameArrivedHandler;
+        try
+        {
+            started = true;
+            capturePumpStatus = "WGC event";
+            StartCapture(session);
+            reportStatus(BuildCaptureStatus("diagnostic pending"));
+        }
+        catch
+        {
+            started = false;
+            currentFramePool.FrameArrived -= frameArrivedHandler;
+            throw;
+        }
     }
 
     public void Dispose()
     {
-        if (disposed)
+        if (!callbackCoordinator.TryBeginStop())
             return;
 
         disposed = true;
-        captureCancellation?.Cancel();
-        var captureStopped = true;
-        try
+        var currentProjectedFramePool = projectedFramePool;
+        var currentHandler = frameArrivedHandler;
+        if (currentProjectedFramePool != null && currentHandler != null && started)
         {
-            captureStopped = captureTask?.Wait(TimeSpan.FromSeconds(2)) ?? true;
-        }
-        catch
-        {
-            captureStopped = captureTask?.IsCompleted ?? true;
+            try
+            {
+                currentProjectedFramePool.FrameArrived -= currentHandler;
+            }
+            catch
+            {
+                // Native shutdown below still prevents future frame delivery.
+            }
         }
 
-        if (!captureStopped)
-        {
-            reportStatus("WebView2 window capture shutdown timed out; native resources retained for safety");
+        CloseAndRelease(ref session);
+        callbackCoordinator.WaitForIdleAndRun(DisposeNativeResources);
+    }
+
+    public void AcknowledgeSharedTexture(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || disposed)
             return;
-        }
 
-        captureCancellation?.Dispose();
-        captureCancellation = null;
-        captureTask = null;
-        DisposeNativeResources();
+        callbackCoordinator.TryRun(() =>
+        {
+            if (disposed || handle != sharedTextureHandle)
+                return;
+
+            retiredSharedTextures.AcknowledgeCurrent();
+        });
     }
 
     private void DisposeNativeResources()
     {
         CloseAndRelease(ref session);
         CloseAndRelease(ref framePool);
+        var currentProjectedFramePool = projectedFramePool;
+        projectedFramePool = null;
+        try
+        {
+            if (currentProjectedFramePool is WinRT.IWinRTObject winRtObject)
+                winRtObject.NativeObject.Dispose();
+        }
+        catch
+        {
+            // The owning native frame-pool reference has already been released.
+        }
+        frameArrivedHandler = null;
         Release(ref item);
         Release(ref winRtDevice);
         sharedTextureMutex?.Dispose();
         sharedTextureMutex = null;
         sharedTexture?.Dispose();
         sharedTexture = null;
+        retiredSharedTextures.Dispose();
         diagnosticStagingTexture?.Dispose();
         diagnosticStagingTexture = null;
         sharedTextureHandle = IntPtr.Zero;
@@ -228,120 +285,80 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             RoUninitialize();
     }
 
-    private async Task CaptureLoopAsync(CancellationToken token)
+    private void OnFrameArrived(
+        global::Windows.Graphics.Capture.Direct3D11CaptureFramePool sender,
+        object args)
     {
-        while (!disposed && !token.IsCancellationRequested)
-        {
-            if (!shouldCapture())
-            {
-                DrainFramePool();
-                await DelayAsync(200, token);
-                continue;
-            }
+        if (disposed || callbackCoordinator.IsInactive)
+            return;
 
+        callbackCoordinator.RunCallback(() =>
+        {
+            Interlocked.Increment(ref frameArrivedCount);
+            Interlocked.Exchange(ref lastFrameArrivedTicks, Stopwatch.GetTimestamp());
             var sw = Stopwatch.StartNew();
-            try
-            {
-                if (!TryProcessLatestFrame(sw))
-                {
-                    await DelayAsync(1, token);
-                    continue;
-                }
-            }
-            catch (Exception ex) when (CrystalCast.Rendering.NativeGraphicsError.IsDeviceLost(ex))
-            {
-                sw.Stop();
-                reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
-                reportStatus($"WebView2 window capture device lost: {ex.GetBaseException().Message}");
-                reportFatalError(ex);
-                return;
-            }
-            catch (Exception ex) when (!token.IsCancellationRequested)
-            {
-                sw.Stop();
-                reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
-                reportStatus($"WebView2 window capture failed: {ex.GetBaseException().Message}");
-                await DelayAsync(250, token);
-            }
-            await Task.Yield();
-        }
-    }
-
-    private void DrainFramePool()
-    {
-        lock (frameProcessingLock)
-        {
-            if (disposed)
-                return;
-
-            var frame = IntPtr.Zero;
-            try
-            {
-                frame = TryGetLatestFrameFromPool(framePool);
-            }
-            catch
-            {
-                // Draining while paused is best effort; the active capture path reports real failures.
-            }
-            finally
-            {
-                CloseAndRelease(ref frame);
-            }
-        }
-    }
-
-    private bool TryProcessLatestFrame(Stopwatch sw)
-    {
-        lock (frameProcessingLock)
-        {
-            if (disposed)
-                return false;
-
             var frame = IntPtr.Zero;
             try
             {
                 frame = TryGetLatestFrameFromPool(framePool);
                 if (frame == IntPtr.Zero)
-                    return false;
+                    return;
 
-                ProcessFrame(frame, sw);
-                return true;
+                var contentSize = GetFrameContentSize(frame);
+                var frameAction = CaptureFrameProcessingPolicy.Decide(
+                    shouldCapture(),
+                    captureSize.Width,
+                    captureSize.Height,
+                    contentSize.Width,
+                    contentSize.Height);
+                if (frameAction == CaptureFrameAction.DrainPaused)
+                {
+                    Interlocked.Increment(ref framesDrainedCount);
+                    ReportStatusIfDue("capture paused");
+                }
+                else if (frameAction == CaptureFrameAction.DrainEmpty)
+                {
+                    Interlocked.Increment(ref framesDrainedCount);
+                    ReportStatusIfDue("empty frame");
+                }
+                else if (frameAction == CaptureFrameAction.Recreate)
+                {
+                    Interlocked.Increment(ref framesDrainedCount);
+                }
+                else if (!ShouldPublishFrame())
+                {
+                    frameAction = CaptureFrameAction.DrainFpsLimited;
+                    Interlocked.Increment(ref fpsLimitedCount);
+                    Interlocked.Increment(ref framesDrainedCount);
+                }
+
+                CaptureFrameCompletion.Complete(
+                    frameAction,
+                    () => ProcessFrame(frame, contentSize, sw),
+                    () => CloseAndRelease(ref frame),
+                    () => RecreateForSize(contentSize));
             }
             finally
             {
                 CloseAndRelease(ref frame);
             }
-        }
+        }, ex =>
+        {
+            Interlocked.Increment(ref callbackErrorCount);
+            lastFatalError = ex.GetBaseException().Message;
+            try
+            {
+                reportStatus($"WebView2 window capture failed: {lastFatalError}");
+            }
+            finally
+            {
+                reportFatalError(ex);
+            }
+        });
     }
 
-    private static async Task DelayAsync(int milliseconds, CancellationToken token)
+    private void ProcessFrame(IntPtr frame, SizeInt32 contentSize, Stopwatch sw)
     {
-        try
-        {
-            await Task.Delay(milliseconds, token);
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    private void ProcessFrame(IntPtr frame, Stopwatch sw)
-    {
-        var contentSize = GetFrameContentSize(frame);
-        if (contentSize.Width <= 0 || contentSize.Height <= 0)
-            return;
-
-        if (contentSize.Width != captureSize.Width || contentSize.Height != captureSize.Height)
-        {
-            captureSize = contentSize;
-            RecreateSharedTexture(contentSize.Width, contentSize.Height);
-            RecreateFramePool(framePool, winRtDevice, captureSize);
-            return;
-        }
-
-        if (!ShouldPublishFrame())
-            return;
-
         EnsureSharedTexture(contentSize.Width, contentSize.Height);
         if (sharedTexture == null || sharedTextureHandle == IntPtr.Zero)
             return;
@@ -354,12 +371,11 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             if (sharedTextureMutex == null)
                 return;
 
-            try
+            if (!CrystalCast.Rendering.KeyedMutexSynchronization.TryAcquire(sharedTextureMutex, 0, 5))
             {
-                sharedTextureMutex.Acquire(0, 5);
-            }
-            catch (Exception ex) when (CrystalCast.Rendering.NativeGraphicsError.IsWaitTimeout(ex))
-            {
+                Interlocked.Increment(ref mutexBusyCount);
+                Interlocked.Increment(ref framesDrainedCount);
+                ReportStatusIfDue("renderer mutex busy");
                 return;
             }
 
@@ -387,7 +403,9 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             sw.Stop();
             reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
             publishSharedTexture(sharedTextureHandle, contentSize.Width, contentSize.Height);
-            reportStatus($"GPU {capturePumpStatus}; {diagnosticStatus}");
+            Interlocked.Exchange(ref lastFramePublishedTicks, Stopwatch.GetTimestamp());
+            Interlocked.Increment(ref framesPublishedCount);
+            reportStatus(BuildCaptureStatus(diagnosticStatus));
         }
         finally
         {
@@ -395,37 +413,33 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         }
     }
 
-    private bool ShouldPublishFrame()
+    private void RecreateForSize(SizeInt32 size)
     {
-        var captureFps = Math.Clamp(captureFpsProvider(), 1.0f, 120.0f);
-        if (captureFps >= 55.0f)
-            return true;
-
-        var now = Stopwatch.GetTimestamp();
-        var previous = Interlocked.Read(ref lastPublishedTicks);
-        var minimumTicks = (long)(Stopwatch.Frequency / captureFps * 0.85);
-        if (previous != 0 && now - previous < minimumTicks)
-            return false;
-
-        Interlocked.Exchange(ref lastPublishedTicks, now);
-        return true;
+        // The caller closes its checked-out frame before entering this method.
+        captureSize = size;
+        RecreateSharedTexture(size.Width, size.Height);
+        RecreateFramePool(framePool, winRtDevice, captureSize);
+        Interlocked.Increment(ref resizeCount);
+        reportStatus(BuildCaptureStatus("resized"));
     }
 
-    private static IntPtr TryGetLatestFrameFromPool(IntPtr currentFramePool)
+    private bool ShouldPublishFrame()
     {
-        var latestFrame = TryGetNextFrame(currentFramePool);
-        if (latestFrame == IntPtr.Zero)
-            return IntPtr.Zero;
+        return frameRateLimiter.ShouldPublish(
+            captureFpsProvider(),
+            Stopwatch.GetTimestamp(),
+            Stopwatch.Frequency);
+    }
 
-        while (true)
-        {
-            var nextFrame = TryGetNextFrame(currentFramePool);
-            if (nextFrame == IntPtr.Zero)
-                return latestFrame;
-
-            CloseAndRelease(ref latestFrame);
-            latestFrame = nextFrame;
-        }
+    private IntPtr TryGetLatestFrameFromPool(IntPtr currentFramePool)
+    {
+        var latestFrame = CaptureFrameDrainer.DrainNewest(
+            () => TryGetNextFrame(currentFramePool),
+            frame => frame == IntPtr.Zero,
+            frame => CloseAndRelease(ref frame),
+            out var discarded);
+        Interlocked.Add(ref framesDrainedCount, discarded);
+        return latestFrame;
     }
 
     private void EnsureSharedTexture(int width, int height)
@@ -476,11 +490,63 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
         var previousMutex = sharedTextureMutex;
         var previousTexture = sharedTexture;
+        if (previousTexture != null
+            && previousMutex != null
+            && !retiredSharedTextures.CanRetire)
+        {
+            nextMutex.Dispose();
+            nextTexture.Dispose();
+            throw new InvalidOperationException(
+                $"The renderer did not acknowledge {MaxRetiredSharedTextures} resized WGC textures.");
+        }
+
         sharedTexture = nextTexture;
         sharedTextureMutex = nextMutex;
         sharedTextureHandle = nextHandle;
-        previousMutex?.Dispose();
-        previousTexture?.Dispose();
+        if (previousTexture != null && previousMutex != null)
+            retiredSharedTextures.Retire(new RetiredSharedTexture(previousTexture, previousMutex));
+        else
+        {
+            previousMutex?.Dispose();
+            previousTexture?.Dispose();
+        }
+    }
+
+    private string BuildCaptureStatus(string diagnosticStatus)
+    {
+        var paused = !shouldCapture();
+        return $"{capturePumpStatus}; {captureSize.Width}x{captureSize.Height}; "
+            + $"paused {paused}; events {Interlocked.Read(ref frameArrivedCount)}; "
+            + $"published {Interlocked.Read(ref framesPublishedCount)}; "
+            + $"drained {Interlocked.Read(ref framesDrainedCount)}; "
+            + $"FPS-limited {Interlocked.Read(ref fpsLimitedCount)}; "
+            + $"resizes {Interlocked.Read(ref resizeCount)}; "
+            + $"mutex busy {Interlocked.Read(ref mutexBusyCount)}; "
+            + $"retired {retiredSharedTextures.Count}; "
+            + $"callback errors {Interlocked.Read(ref callbackErrorCount)}; "
+            + $"event age {FormatAge(Interlocked.Read(ref lastFrameArrivedTicks))}; "
+            + $"publish age {FormatAge(Interlocked.Read(ref lastFramePublishedTicks))}; "
+            + $"last fatal {lastFatalError}; {diagnosticStatus}";
+    }
+
+    private void ReportStatusIfDue(string diagnosticStatus)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var previous = Interlocked.Read(ref lastStatusTicks);
+        if (previous != 0 && now - previous < Stopwatch.Frequency)
+            return;
+
+        if (Interlocked.CompareExchange(ref lastStatusTicks, now, previous) == previous)
+            reportStatus(BuildCaptureStatus(diagnosticStatus));
+    }
+
+    private static string FormatAge(long timestamp)
+    {
+        if (timestamp == 0)
+            return "never";
+
+        var milliseconds = Math.Max(0.0, (Stopwatch.GetTimestamp() - timestamp) * 1000.0 / Stopwatch.Frequency);
+        return $"{milliseconds:0} ms";
     }
 
     private string UpdateDiagnosticStatus(D3D11Texture2D sourceTexture, int width, int height)
@@ -872,6 +938,26 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
     [DllImport("d3d11.dll", ExactSpelling = true, SetLastError = true)]
     private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
+
+    private sealed class RetiredSharedTexture : IDisposable
+    {
+        private D3D11Texture2D? texture;
+        private KeyedMutex? mutex;
+
+        public RetiredSharedTexture(D3D11Texture2D texture, KeyedMutex mutex)
+        {
+            this.texture = texture;
+            this.mutex = mutex;
+        }
+
+        public void Dispose()
+        {
+            mutex?.Dispose();
+            mutex = null;
+            texture?.Dispose();
+            texture = null;
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct SizeInt32

@@ -2,7 +2,7 @@ namespace CrystalCast.Video;
 
 using Dalamud.Plugin.Services;
 
-internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
+internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -105,6 +105,12 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
         frame = null!;
         return false;
+    }
+
+    public void AcknowledgeNativeFrame(IntPtr sharedHandle)
+    {
+        if (activeSource is INativeVideoFrameAcknowledgement acknowledgement)
+            acknowledgement.AcknowledgeNativeFrame(sharedHandle);
     }
 
     public bool TryGetPlaybackTelemetry(out MediaPlaybackTelemetry telemetry)

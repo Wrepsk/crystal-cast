@@ -22,3 +22,8 @@ public interface INativeVideoFrameSource
 {
     bool TryGetLatestNativeFrame(out NativeVideoFrame frame);
 }
+
+internal interface INativeVideoFrameAcknowledgement
+{
+    void AcknowledgeNativeFrame(IntPtr sharedHandle);
+}

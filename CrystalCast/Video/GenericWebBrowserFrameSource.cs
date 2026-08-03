@@ -6,7 +6,7 @@ using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
-internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
+internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
 {
     private const string PlaybackUnavailableStatus = "Playback sync unavailable for this page";
 
@@ -31,6 +31,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private bool settingsPublished;
     private volatile bool captureEnabled;
     private volatile string browserStatus = "stopped";
+    private volatile string nativeCaptureFailure = string.Empty;
     private volatile string playerStatus = "player not ready";
     private long sequence;
     private long lastFrameUnixMs;
@@ -93,7 +94,10 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             var frameAge = lastFrameUnixMs == 0
                 ? "no captured frame"
                 : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
-            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}; {playerStatus}";
+            var failureStatus = string.IsNullOrWhiteSpace(nativeCaptureFailure)
+                ? string.Empty
+                : $"; WGC failure {nativeCaptureFailure}";
+            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}{failureStatus}; {playerStatus}";
         }
     }
 
@@ -140,6 +144,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         frame = latestNativeFrame!;
         return frame != null;
     }
+
+    public void AcknowledgeNativeFrame(IntPtr sharedHandle) =>
+        browserThread?.AcknowledgeNativeFrame(sharedHandle);
 
     public bool TryGetPlaybackTelemetry(out MediaPlaybackTelemetry currentTelemetry)
     {
@@ -777,6 +784,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         private void StartWindowCaptureOrFallback()
         {
+            owner.nativeCaptureFailure = string.Empty;
             try
             {
                 if (TryStartWindowCapture())
@@ -786,6 +794,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             {
                 DisposeWindowCaptureSession();
                 owner.log.Warning(ex, "Failed to start CrystalCast Generic Web window capture.");
+                owner.nativeCaptureFailure = BrowserCaptureFailureDiagnostics.Format(ex);
                 owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
             }
 
@@ -796,12 +805,14 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             if (hostWindow == null)
             {
+                owner.nativeCaptureFailure = "host window was not created";
                 owner.browserStatus = "WebView2 window capture unavailable, using JPEG fallback: host window was not created";
                 return false;
             }
 
             if (!WebView2WindowCaptureSession.IsSupported(out var captureStatus))
             {
+                owner.nativeCaptureFailure = captureStatus;
                 owner.browserStatus = $"{captureStatus}; using JPEG fallback";
                 return false;
             }
@@ -822,6 +833,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         private void HandleWindowCaptureFatalError(Exception exception)
         {
+            owner.nativeCaptureFailure = BrowserCaptureFailureDiagnostics.Format(exception);
+            owner.log.Warning(exception, "CrystalCast Generic Web WGC callback failed; switching to JPEG fallback.");
             Post(() =>
             {
                 DisposeWindowCaptureSession();
@@ -829,6 +842,12 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 EnsureCaptureLoopStarted();
                 return Task.CompletedTask;
             });
+        }
+
+        public void AcknowledgeNativeFrame(IntPtr sharedHandle)
+        {
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+                Volatile.Read(ref windowCaptureSession)?.AcknowledgeSharedTexture(sharedHandle);
         }
 
         private void DisposeWindowCaptureSession()

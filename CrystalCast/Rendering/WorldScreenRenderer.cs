@@ -61,7 +61,9 @@ public sealed class WorldScreenManager : IDisposable
         {
             SyncBrowserScreens();
             var activeScreen = configuration.GetActiveBrowserScreen();
-            return browserScreens.TryGetValue(activeScreen.ScreenId, out var instance) ? instance : null;
+            return activeScreen != null && browserScreens.TryGetValue(activeScreen.ScreenId, out var instance)
+                ? instance
+                : null;
         }
     }
 
@@ -122,7 +124,9 @@ public sealed class WorldScreenManager : IDisposable
     public bool TryPlayDynamicSource()
     {
         var screen = configuration.GetActiveBrowserScreen();
-        return IsWithinBrowserResourceBudget(screen) && ActiveInstance?.TryPlayDynamicSource() == true;
+        return screen != null
+            && IsWithinBrowserResourceBudget(screen)
+            && ActiveInstance?.TryPlayDynamicSource() == true;
     }
 
     public bool TryPlayDynamicSource(BrowserScreenProfile screen)
@@ -158,7 +162,9 @@ public sealed class WorldScreenManager : IDisposable
     public bool TryRestartDynamicSource()
     {
         var screen = configuration.GetActiveBrowserScreen();
-        return IsWithinBrowserResourceBudget(screen) && ActiveInstance?.TryRestartDynamicSource() == true;
+        return screen != null
+            && IsWithinBrowserResourceBudget(screen)
+            && ActiveInstance?.TryRestartDynamicSource() == true;
     }
 
     public bool TryRestartDynamicSource(BrowserScreenProfile screen)

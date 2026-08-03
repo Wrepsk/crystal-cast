@@ -75,11 +75,12 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         var draft = uiState.UrlDraft;
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         var loadButtonWidth = ImGui.CalcTextSize("Load").X + (ImGui.GetStyle().FramePadding.X * 2.0f);
+        var copyButtonWidth = ImGui.CalcTextSize("Copy link").X + (ImGui.GetStyle().FramePadding.X * 2.0f);
         var rowWidth = ImGui.GetContentRegionAvail().X;
-        var keepLoadInline = rowWidth >= loadButtonWidth + spacing + 120.0f;
+        var keepActionsInline = rowWidth >= loadButtonWidth + copyButtonWidth + (spacing * 2.0f) + 120.0f;
         ImGui.TextUnformatted(descriptor.InputLabel);
-        ImGui.SetNextItemWidth(keepLoadInline
-            ? Math.Max(120.0f, rowWidth - loadButtonWidth - spacing)
+        ImGui.SetNextItemWidth(keepActionsInline
+            ? Math.Max(120.0f, rowWidth - loadButtonWidth - copyButtonWidth - (spacing * 2.0f))
             : Math.Max(120.0f, rowWidth));
 
         if (sourceLocked)
@@ -88,9 +89,9 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         uiState.UrlDraft = draft;
         var draftSourceValid = descriptor.SourceDescriptor.TryParse(uiState.UrlDraft, out var draftSource);
 
-        if (keepLoadInline)
+        if (keepActionsInline)
             ImGui.SameLine();
-        if (ImGui.Button($"Load##{descriptor.ProviderKind}Load", new Vector2(Math.Min(loadButtonWidth, ImGui.GetContentRegionAvail().X), 0.0f)) || pressedEnter)
+        if (ImGui.Button($"Load##{descriptor.ProviderKind}Load", new Vector2(loadButtonWidth, 0.0f)) || pressedEnter)
         {
             if (draftSourceValid)
             {
@@ -103,10 +104,24 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         if (sourceLocked)
             ImGui.EndDisabled();
 
+        ImGui.SameLine();
+        var canCopyLink = !string.IsNullOrWhiteSpace(url);
+        if (!canCopyLink)
+            ImGui.BeginDisabled();
+        if (ImGui.Button($"Copy link##{descriptor.ProviderKind}CopyLink", new Vector2(copyButtonWidth, 0.0f)) && canCopyLink)
+        {
+            ImGui.SetClipboardText(url);
+            uiState.SourceCopiedAtTick = Environment.TickCount64;
+        }
+        if (!canCopyLink)
+            ImGui.EndDisabled();
+
         if (sourceLocked)
             SourceControlUi.DrawLockedControlsMessage(screen, "Source controls");
 
-        if (draftSourceValid)
+        if (uiState.SourceCopiedAtTick > 0 && Environment.TickCount64 - uiState.SourceCopiedAtTick < 2000)
+            ImGui.TextDisabled("Source link copied.");
+        else if (draftSourceValid)
             ImGui.TextDisabled(draftSource.DisplayName);
         else if (!string.IsNullOrWhiteSpace(uiState.UrlDraft))
             ImGui.TextColored(new Vector4(1.0f, 0.45f, 0.35f, 1.0f), descriptor.InvalidText);
@@ -499,6 +514,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
     {
         public string UrlDraft { get; set; } = string.Empty;
         public string UrlDraftSource { get; set; } = string.Empty;
+        public long SourceCopiedAtTick { get; set; }
         public SourceProgressUiState Progress { get; } = new();
     }
 

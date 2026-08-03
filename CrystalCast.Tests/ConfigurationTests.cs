@@ -13,6 +13,24 @@ public sealed class ConfigurationTests
         Assert.Equal(3, configuration.Version);
         Assert.Equal(ScreenSourceKind.Browser, configuration.SourceKind);
         Assert.Single(configuration.BrowserScreens);
+        Assert.True(configuration.BrowserScreensInitialized);
+    }
+
+    [Fact]
+    public void InitializedConfigurationCanRemainWithoutScreens()
+    {
+        var configuration = new Configuration
+        {
+            BrowserScreens = [],
+            BrowserScreensInitialized = true,
+            ActiveBrowserScreenId = "removed-screen",
+        };
+
+        configuration.Normalize();
+
+        Assert.Empty(configuration.BrowserScreens);
+        Assert.Equal(string.Empty, configuration.ActiveBrowserScreenId);
+        Assert.Null(configuration.GetActiveBrowserScreen());
     }
 
     [Fact]

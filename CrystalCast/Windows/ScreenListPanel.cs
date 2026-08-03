@@ -10,35 +10,47 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
 
-    public bool Draw(Configuration config, BrowserScreenProfile activeScreen, Action<string> onScreenDeleted)
+    public bool Draw(Configuration config, BrowserScreenProfile? activeScreen, Action<string> onScreenDeleted)
     {
         var changed = false;
-        var activeIndex = Math.Max(0, config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId));
+        var activeIndex = activeScreen == null
+            ? -1
+            : config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId);
         var userScreenCount = ScreenLimitPolicy.CountUserScreens(config.BrowserScreens);
         var canAddUserScreen = ScreenLimitPolicy.CanCreateUserScreen(config.BrowserScreens);
 
         ImGui.TextDisabled("Screen");
         ImGui.SetNextItemWidth(-1.0f);
-        if (ImGui.BeginCombo("##CrystalCastScreen", activeScreen.Name))
+        if (ImGui.BeginCombo("##CrystalCastScreen", activeScreen?.Name ?? "No screens"))
         {
-            for (var i = 0; i < config.BrowserScreens.Count; i++)
+            if (config.BrowserScreens.Count == 0)
             {
-                var screen = config.BrowserScreens[i];
-                var selected = i == activeIndex;
-                if (ImGui.Selectable($"{screen.Name}##Screen{screen.ScreenId}", selected))
+                ImGui.TextDisabled("No screens");
+            }
+            else
+            {
+                for (var i = 0; i < config.BrowserScreens.Count; i++)
                 {
-                    config.ActiveBrowserScreenId = screen.ScreenId;
-                    changed = true;
-                }
+                    var screen = config.BrowserScreens[i];
+                    var selected = i == activeIndex;
+                    if (ImGui.Selectable($"{screen.Name}##Screen{screen.ScreenId}", selected))
+                    {
+                        config.ActiveBrowserScreenId = screen.ScreenId;
+                        changed = true;
+                    }
 
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
+                    if (selected)
+                        ImGui.SetItemDefaultFocus();
+                }
             }
 
             ImGui.EndCombo();
         }
 
-        changed |= DrawScreenSourceCombo(activeScreen);
+        if (activeScreen != null)
+            changed |= DrawScreenSourceCombo(activeScreen);
+        else
+            ImGui.TextDisabled("No screens yet. Add one to configure a browser source.");
 
         var spacing = ImGui.GetStyle().ItemSpacing.X;
         var actionWidth = Math.Max(54.0f, (ImGui.GetContentRegionAvail().X - (spacing * 3.0f)) / 4.0f);
@@ -49,7 +61,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         if (ImGui.Button("Add screen", new Vector2(actionWidth, 0.0f)))
         {
             var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
-            screen.ProviderKind = activeScreen.ProviderKind;
+            screen.ProviderKind = activeScreen?.ProviderKind ?? BrowserSourceProviderKind.YouTube;
             config.BrowserScreens.Add(screen);
             config.ActiveBrowserScreenId = screen.ScreenId;
             renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
@@ -60,55 +72,65 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             ImGui.EndDisabled();
 
         ImGui.SameLine();
-        if (!canAddUserScreen)
+        var canDuplicate = activeScreen != null && canAddUserScreen;
+        if (!canDuplicate)
             ImGui.BeginDisabled();
         if (ImGui.Button("Duplicate", new Vector2(actionWidth, 0.0f)))
         {
-            var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
+            var copy = activeScreen!.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
             OffsetDuplicatePlacement(copy.Placement);
             config.BrowserScreens.Add(copy);
             config.ActiveBrowserScreenId = copy.ScreenId;
             changed = true;
         }
-        if (!canAddUserScreen)
+        if (!canDuplicate)
             ImGui.EndDisabled();
 
         ImGui.SameLine();
+        if (activeScreen == null)
+            ImGui.BeginDisabled();
         if (ImGui.Button("Rename", new Vector2(actionWidth, 0.0f)))
         {
-            renamingScreenId = activeScreen.ScreenId;
+            renamingScreenId = activeScreen!.ScreenId;
             renameDraft = activeScreen.Name;
         }
+        if (activeScreen == null)
+            ImGui.EndDisabled();
 
         ImGui.SameLine();
-        var canDelete = config.BrowserScreens.Count > 1;
+        var canDelete = activeScreen != null;
         if (!canDelete)
             ImGui.BeginDisabled();
         if (ImGui.Button("Delete", new Vector2(actionWidth, 0.0f)) && canDelete)
         {
-            var removedId = activeScreen.ScreenId;
+            var removedId = activeScreen!.ScreenId;
             config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
             onScreenDeleted(removedId);
             if (renamingScreenId == removedId)
                 renamingScreenId = string.Empty;
-            config.ActiveBrowserScreenId = config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
+            config.ActiveBrowserScreenId = config.BrowserScreens.Count == 0
+                ? string.Empty
+                : config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
             changed = true;
         }
         if (!canDelete)
             ImGui.EndDisabled();
 
-        if (renamingScreenId == activeScreen.ScreenId)
+        if (activeScreen != null && renamingScreenId == activeScreen.ScreenId)
             changed |= DrawRenameControls(activeScreen);
 
-        var enabled = activeScreen.Enabled;
-        if (ImGui.Checkbox("Screen enabled", ref enabled))
+        if (activeScreen != null)
         {
-            activeScreen.Enabled = enabled;
-            changed = true;
-        }
+            var enabled = activeScreen.Enabled;
+            if (ImGui.Checkbox("Screen enabled", ref enabled))
+            {
+                activeScreen.Enabled = enabled;
+                changed = true;
+            }
 
-        ImGui.SameLine();
-        ImGui.TextDisabled($"{userScreenCount}/{Configuration.MaxBrowserScreens} local screens");
+            ImGui.SameLine();
+            ImGui.TextDisabled($"{userScreenCount}/{Configuration.MaxBrowserScreens} local screens");
+        }
 
         return changed;
     }

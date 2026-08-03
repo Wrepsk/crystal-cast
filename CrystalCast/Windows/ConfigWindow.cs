@@ -110,12 +110,6 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         var changed = false;
         var activeBrowserScreen = config.GetActiveBrowserScreen();
-        var placement = activeBrowserScreen.Placement;
-        var occludedAlpha = placement.OccludedAlpha;
-        var tolerance = placement.OcclusionTolerance;
-        var distanceFade = placement.EnableDistanceFade;
-        var fadeStart = placement.FadeStartMeters;
-        var fadeStop = placement.FadeStopMeters;
         var outputMode = FindOutputModeIndex(config.OutputMode);
 
         CrystalCastUiTheme.DrawSectionHeader("Output layer", "Controls how CrystalCast is composited with the game.");
@@ -154,6 +148,19 @@ public sealed class ConfigWindow : Window, IDisposable
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
+        if (activeBrowserScreen == null)
+        {
+            CrystalCastUiTheme.DrawSectionHeader("Screen visibility", "Create a screen from the main CrystalCast window to configure per-screen rendering.");
+            ImGui.TextDisabled("No screen selected.");
+            return changed;
+        }
+
+        var placement = activeBrowserScreen.Placement;
+        var occludedAlpha = placement.OccludedAlpha;
+        var tolerance = placement.OcclusionTolerance;
+        var distanceFade = placement.EnableDistanceFade;
+        var fadeStart = placement.FadeStartMeters;
+        var fadeStop = placement.FadeStopMeters;
         CrystalCastUiTheme.DrawSectionHeader("Visibility and occlusion", $"Applies to the selected screen: {activeBrowserScreen.Name}");
 
         if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))

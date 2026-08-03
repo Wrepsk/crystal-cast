@@ -67,6 +67,7 @@ public class Configuration : IPluginConfiguration
     public bool PlaybackPaused { get; set; }
 
     public List<BrowserScreenProfile> BrowserScreens { get; set; } = [];
+    public bool BrowserScreensInitialized { get; set; }
     public string ActiveBrowserScreenId { get; set; } = string.Empty;
     public List<ScreenPlacementPreset> PlacementPresets { get; set; } = [];
     public string ActivePlacementPresetId { get; set; } = string.Empty;
@@ -80,10 +81,11 @@ public class Configuration : IPluginConfiguration
         return ConfigurationMigration.Normalize(this);
     }
 
-    public BrowserScreenProfile GetActiveBrowserScreen()
+    public BrowserScreenProfile? GetActiveBrowserScreen()
     {
         Normalize();
-        return BrowserScreens.FirstOrDefault(screen => screen.ScreenId == ActiveBrowserScreenId) ?? BrowserScreens[0];
+        return BrowserScreens.FirstOrDefault(screen => screen.ScreenId == ActiveBrowserScreenId)
+            ?? BrowserScreens.FirstOrDefault();
     }
 
     public BrowserScreenProfile CreateDefaultBrowserScreen(string name, bool createdByIpc = false)

@@ -36,9 +36,12 @@ internal static class ConfigurationMigration
             configuration.BrowserScreens = [];
             changed = true;
         }
-        if (configuration.BrowserScreens.Count == 0)
+        if (!configuration.BrowserScreensInitialized)
         {
-            configuration.BrowserScreens.Add(configuration.CreateBrowserScreenFromLegacySettings("Browser screen 1"));
+            if (configuration.BrowserScreens.Count == 0)
+                configuration.BrowserScreens.Add(configuration.CreateBrowserScreenFromLegacySettings("Browser screen 1"));
+
+            configuration.BrowserScreensInitialized = true;
             changed = true;
         }
 
@@ -71,7 +74,15 @@ internal static class ConfigurationMigration
             }
         }
 
-        if (string.IsNullOrWhiteSpace(configuration.ActiveBrowserScreenId)
+        if (configuration.BrowserScreens.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(configuration.ActiveBrowserScreenId))
+            {
+                configuration.ActiveBrowserScreenId = string.Empty;
+                changed = true;
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(configuration.ActiveBrowserScreenId)
             || configuration.BrowserScreens.All(screen => screen.ScreenId != configuration.ActiveBrowserScreenId))
         {
             configuration.ActiveBrowserScreenId = configuration.BrowserScreens[0].ScreenId;

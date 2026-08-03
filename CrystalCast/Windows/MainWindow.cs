@@ -68,9 +68,12 @@ public sealed class MainWindow : Window, IDisposable
         DrawHeader(config);
         changed |= DrawTopControls(config, activeBrowserScreen);
         activeBrowserScreen = config.GetActiveBrowserScreen();
-        changed |= DrawPlaybackShell(config, activeBrowserScreen);
-        changed |= DrawMainTabs(config, activeBrowserScreen);
-        changed |= placementPanel.DrawGizmo(config, activeBrowserScreen);
+        if (activeBrowserScreen != null)
+        {
+            changed |= DrawPlaybackShell(config, activeBrowserScreen);
+            changed |= DrawMainTabs(config, activeBrowserScreen);
+            changed |= placementPanel.DrawGizmo(config, activeBrowserScreen);
+        }
 
         if (changed)
             SaveAndPublish();
@@ -91,7 +94,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Separator();
     }
 
-    private bool DrawTopControls(Configuration config, BrowserScreenProfile activeScreen)
+    private bool DrawTopControls(Configuration config, BrowserScreenProfile? activeScreen)
     {
         ImGui.Spacing();
         return screenListPanel.Draw(config, activeScreen, ClearDeletedScreenUiState);

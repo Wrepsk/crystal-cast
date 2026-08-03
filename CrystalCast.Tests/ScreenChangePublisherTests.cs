@@ -8,7 +8,7 @@ public sealed class ScreenChangePublisherTests
     public void UnchangedScreenIsNotPublishedTwice()
     {
         var configuration = new Configuration();
-        var screen = configuration.GetActiveBrowserScreen();
+        var screen = Assert.IsType<BrowserScreenProfile>(configuration.GetActiveBrowserScreen());
         var messages = new List<string>();
         var publisher = new ScreenChangePublisher(configuration, "runtime-session", messages.Add);
         var state = new ScreenStateEnvelope
@@ -26,7 +26,7 @@ public sealed class ScreenChangePublisherTests
     public void ForcedChangePublishesAnUnchangedScreen()
     {
         var configuration = new Configuration();
-        var screen = configuration.GetActiveBrowserScreen();
+        var screen = Assert.IsType<BrowserScreenProfile>(configuration.GetActiveBrowserScreen());
         var messages = new List<string>();
         var publisher = new ScreenChangePublisher(configuration, "runtime-session", messages.Add);
         var state = new ScreenStateEnvelope

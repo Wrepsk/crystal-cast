@@ -480,7 +480,9 @@ public sealed class WorldScreenManager : IDisposable
 
         foreach (var screen in allowedScreens)
         {
-            if (!browserScreens.ContainsKey(screen.ScreenId))
+            if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
+                instance.UpdateProfile(screen);
+            else
                 browserScreens[screen.ScreenId] = new WorldScreenInstance(configuration, screen, services);
         }
 
@@ -552,7 +554,7 @@ public sealed class WorldScreenManager : IDisposable
         private const float ScreenCurveEpsilonMeters = 0.001f;
 
         private readonly Configuration configuration;
-        private readonly BrowserScreenProfile browserScreen;
+        private BrowserScreenProfile browserScreen;
         private readonly CrystalCastServices services;
         private readonly DynamicVideoTexture dynamicTexture;
         private readonly SharedVideoTexture sharedTexture;
@@ -580,6 +582,14 @@ public sealed class WorldScreenManager : IDisposable
             this.services = services;
             dynamicTexture = new DynamicVideoTexture(services.TextureProvider);
             sharedTexture = new SharedVideoTexture();
+        }
+
+        public void UpdateProfile(BrowserScreenProfile profile)
+        {
+            if (!string.Equals(browserScreen.ScreenId, profile.ScreenId, StringComparison.Ordinal))
+                throw new ArgumentException("Cannot bind a renderer instance to a different screen ID.", nameof(profile));
+
+            browserScreen = profile;
         }
 
         public string SourceStatus => frameSource?.Status ?? "no dynamic source";

@@ -2,7 +2,7 @@
     "Author": "Wrepsk",
     "Name": "Crystal Cast",
     "InternalName": "CrystalCast",
-    "AssemblyVersion": "0.5.1.0",
+    "AssemblyVersion": "0.6.1.0",
     "Description": "Renders browser media on configurable world-space screens through Pictomancy. Use /crystalcast to manage screens, sources, playback, and state-only sync IPC.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Wrepsk/crystal-cast",

@@ -10,6 +10,10 @@ namespace CrystalCast.Windows;
 
 public sealed class MainWindow : Window, IDisposable
 {
+#if DEBUG
+    private const string DebugIpcOwnerId = "CrystalCast.Debug";
+#endif
+
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
@@ -141,11 +145,97 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.EndTabItem();
             }
 
+#if DEBUG
+            if (ImGui.BeginTabItem("IPC testing"))
+            {
+                ImGui.Spacing();
+                changed |= DrawIpcTesting(config, activeScreen);
+                ImGui.EndTabItem();
+            }
+#endif
+
             ImGui.EndTabBar();
         }
 
         return changed;
     }
+
+#if DEBUG
+    private bool DrawIpcTesting(Configuration config, BrowserScreenProfile activeScreen)
+    {
+        var changed = false;
+        ImGui.TextWrapped("Debug-only tools for creating screens that use the same CreatedByIpc metadata and resource limits as external integrations.");
+        ImGui.Spacing();
+
+        var ipcScreenCount = ScreenLimitPolicy.CountIpcScreens(config.BrowserScreens);
+        ImGui.TextUnformatted($"IPC screens: {ipcScreenCount}/{Configuration.MaxIpcBrowserScreens}");
+        ImGui.TextDisabled("New test screens copy the selected screen's provider and source settings.");
+
+        var canCreate = ScreenLimitPolicy.CanCreateIpcScreen(config.BrowserScreens);
+        if (!canCreate)
+            ImGui.BeginDisabled();
+        if (ImGui.Button("Create and place IPC test screen"))
+        {
+            var screen = CreateDebugIpcScreen(config, activeScreen);
+            config.BrowserScreens.Add(screen);
+            config.ActiveBrowserScreenId = screen.ScreenId;
+            renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
+            changed = true;
+        }
+        if (!canCreate)
+            ImGui.EndDisabled();
+
+        if (!canCreate)
+            ImGui.TextDisabled("The IPC or total screen limit has been reached.");
+
+        ImGui.Separator();
+        if (!activeScreen.CreatedByIpc)
+        {
+            ImGui.TextDisabled("Select an IPC-created screen to use the controls below.");
+            return changed;
+        }
+
+        ImGui.TextUnformatted("Selected screen is IPC-created");
+        ImGui.TextDisabled($"Owner: {(string.IsNullOrWhiteSpace(activeScreen.IpcOwnerId) ? "(none)" : activeScreen.IpcOwnerId)}");
+
+        if (ImGui.Button("Place selected IPC screen in front"))
+            changed |= renderer.PlaceBrowserScreenInFrontOfPlayer(activeScreen);
+
+        var sourceLocked = activeScreen.SourceControlsLocked;
+        if (ImGui.Checkbox("Simulate IPC source and placement lock", ref sourceLocked))
+        {
+            activeScreen.SourceControlsLocked = sourceLocked;
+            activeScreen.SourceControlsOwnerId = sourceLocked ? DebugIpcOwnerId : string.Empty;
+            changed = true;
+        }
+        ImGui.TextDisabled("The lock reproduces an integration-owned screen while this tab remains able to reposition it.");
+        return changed;
+    }
+
+    private static BrowserScreenProfile CreateDebugIpcScreen(Configuration config, BrowserScreenProfile source)
+    {
+        var screen = source.CloneAsNew(GetNextDebugIpcScreenName(config));
+        screen.CreatedByIpc = true;
+        screen.IpcOwnerId = DebugIpcOwnerId;
+        screen.SourceControlsLocked = false;
+        screen.SourceControlsOwnerId = string.Empty;
+        screen.Enabled = true;
+        screen.SpatialAudioEnabled = true;
+        return screen;
+    }
+
+    private static string GetNextDebugIpcScreenName(Configuration config)
+    {
+        for (var i = 1; i <= Configuration.MaxIpcBrowserScreens; i++)
+        {
+            var name = $"IPC test screen {i}";
+            if (config.BrowserScreens.All(screen => !string.Equals(screen.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return name;
+        }
+
+        return $"IPC test screen {config.BrowserScreens.Count + 1}";
+    }
+#endif
 
     private static ScreenPlaybackState GetBrowserPlaybackState(BrowserScreenProfile screen, MediaPlaybackTelemetry? telemetry)
     {

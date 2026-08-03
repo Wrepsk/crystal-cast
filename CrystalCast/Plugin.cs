@@ -76,6 +76,8 @@ public sealed class Plugin : IDalamudPlugin
 #endif
         firstRunGuideWindow = new FirstRunGuideWindow(this);
         genericWebIpcApprovalWindow = new GenericWebIpcApprovalWindow(genericWebIpcApprovals);
+        if (!ClientRuntimePolicy.CanStart(ClientState.IsLoggedIn) && wineWebView2SetupWindow != null)
+            wineWebView2SetupWindow.IsOpen = false;
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
         if (wineWebView2SetupWindow != null)
@@ -96,6 +98,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
         ClientState.TerritoryChanged += OnTerritoryChanged;
+        ClientState.Login += OnLogin;
+        ClientState.Logout += OnLogout;
 
         Log.Information("CrystalCast loaded.");
     }
@@ -108,6 +112,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         ClientState.TerritoryChanged -= OnTerritoryChanged;
+        ClientState.Login -= OnLogin;
+        ClientState.Logout -= OnLogout;
 
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(SettingsCommandName);
@@ -151,8 +157,11 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnDraw()
     {
-        UpdateFirstRunGuide();
-        genericWebIpcApprovalWindow.RefreshState();
+        if (ClientRuntimePolicy.CanStart(ClientState.IsLoggedIn))
+        {
+            UpdateFirstRunGuide();
+            genericWebIpcApprovalWindow.RefreshState();
+        }
         windowSystem.Draw();
         renderer.DrawWorld();
         Configuration.ProcessPendingSave();
@@ -187,6 +196,23 @@ public sealed class Plugin : IDalamudPlugin
 
         Configuration.Save();
         ipc.PublishLocalState();
+    }
+
+    private void OnLogin()
+    {
+        if (wineWebView2SetupWindow != null
+            && WineWebView2SetupWindow.ShouldOpenAutomatically(Configuration))
+        {
+            wineWebView2SetupWindow.IsOpen = true;
+        }
+    }
+
+    private void OnLogout(int type, int code)
+    {
+        renderer.SuspendForLogout();
+        wineWebView2SetupWindow?.IsOpen = false;
+        firstRunGuideWindow.Suspend();
+        genericWebIpcApprovalWindow.Suspend();
     }
 
     private bool PauseOwnedWorldScreensOnZoneChange()

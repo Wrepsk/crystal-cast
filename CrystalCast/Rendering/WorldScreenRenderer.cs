@@ -24,7 +24,10 @@ public sealed class WorldScreenManager : IDisposable
         this.configuration = configuration;
         this.services = services;
 
-        TryInitializePictomancy(force: true);
+        if (ClientRuntimePolicy.CanStart(services.ClientState.IsLoggedIn))
+            TryInitializePictomancy(force: true);
+        else
+            Status = "waiting for character login";
     }
 
     public string Status { get; private set; } = "not initialized";
@@ -72,6 +75,13 @@ public sealed class WorldScreenManager : IDisposable
     {
         configuration.Normalize();
         GraphicsDiagnostics.Enabled = configuration.EnableGpuDiagnostics;
+
+        if (!ClientRuntimePolicy.CanStart(services.ClientState.IsLoggedIn))
+        {
+            SuspendForLogout();
+            return;
+        }
+
         SyncBrowserScreens();
 
         if (pictomancyContext == null)
@@ -356,6 +366,15 @@ public sealed class WorldScreenManager : IDisposable
             LastGraphicsError = DescribeDiagnosticException(ex);
             services.Log.Error(ex, "Failed to initialize Pictomancy.");
         }
+    }
+
+    internal void SuspendForLogout()
+    {
+        LastDrawStatus = "waiting for character login";
+        if (pictomancyContext != null)
+            PctService.HideNativeOverlay();
+
+        ReleaseAllBrowserRuntimes();
     }
 
     private void HandleGraphicsDeviceLoss(Exception exception)
@@ -1000,6 +1019,13 @@ public sealed class WorldScreenManager : IDisposable
 
         private void EnsureFrameSource()
         {
+            if (!ClientRuntimePolicy.CanStart(services.ClientState.IsLoggedIn))
+            {
+                ReleaseBrowserRuntime();
+                sourceAuthorizationStatus = "waiting for character login";
+                return;
+            }
+
             var approvalRequired = browserScreen.CreatedByIpc
                 && browserScreen.ProviderKind == BrowserSourceProviderKind.GenericWeb;
             var access = approvalRequired

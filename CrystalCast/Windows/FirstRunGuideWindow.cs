@@ -29,6 +29,12 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
         IsOpen = true;
     }
 
+    public void Suspend()
+    {
+        IsOpen = false;
+        WasShown = false;
+    }
+
     public void Complete()
     {
         if (!plugin.Configuration.FirstRunGuideCompleted)

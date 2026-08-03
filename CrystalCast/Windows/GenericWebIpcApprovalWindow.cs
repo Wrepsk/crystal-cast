@@ -43,6 +43,11 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
         IsOpen = true;
     }
 
+    public void Suspend()
+    {
+        IsOpen = false;
+    }
+
     public override void Draw()
     {
         if (!approvals.TryGetCurrent(out var request))

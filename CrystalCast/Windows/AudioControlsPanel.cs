@@ -26,7 +26,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         var audioEnabled = screen.YouTubeAudioEnabled;
         var volume = screen.YouTubeVolume;
 
-        ImGui.TextUnformatted("Playback audio");
+        ImGui.TextUnformatted("Playback volume");
         if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
         {
             screen.YouTubeAudioEnabled = audioEnabled;
@@ -48,7 +48,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         var audioEnabled = screen.TwitchAudioEnabled;
         var volume = screen.TwitchVolume;
 
-        ImGui.TextUnformatted("Playback audio");
+        ImGui.TextUnformatted("Playback volume");
         if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
         {
             screen.TwitchAudioEnabled = audioEnabled;
@@ -70,7 +70,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         var audioEnabled = screen.DailymotionAudioEnabled;
         var volume = screen.DailymotionVolume;
 
-        ImGui.TextUnformatted("Playback audio");
+        ImGui.TextUnformatted("Playback volume");
         if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
         {
             screen.DailymotionAudioEnabled = audioEnabled;
@@ -92,7 +92,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         var audioEnabled = screen.VimeoAudioEnabled;
         var volume = screen.VimeoVolume;
 
-        ImGui.TextUnformatted("Playback audio");
+        ImGui.TextUnformatted("Playback volume");
         if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
         {
             screen.VimeoAudioEnabled = audioEnabled;
@@ -114,7 +114,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         var audioEnabled = screen.GenericWebAudioEnabled;
         var volume = screen.GenericWebVolume;
 
-        ImGui.TextUnformatted("Playback audio");
+        ImGui.TextUnformatted("Playback volume");
         if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
         {
             screen.GenericWebAudioEnabled = audioEnabled;
@@ -139,7 +139,8 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
 
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.TextUnformatted("Distance falloff");
+        ImGui.TextUnformatted("Spatial audio");
+        ImGui.TextDisabled("Fade browser volume as you move away from the selected screen.");
         if (ImGui.Checkbox("Spatial audio", ref enabled))
         {
             screen.SpatialAudioEnabled = enabled;

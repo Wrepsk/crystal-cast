@@ -37,10 +37,19 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
 
         changed |= DrawUrlControls(screen, descriptor, uiState);
+        ImGui.Spacing();
         changed |= DrawPlaybackControls(screen, descriptor, uiState);
         DrawBrowserControlWindow(screen, descriptor, capabilities);
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextUnformatted("Capture");
         changed |= DrawResolutionPreset(screen, descriptor);
         changed |= DrawCaptureFps(screen, descriptor);
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.TextUnformatted("Options");
         changed |= DrawSourceOptions(screen, descriptor, capabilities);
         return changed;
     }

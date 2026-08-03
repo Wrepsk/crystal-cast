@@ -17,7 +17,9 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         var userScreenCount = ScreenLimitPolicy.CountUserScreens(config.BrowserScreens);
         var canAddUserScreen = ScreenLimitPolicy.CanCreateUserScreen(config.BrowserScreens);
 
-        if (ImGui.BeginCombo("Screen", activeScreen.Name))
+        ImGui.TextDisabled("Screen");
+        ImGui.SetNextItemWidth(-1.0f);
+        if (ImGui.BeginCombo("##CrystalCastScreen", activeScreen.Name))
         {
             for (var i = 0; i < config.BrowserScreens.Count; i++)
             {
@@ -38,9 +40,13 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
 
         changed |= DrawScreenSourceCombo(activeScreen);
 
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var actionWidth = Math.Max(54.0f, (ImGui.GetContentRegionAvail().X - (spacing * 3.0f)) / 4.0f);
+
         if (!canAddUserScreen)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Add screen"))
+        CrystalCastUiTheme.PushPrimaryButtonStyle();
+        if (ImGui.Button("Add screen", new Vector2(actionWidth, 0.0f)))
         {
             var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
             screen.ProviderKind = activeScreen.ProviderKind;
@@ -49,13 +55,14 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
             changed = true;
         }
+        CrystalCastUiTheme.PopPrimaryButtonStyle();
         if (!canAddUserScreen)
             ImGui.EndDisabled();
 
         ImGui.SameLine();
         if (!canAddUserScreen)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Duplicate"))
+        if (ImGui.Button("Duplicate", new Vector2(actionWidth, 0.0f)))
         {
             var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
             OffsetDuplicatePlacement(copy.Placement);
@@ -67,7 +74,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             ImGui.EndDisabled();
 
         ImGui.SameLine();
-        if (ImGui.Button("Rename"))
+        if (ImGui.Button("Rename", new Vector2(actionWidth, 0.0f)))
         {
             renamingScreenId = activeScreen.ScreenId;
             renameDraft = activeScreen.Name;
@@ -77,7 +84,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         var canDelete = config.BrowserScreens.Count > 1;
         if (!canDelete)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Delete") && canDelete)
+        if (ImGui.Button("Delete", new Vector2(actionWidth, 0.0f)) && canDelete)
         {
             var removedId = activeScreen.ScreenId;
             config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
@@ -90,9 +97,6 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         if (!canDelete)
             ImGui.EndDisabled();
 
-        if (userScreenCount >= Configuration.MaxBrowserScreens)
-            ImGui.TextDisabled($"Screen limit: {Configuration.MaxBrowserScreens}");
-
         if (renamingScreenId == activeScreen.ScreenId)
             changed |= DrawRenameControls(activeScreen);
 
@@ -102,6 +106,9 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             activeScreen.Enabled = enabled;
             changed = true;
         }
+
+        ImGui.SameLine();
+        ImGui.TextDisabled($"{userScreenCount}/{Configuration.MaxBrowserScreens} local screens");
 
         return changed;
     }
@@ -115,7 +122,9 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         if (sourceLocked)
             ImGui.BeginDisabled();
         var providers = BrowserSourceProviderRegistry.Options;
-        if (ImGui.BeginCombo("Screen source", providers[current].DisplayName))
+        ImGui.TextDisabled("Screen source");
+        ImGui.SetNextItemWidth(-1.0f);
+        if (ImGui.BeginCombo("##CrystalCastScreenSource", providers[current].DisplayName))
         {
             for (var i = 0; i < providers.Count; i++)
             {
@@ -144,9 +153,10 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
     {
         var changed = false;
         var draft = renameDraft;
-        var pressedEnter = ImGui.InputText("Screen name", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.TextDisabled("Screen name");
+        ImGui.SetNextItemWidth(-1.0f);
+        var pressedEnter = ImGui.InputText("##CrystalCastScreenName", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
         renameDraft = draft;
-        ImGui.SameLine();
         if (ImGui.Button("Save name") || pressedEnter)
         {
             var trimmed = renameDraft.Trim();

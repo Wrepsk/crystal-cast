@@ -37,7 +37,7 @@ public sealed class ConfigWindow : Window, IDisposable
         this.renderer = renderer;
         this.ipc = ipc;
 
-        Size = new Vector2(520, 520);
+        Size = new Vector2(600, 620);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -51,6 +51,14 @@ public sealed class ConfigWindow : Window, IDisposable
         var config = plugin.Configuration;
         changed |= config.Normalize();
 
+        CrystalCastUiTheme.DrawWindowHeader(
+            "Settings",
+            "CONFIGURATION",
+            "CrystalCast settings",
+            "Rendering, browser capture, diagnostics, and integrations.");
+        ImGui.Spacing();
+
+        CrystalCastUiTheme.PushTabStyle();
         if (ImGui.BeginTabBar("CrystalCastSettingsTabs"))
         {
             if (ImGui.BeginTabItem("Rendering"))
@@ -92,6 +100,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
             ImGui.EndTabBar();
         }
+        CrystalCastUiTheme.PopTabStyle();
 
         if (changed)
             config.Save();
@@ -109,7 +118,10 @@ public sealed class ConfigWindow : Window, IDisposable
         var fadeStop = placement.FadeStopMeters;
         var outputMode = FindOutputModeIndex(config.OutputMode);
 
-        if (ImGui.BeginCombo("Output layer", OutputModes[outputMode].Name))
+        CrystalCastUiTheme.DrawSectionHeader("Output layer", "Controls how CrystalCast is composited with the game.");
+        ImGui.TextDisabled("Output layer");
+        ImGui.SetNextItemWidth(-1.0f);
+        if (ImGui.BeginCombo("##CrystalCastOutputLayer", OutputModes[outputMode].Name))
         {
             for (var i = 0; i < OutputModes.Length; i++)
             {
@@ -127,6 +139,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
+        ImGui.TextDisabled(GetOutputModeDescription(config.OutputMode));
         ImGui.TextDisabled("UI mask: disabled");
 
 #if DEBUG
@@ -138,7 +151,10 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 #endif
 
-        ImGui.TextDisabled($"Visual settings: {activeBrowserScreen.Name}");
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader("Visibility and occlusion", $"Applies to the selected screen: {activeBrowserScreen.Name}");
 
         if (ImGui.SliderFloat("Occluded alpha", ref occludedAlpha, 0.0f, 1.0f))
         {
@@ -152,19 +168,24 @@ public sealed class ConfigWindow : Window, IDisposable
             changed = true;
         }
 
-        if (ImGui.Button("Make fully visible"))
+        var visibilityButtonWidth = Math.Max(80.0f, (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) * 0.5f);
+        if (ImGui.Button("Make fully visible", new Vector2(visibilityButtonWidth, 0.0f)))
         {
             placement.OccludedAlpha = 1.0f;
             changed = true;
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Depth occlusion"))
+        if (ImGui.Button("Depth occlusion", new Vector2(visibilityButtonWidth, 0.0f)))
         {
             placement.OccludedAlpha = 0.0f;
             changed = true;
         }
 
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader("Distance fade", "Optionally fade the selected screen out over long distances.");
         if (ImGui.Checkbox("Distance fade", ref distanceFade))
         {
             placement.EnableDistanceFade = distanceFade;
@@ -205,7 +226,10 @@ public sealed class ConfigWindow : Window, IDisposable
         var changed = false;
         var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
 
-        if (ImGui.BeginCombo("Browser backend", BrowserEngineNames[current]))
+        CrystalCastUiTheme.DrawSectionHeader("Browser backend", "Choose how WebView2 pages are captured into screen textures.");
+        ImGui.TextDisabled("Browser backend");
+        ImGui.SetNextItemWidth(-1.0f);
+        if (ImGui.BeginCombo("##CrystalCastBrowserBackend", BrowserEngineNames[current]))
         {
             for (var i = 0; i < BrowserEngineNames.Length; i++)
             {
@@ -229,6 +253,7 @@ public sealed class ConfigWindow : Window, IDisposable
 
         if (WineEnvironment.IsWine)
         {
+            ImGui.Spacing();
             var runtimeAvailable = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError);
             ImGui.TextWrapped(runtimeAvailable
                 ? $"Experimental Wine support; WebView2 detected: {runtimeVersion}"
@@ -238,6 +263,9 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader("Browser data", "Reset browser profiles when cookies, sign-in, or cached state cause problems.");
         if (ImGui.Button("Clear browser data on restart"))
         {
             try
@@ -271,6 +299,7 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         var changed = false;
         var gpuDiagnostics = config.EnableGpuDiagnostics;
+        CrystalCastUiTheme.DrawSectionHeader("Diagnostic options", "Optional checks used when investigating rendering problems.");
         if (ImGui.Checkbox("Enable GPU texture sampling", ref gpuDiagnostics))
         {
             config.EnableGpuDiagnostics = gpuDiagnostics;
@@ -279,12 +308,17 @@ public sealed class ConfigWindow : Window, IDisposable
         }
         ImGui.TextDisabled("Off by default; sampling performs a GPU readback once per second per active WGC screen.");
         ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader("Diagnostic report", "Copy the full report when asking for support.");
 
+        CrystalCastUiTheme.PushPrimaryButtonStyle();
         if (ImGui.Button("Copy full diagnostics"))
         {
             ImGui.SetClipboardText(GetDiagnosticsReport(config, forceRefresh: true));
             diagnosticsCopiedAtTick = Environment.TickCount64;
         }
+        CrystalCastUiTheme.PopPrimaryButtonStyle();
 
         if (diagnosticsCopiedAtTick > 0 && Environment.TickCount64 - diagnosticsCopiedAtTick < 2000)
         {
@@ -292,7 +326,7 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.TextDisabled("Copied!");
         }
 
-        ImGui.Separator();
+        ImGui.Spacing();
         if (ImGui.BeginChild("CrystalCastDiagnosticsReport", Vector2.Zero, true, ImGuiWindowFlags.None))
         {
             ImGui.PushTextWrapPos();
@@ -301,6 +335,16 @@ public sealed class ConfigWindow : Window, IDisposable
         }
         ImGui.EndChild();
         return changed;
+    }
+
+    private static string GetOutputModeDescription(ScreenOutputMode outputMode)
+    {
+        return outputMode switch
+        {
+            ScreenOutputMode.SceneComposite => "Windows scene integration. Try another layer if output is invisible on this PC.",
+            ScreenOutputMode.NativeOverlay => "Uses Dalamud's native overlay rendering path.",
+            _ => "Compatibility path drawn through the plugin UI layer.",
+        };
     }
 
     private string GetDiagnosticsReport(Configuration config, bool forceRefresh)
@@ -320,20 +364,23 @@ public sealed class ConfigWindow : Window, IDisposable
 
     private void DrawIpc(Configuration config)
     {
+        CrystalCastUiTheme.DrawSectionHeader("Plugin integrations", "Allow other Dalamud plugins to create and control CrystalCast screens.");
         var enabled = config.IpcEnabled;
         if (ImGui.Checkbox("IPC enabled", ref enabled))
         {
             ipc.SetEnabled(enabled);
             config.IpcEnabled = enabled;
         }
+
+        ImGui.TextDisabled(enabled
+            ? "IPC endpoints are registered and available to integrations."
+            : "IPC-created screens are removed while integration support is disabled.");
     }
 
 #if DEBUG
     private void DrawDebugWindows()
     {
-        ImGui.TextUnformatted("First-run windows");
-        ImGui.TextDisabled("Preview these windows without editing the saved configuration manually.");
-        ImGui.Spacing();
+        CrystalCastUiTheme.DrawSectionHeader("First-run windows", "Preview setup windows without editing the saved configuration manually.");
 
         if (ImGui.Button("Open Wine WebView2 setup"))
             plugin.ShowWineWebView2Setup();

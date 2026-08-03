@@ -34,7 +34,7 @@ public sealed class MainWindow : Window, IDisposable
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         sourceControlsPanel = new SourceControlsPanel(renderer);
 
-        Size = new Vector2(520, 560);
+        Size = new Vector2(540, 590);
         SizeCondition = ImGuiCond.FirstUseEver;
         TitleBarButtons =
         [
@@ -65,7 +65,7 @@ public sealed class MainWindow : Window, IDisposable
         config.Normalize();
         var activeBrowserScreen = config.GetActiveBrowserScreen();
 
-        DrawHeader();
+        DrawHeader(config);
         changed |= DrawTopControls(config, activeBrowserScreen);
         activeBrowserScreen = config.GetActiveBrowserScreen();
         changed |= DrawPlaybackShell(config, activeBrowserScreen);
@@ -76,11 +76,18 @@ public sealed class MainWindow : Window, IDisposable
             SaveAndPublish();
     }
 
-    private static void DrawHeader()
+    private static void DrawHeader(Configuration config)
     {
+        var enabledCount = config.BrowserScreens.Count(screen => screen.Enabled);
         ImGui.TextUnformatted("CrystalCast");
         ImGui.SameLine();
-        ImGui.TextDisabled("World screen controls");
+        ImGui.TextDisabled("World screens");
+
+        var countLabel = $"{enabledCount}/{config.BrowserScreens.Count} enabled";
+        var countWidth = ImGui.CalcTextSize(countLabel).X;
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - countWidth));
+        ImGui.TextColored(CrystalCastUiTheme.AccentText, countLabel);
         ImGui.Separator();
     }
 
@@ -93,6 +100,10 @@ public sealed class MainWindow : Window, IDisposable
     private bool DrawPlaybackShell(Configuration config, BrowserScreenProfile activeScreen)
     {
         var changed = false;
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
         var enabled = config.Enabled;
         if (ImGui.Checkbox("Plugin enabled", ref enabled))
         {
@@ -100,18 +111,37 @@ public sealed class MainWindow : Window, IDisposable
             changed = true;
         }
 
-        ImGui.SameLine();
-        ImGui.TextDisabled("Source: Browser");
-
         var telemetry = renderer.PlaybackTelemetry;
         var position = telemetry == null
             ? "0:00"
             : FormatPlaybackPosition(telemetry.PositionMs);
         var state = GetBrowserPlaybackState(activeScreen, telemetry);
         var duration = telemetry is { DurationMs: > 0 }
-            ? $" / {FormatPlaybackPosition(telemetry.DurationMs)}"
+            ? FormatPlaybackPosition(telemetry.DurationMs)
             : string.Empty;
-        ImGui.TextUnformatted($"{state} @ {position}{duration}");
+
+        var statusLabel = !config.Enabled
+            ? "PLUGIN DISABLED"
+            : !activeScreen.Enabled
+                ? "SCREEN DISABLED"
+                : state.ToString().ToUpperInvariant();
+        var statusWidth = ImGui.CalcTextSize(statusLabel).X;
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - statusWidth));
+        if (config.Enabled && activeScreen.Enabled)
+            ImGui.TextColored(CrystalCastUiTheme.AccentText, statusLabel);
+        else
+            ImGui.TextDisabled(statusLabel);
+
+        if (telemetry is { DurationMs: > 0 })
+        {
+            var progress = Math.Clamp((float)telemetry.PositionMs / telemetry.DurationMs, 0.0f, 1.0f);
+            ImGui.ProgressBar(progress, new Vector2(-1.0f, 0.0f), $"{state}  {position} / {duration}");
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{state}  •  {position}");
+        }
 
         ImGui.TextDisabled(ShortStatus(renderer.SourceStatus));
         return changed;
@@ -122,6 +152,7 @@ public sealed class MainWindow : Window, IDisposable
         var changed = false;
         ImGui.Spacing();
 
+        CrystalCastUiTheme.PushTabStyle();
         if (ImGui.BeginTabBar("CrystalCastMainTabs"))
         {
             if (ImGui.BeginTabItem("Source settings"))
@@ -156,6 +187,7 @@ public sealed class MainWindow : Window, IDisposable
 
             ImGui.EndTabBar();
         }
+        CrystalCastUiTheme.PopTabStyle();
 
         return changed;
     }

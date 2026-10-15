@@ -18,8 +18,11 @@ internal class ScreenImage : IDisposable
     {
         public Matrix ViewProj;
         public Matrix InvViewProj;
+        public Matrix DepthViewProj;
         public Vector2 RenderTargetSize;
         public Vector2 PixelToUv;
+        public Vector2 DepthCoefficients;
+        public Vector2 Padding;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -88,8 +91,11 @@ internal class ScreenImage : IDisposable
             {
                 float4x4 viewProj;
                 float4x4 invViewProj;
+                float4x4 depthViewProj;
                 float2 renderTargetSize;
                 float2 pixelToUv;
+                float2 depthCoefficients;
+                float2 padding;
             };
 
             Texture2D<float4> _userTex : register(t3);
@@ -118,6 +124,7 @@ internal class ScreenImage : IDisposable
             {
                 float4 projPos : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float4 depthPos : TEXCOORD1;
                 nointerpolation float2 occlusionParams : OCCLUSIONPARAMS;
                 nointerpolation float2 fadeParams : FADEPARAMS;
             };
@@ -130,6 +137,7 @@ internal class ScreenImage : IDisposable
 
                 VSOutput o;
                 o.projPos = mul(float4(worldPos, 1.0), viewProj);
+                o.depthPos = mul(float4(worldPos, 1.0), depthViewProj);
                 o.uv = lerp(inst.uvMin, inst.uvMax, corner);
                 o.occlusionParams = inst.occlusionParams;
                 o.fadeParams = inst.fadeParams;
@@ -139,7 +147,7 @@ internal class ScreenImage : IDisposable
             float4 samplePixel(VSOutput input)
             {
                 float4 color = _userTex.Sample(_userSampler, input.uv);
-                return applyShared(color, input.projPos.xyz, input.occlusionParams, input.fadeParams);
+                return applyShared(color, input.depthPos, input.occlusionParams, input.fadeParams);
             }
 
             float4 psOpaque(VSOutput input) : SV_TARGET
@@ -229,6 +237,7 @@ internal class ScreenImage : IDisposable
     {
         consts.ViewProj.Transpose();
         consts.InvViewProj.Transpose();
+        consts.DepthViewProj.Transpose();
         _ctx.Context.UpdateSubresource(ref consts, _constantBuffer);
     }
 

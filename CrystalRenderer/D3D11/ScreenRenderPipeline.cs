@@ -142,6 +142,8 @@ internal sealed class ScreenRenderPipeline : IDisposable
                 {
                     ViewProj = scene.ViewProjection,
                     InvViewProj = inverse,
+                    DepthViewProj = scene.DepthViewProjection,
+                    DepthCoefficients = scene.DepthCoefficients,
                     RenderTargetSize = new System.Numerics.Vector2(scene.ViewportSize.X, scene.ViewportSize.Y),
                     PixelToUv = new System.Numerics.Vector2(depth.UvScale.X / scene.ViewportSize.X, depth.UvScale.Y / scene.ViewportSize.Y),
                 });

@@ -99,6 +99,7 @@ public sealed class ScreenImageRenderingTests
             image.UpdateConstants(new ScreenImage.Constants
             {
                 ViewProj = projection, InvViewProj = Matrix.Invert(projection),
+                DepthViewProj = projection, DepthCoefficients = new Vector2(0, 0.1f),
                 RenderTargetSize = new Vector2(16, 16), PixelToUv = new Vector2(1f / 16),
             });
             foreach (var panel in panels)

@@ -96,6 +96,83 @@ public sealed class ScreenPipelineTests
         pipeline.Failures.ThrowIfFailed();
     }
 
+    [Fact]
+    public void StabilizedScreenStillSamplesDepthAtTheGamesShiftedCoordinates()
+    {
+        using var scene = new SoftwareScene();
+        scene.SetDepth((x, _) => x >= 12 ? 1f : 0f);
+        var frame = scene.Frame;
+        var shiftedDepth = frame.ViewProjection;
+        shiftedDepth.M41 = 0.5f;
+        frame = frame with { DepthViewProjection = shiftedDepth };
+        using var pipeline = scene.CreatePipeline(() => frame);
+        pipeline.Submit(scene.RedScreen);
+        Assert.Equal(0u, scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture));
+
+        shiftedDepth.M41 = -0.5f;
+        frame = frame with { DepthViewProjection = shiftedDepth };
+        pipeline.Submit(scene.RedScreen);
+        Assert.Equal(0xFFFF0000u, scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture));
+    }
+
+    [Fact]
+    public void ChangingDepthJitterDoesNotMoveStationaryScreenPixels()
+    {
+        using var scene = new SoftwareScene();
+        var projection = System.Numerics.Matrix4x4.CreatePerspectiveFieldOfView(1f, 1f, 0.1f, 1000f);
+        projection.M33 = 0f;
+        projection.M43 = 0.1f;
+        var frame = scene.Frame;
+        using var pipeline = scene.CreatePipeline(() => frame);
+        uint[]? previous = null;
+        foreach (var jitter in new[] { -0.45f, 0f, 0.45f })
+        {
+            var depthProjection = projection;
+            depthProjection.M31 = 2f * jitter / 16;
+            Assert.True(CameraProjection.TryCreate(System.Numerics.Matrix4x4.Identity, projection, depthProjection, out var matrices));
+            frame = frame with
+            {
+                ViewProjection = ToSharpDx(matrices.ViewProjection), DepthViewProjection = ToSharpDx(matrices.DepthViewProjection),
+            };
+            pipeline.Submit(scene.RedScreen with { Center = new Vector3(0, 0, -2), Right = Vector3.UnitX, Down = -Vector3.UnitY });
+            var target = pipeline.Render(RenderOutput.NativeOverlay)!;
+            var pixels = scene.ReadPixels(target.ProcessedTexture);
+            Assert.Contains(0xFFFF0000u, pixels);
+            Assert.Contains(0u, pixels);
+            if (previous != null) Assert.Equal(previous, pixels);
+            previous = pixels;
+        }
+    }
+
+    private static Matrix ToSharpDx(System.Numerics.Matrix4x4 matrix)
+        => System.Runtime.CompilerServices.Unsafe.BitCast<System.Numerics.Matrix4x4, Matrix>(matrix);
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(100f)]
+    public void FiniteReverseDepthFadeUsesLensCoefficientsAtAnyCameraPosition(float cameraZ)
+    {
+        using var scene = new SoftwareScene();
+        var projection = System.Numerics.Matrix4x4.CreatePerspectiveFieldOfView(1f, 1f, 0.1f, 100f);
+        projection.M33 = 0.1f / (100f - 0.1f);
+        projection.M43 = 0.1f * 100f / (100f - 0.1f);
+        var viewProjection = ToSharpDx(System.Numerics.Matrix4x4.CreateTranslation(0, 0, -cameraZ) * projection);
+        var frame = scene.Frame with
+        {
+            ViewProjection = viewProjection, DepthViewProjection = viewProjection,
+            DepthCoefficients = new System.Numerics.Vector2(projection.M33, projection.M43),
+            CameraPosition = new Vector3(0, 0, cameraZ),
+        };
+        using var pipeline = scene.CreatePipeline(() => frame);
+        pipeline.Submit(scene.RedScreen with
+        {
+            Center = new Vector3(0, 0, cameraZ - 2f),
+            Appearance = new ScreenAppearance { FadeStart = 1f, FadeStop = 3f },
+        });
+        var pixel = scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture);
+        Assert.InRange(pixel >> 24, 127u, 129u);
+    }
+
     private sealed class SoftwareScene : IDisposable
     {
         internal D3DDevice Device { get; } = new(DriverType.Warp, DeviceCreationFlags.BgraSupport);
@@ -130,7 +207,7 @@ public sealed class ScreenPipelineTests
             {
                 var projection = Matrix.Identity;
                 projection.M43 = 0.1f;
-                return new GameSceneFrame(projection, new SharpDX.Vector2(16, 16), Vector3.Zero,
+                return new GameSceneFrame(projection, projection, new System.Numerics.Vector2(0, 0.1f), new SharpDX.Vector2(16, 16), Vector3.Zero,
                     BackBuffer.NativePointer, depth.NativePointer, new SharpDX.Vector2(1, 1), false);
             }
         }
@@ -141,6 +218,14 @@ public sealed class ScreenPipelineTests
         internal ScreenRenderPipeline CreatePipeline(Func<GameSceneFrame?> capture)
             => new(new RenderContext(Device), 8, capture);
 
+        internal void SetDepth(Func<int, int, float> value)
+        {
+            using var data = new DataStream(16 * 16 * sizeof(float), true, true);
+            for (var y = 0; y < 16; y++)
+                for (var x = 0; x < 16; x++) data.Write(value(x, y));
+            Device.ImmediateContext.UpdateSubresource(new DataBox(data.DataPointer, 16 * sizeof(float), 0), depth);
+        }
+
         private Texture2D CreateTarget(Format format) => new(Device, new Texture2DDescription
         {
             Width = 16, Height = 16, MipLevels = 1, ArraySize = 1,
@@ -149,6 +234,9 @@ public sealed class ScreenPipelineTests
         });
 
         internal uint ReadCenter(Texture2D texture)
+            => ReadPixels(texture)[8 * 16 + 8];
+
+        internal uint[] ReadPixels(Texture2D texture)
         {
             var description = texture.Description;
             description.Usage = ResourceUsage.Staging;
@@ -159,7 +247,11 @@ public sealed class ScreenPipelineTests
             var box = Device.ImmediateContext.MapSubresource(staging, 0, MapMode.Read, MapFlags.None);
             try
             {
-                return unchecked((uint)System.Runtime.InteropServices.Marshal.ReadInt32(box.DataPointer, 8 * box.RowPitch + 8 * 4));
+                var pixels = new uint[16 * 16];
+                for (var y = 0; y < 16; y++)
+                    for (var x = 0; x < 16; x++)
+                        pixels[y * 16 + x] = unchecked((uint)System.Runtime.InteropServices.Marshal.ReadInt32(box.DataPointer, y * box.RowPitch + x * 4));
+                return pixels;
             }
             finally { Device.ImmediateContext.UnmapSubresource(staging, 0); }
         }

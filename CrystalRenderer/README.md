@@ -30,6 +30,8 @@ The host must poll `ThrowIfRenderFailed()` before preparing its next frame so ca
 
 `D3D11/` owns the screen batch, render targets, depth views, compositing, and hook scheduling. `Integration/` contains FFXIV scene capture and the KamiToolKit native overlay. Per-frame camera, viewport, and depth pointers are captured together at the pass that consumes them. Scene-frame timeouts use a monotonic clock.
 
+Screen geometry uses the render camera's `ViewMatrix * ProjectionMatrix`. Depth sampling uses that same view snapshot with `ProjectionMatrix2`, which contains the scene's temporal jitter on the validated game setup. This preserves the game's lens shifts and depth convention without estimating or smoothing projection offsets. Mixing the gameplay Control matrix with a newer camera view can leave transient object-shaped cutouts while moving. Depth conversion uses the depth projection's coefficients rather than the translated combined matrix. This does not smooth real camera motion or change the game's anti-aliasing settings.
+
 ## Validation and next steps
 
 `CrystalRenderer.Tests` has no CrystalCast project reference. Tests cover the host contract, frame lifecycle/capacity, geometry validation, deferred scheduling, COM identity, depth formats, shader compilation, and software D3D11 pixel output. Test injected scene capture also verifies compositing and missing-depth recovery without FFXIV.

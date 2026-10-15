@@ -27,44 +27,40 @@ internal static class ShapeSharedShader
         };
     """;
 
-    // Requires cbuffer fields: `viewProj`, `pixelToUv`.
+    // Requires cbuffer fields: `depthCoefficients`, `renderTargetSize`, `pixelToUv`.
     public const string Mixin = """
-        float4 applyOcclusionFade(float4 color, float sceneNdcZ, float pixelNdcZ, float2 occlusionParams)
+        float occlusionVisibility(float sceneNdcZ, float pixelNdcZ, float2 occlusionParams)
         {
-            float near = viewProj._m32;
-            float pixelWorldZ = near / max(pixelNdcZ, SKY_DEPTH_EPS);
-            float sceneWorldZ = near / max(sceneNdcZ, SKY_DEPTH_EPS);
+            float pixelWorldZ = depthCoefficients.y / max(pixelNdcZ + depthCoefficients.x, SKY_DEPTH_EPS);
+            float sceneWorldZ = depthCoefficients.y / max(sceneNdcZ + depthCoefficients.x, SKY_DEPTH_EPS);
             float occludedAlpha = occlusionParams.x;
             float occlusionTolerance = occlusionParams.y;
 
             float behindMeters = max(pixelWorldZ - sceneWorldZ, 0.0);
-            float occlusionAlpha = behindMeters <= occlusionTolerance ? 1.0 : occludedAlpha;
-
-            color.a *= occlusionAlpha;
-            return color;
+            return behindMeters <= occlusionTolerance ? 1.0 : occludedAlpha;
         }
 
         float4 applyDistanceFade(float4 color, float pixelNdcZ, float2 fadeParams)
         {
-            float near = viewProj._m32;
             float fadeStart = fadeParams.x;
             float fadeStop = fadeParams.y;
             if (fadeStop < NO_FADE_SENTINEL)
             {
-                float pixelWorldZ = near / max(pixelNdcZ, SKY_DEPTH_EPS);
+                float pixelWorldZ = depthCoefficients.y / max(pixelNdcZ + depthCoefficients.x, SKY_DEPTH_EPS);
                 float range = max(fadeStop - fadeStart, DIVIDE_EPS);
                 color.a *= saturate((fadeStop - pixelWorldZ) / range);
             }
             return color;
         }
 
-        float4 applyShared(float4 color, float3 projPos, float2 occlusionParams, float2 fadeParams)
+        float4 applyShared(float4 color, float4 depthPos, float2 occlusionParams, float2 fadeParams)
         {
-            float2 uv = projPos.xy * pixelToUv;
+            float3 depthNdc = depthPos.xyz / depthPos.w;
+            float2 uv = (depthNdc.xy * float2(0.5, -0.5) + 0.5) * renderTargetSize * pixelToUv;
             float sceneNdcZ = _sceneDepth.Sample(_sceneSampler, uv).r;
-            float pixelNdcZ = projPos.z;
+            float pixelNdcZ = depthNdc.z;
 
-            color = applyOcclusionFade(color, sceneNdcZ, pixelNdcZ, occlusionParams);
+            color.a *= occlusionVisibility(sceneNdcZ, pixelNdcZ, occlusionParams);
             color = applyDistanceFade(color, pixelNdcZ, fadeParams);
 
             return color;

@@ -11,6 +11,8 @@ internal class RenderContext : IDisposable
 {
     public SharpDX.Direct3D11.Device Device { get; private set; }
     public SharpDX.Direct3D11.DeviceContext Context { get; private set; }
+    internal SamplerState PointClampSampler { get; }
+    internal SamplerState LinearClampSampler { get; }
 
     private class CacheEntry
     {
@@ -36,9 +38,20 @@ internal class RenderContext : IDisposable
         try
         {
             Context = new(Device);
+            var sampler = SamplerStateDescription.Default();
+            sampler.AddressU = TextureAddressMode.Clamp;
+            sampler.AddressV = TextureAddressMode.Clamp;
+            sampler.AddressW = TextureAddressMode.Clamp;
+            sampler.Filter = Filter.MinMagMipPoint;
+            PointClampSampler = new SamplerState(Device, sampler);
+            sampler.Filter = Filter.MinMagMipLinear;
+            LinearClampSampler = new SamplerState(Device, sampler);
         }
         catch
         {
+            LinearClampSampler?.Dispose();
+            PointClampSampler?.Dispose();
+            Context?.Dispose();
             if (_ownsDevice) Device.Dispose();
             throw;
         }
@@ -67,6 +80,8 @@ internal class RenderContext : IDisposable
         foreach (var entry in _userSrvCache.Values)
             entry.Srv.Dispose();
         _userSrvCache.Clear();
+        LinearClampSampler.Dispose();
+        PointClampSampler.Dispose();
         Context.Dispose();
         if (_ownsDevice) Device.Dispose();
     }

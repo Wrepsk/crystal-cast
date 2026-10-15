@@ -19,12 +19,7 @@ internal static class ShapeSharedShader
         Texture2D<float4> _sceneDepth : register(t0);
         Texture2D<float4> _sceneInfo : register(t1);
         Texture2D<float4> _sceneNormal : register(t2);
-        SamplerState _sceneSampler
-        {
-            Filter = MIN_MAG_MIP_POINT;
-            AddressU = CLAMP;
-            AddressV = CLAMP;
-        };
+        SamplerState _sceneSampler : register(s0);
     """;
 
     // Requires cbuffer fields: `depthCoefficients`, `renderTargetSize`, `pixelToUv`.

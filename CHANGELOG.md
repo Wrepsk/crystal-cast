@@ -25,6 +25,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Fixed
 
+- Bind explicit depth, video, composite, and UI-mask sampler states; prevent linear interpolation from creating false foreground depths while preserving linear video filtering.
 - Use the render camera's steady projection for screen geometry and its jittered projection for depth lookups, keeping both on a shared view snapshot to eliminate screen vibration and transient occlusion cutouts.
 - Match scene-composite hooks to the actual backbuffer instead of similarly sized textures, and fall back to native overlay output when the hook is unavailable or stalls.
 - Use native overlay rendering under Wine, including configurations that previously selected scene compositing; apply game-UI masking to the ImGui output layer.

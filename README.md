@@ -47,6 +47,8 @@ On Windows, an unavailable scene-composite hook or a pending frame older than tw
 
 Opaque screen pixels use per-pixel reverse-depth testing, so intersecting solid screens occlude one another correctly. Transparent pixels are drawn afterward without writing depth; intersections between translucent surfaces still use distance sorting. Camera state and scene depth are sampled at the composite pass. If scene depth is unavailable or its format cannot be sampled, world screens are skipped until depth becomes usable again.
 
+**Known DLSS limitation:** foreground object edges can show distortion where they overlap a screen, in both Scene composite and Native overlay output. The tested workaround is to select **AMD FSR** for the game's graphics upscaling and use **TSCMAA** anti-aliasing. CrystalCast does not change these game settings automatically. See [rendering validation and findings](docs/RENDERING_VALIDATION.md) for details.
+
 ## Browser compatibility
 
 CrystalCast supports two WebView2 capture paths:

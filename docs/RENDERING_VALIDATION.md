@@ -1,6 +1,6 @@
 # Rendering validation
 
-Automated tests cover output selection and fallback latching, canonical COM identity, deferred error delivery, supported depth formats, and shader compilation. Software D3D11 (WARP) tests inspect rendered pixels for intersecting opaque screens, invisible and translucent pixels, cancelled submissions, and texture lifetime across deferred draws.
+Automated tests cover output selection and fallback latching, canonical COM identity, deferred error delivery, supported depth formats, and shader compilation. Software D3D11 (WARP) tests inspect rendered pixels for intersecting opaque screens, invisible and translucent pixels, cancelled submissions, texture lifetime across deferred draws, point-sampled depth boundaries, and linear video sampling across consecutive composite passes.
 
 These tests do not validate the timing of FFXIV's render passes, graphics-driver recovery, or Wine translation. The following checks still need an actual game session.
 
@@ -23,4 +23,14 @@ After automatic fallback, switch to another output layer and back to retry scene
 
 During live investigation on 2026-10-15, at 1920 x 1080, the render camera's `ProjectionMatrix` had zero X/Y offsets while `ProjectionMatrix2` varied by subpixel amounts each sample. The gameplay `Control.ViewProjectionMatrix`, transformed back through the render view, contained the previous sample's offset. Geometry and depth now use the two render-camera projections with a shared view snapshot. The user confirmed that screen vibration and transient object-shaped cutouts during camera movement were eliminated. The temporary measurement logging was removed after investigation.
 
-Foreground silhouette distortion at the screen boundary remains unresolved. A 2-by-2 coverage-filter experiment did not visibly improve the supplied railing/lamp case and is excluded from this checkpoint. Investigate depth alignment and the game's resolved anti-aliasing separately; the vibration fix does not claim to solve that edge artifact.
+## Known DLSS silhouette distortion
+
+Foreground silhouette distortion at the screen boundary remains unresolved. In the live railing/lamp comparison, it appeared with DLSS in both Scene composite and Native overlay output, and disappeared with AMD FSR and TSCMAA. The user also observed the artifact in Aetherphone's MogCast. This is evidence of a shared DLSS/compositing limitation, rather than proof that it is unavoidable.
+
+The tested workaround is to select **AMD FSR** in the game's graphics upscaling settings and use **TSCMAA** anti-aliasing. CrystalCast leaves those settings under the user's control.
+
+Captured scene-depth and swap-chain-depth images were identical at 1920 x 1080 in the examined setup. Across stationary-camera samples, the depth silhouette tracked the render camera's current jitter more closely than the gameplay matrix's previous offset. These checks did not reveal a better depth-buffer choice or a simple resolution-scale correction.
+
+A 2-by-2 visibility coverage filter did not visibly improve the artifact. A one-pixel foreground guard also failed and introduced a visible gap. Both experiments and all temporary readback/probe code were removed. Future investigation may require integrating screen color before DLSS reconstruction, including its color-space and temporal-history requirements, rather than changing the current mask width again.
+
+Separately, a WARP regression test reproduced false foreground occlusion caused by an unbound sampler: Direct3D's default linear filtering interpolated unrelated foreground and background depth values. The verified fix binds explicit point/clamp depth sampling while retaining linear/clamp video sampling and explicit samplers in the composite/UI-mask passes. This fixes the reproducible sampling bug; the live comparison confirmed that it does not resolve the DLSS silhouette artifact.

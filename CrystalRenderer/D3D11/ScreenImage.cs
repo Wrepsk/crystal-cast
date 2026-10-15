@@ -99,12 +99,7 @@ internal class ScreenImage : IDisposable
             };
 
             Texture2D<float4> _userTex : register(t3);
-            SamplerState _userSampler
-            {
-                Filter = MIN_MAG_MIP_LINEAR;
-                AddressU = CLAMP;
-                AddressV = CLAMP;
-            };
+            SamplerState _userSampler : register(s1);
 
             struct ImageInstance
             {
@@ -334,6 +329,8 @@ internal class ScreenImage : IDisposable
         _ctx.Context.VertexShader.SetConstantBuffer(0, _constantBuffer);
         _ctx.Context.PixelShader.Set(_psFlat);
         _ctx.Context.PixelShader.SetConstantBuffer(0, _constantBuffer);
+        _ctx.Context.PixelShader.SetSampler(0, _ctx.PointClampSampler);
+        _ctx.Context.PixelShader.SetSampler(1, _ctx.LinearClampSampler);
         _ctx.Context.GeometryShader.Set(null);
         _ctx.Context.Rasterizer.State = _rsFlat;
     }

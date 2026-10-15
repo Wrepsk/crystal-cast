@@ -451,6 +451,7 @@ internal unsafe class UIMaskCapture : IDisposable
         _ctx.Context.PixelShader.Set(_ps);
         _ctx.Context.GeometryShader.Set(null);
         _ctx.Context.PixelShader.SetConstantBuffer(0, _constantBuffer);
+        _ctx.Context.PixelShader.SetSampler(0, _ctx.LinearClampSampler);
         _ctx.Context.PixelShader.SetShaderResource(0, _bbCopySRV);
         _ctx.Context.PixelShader.SetShaderResource(1, _snapshotSRV);
 

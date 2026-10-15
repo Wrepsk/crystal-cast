@@ -32,6 +32,10 @@ The host must poll `ThrowIfRenderFailed()` before preparing its next frame so ca
 
 Screen geometry uses the render camera's `ViewMatrix * ProjectionMatrix`. Depth sampling uses that same view snapshot with `ProjectionMatrix2`, which contains the scene's temporal jitter on the validated game setup. This preserves the game's lens shifts and depth convention without estimating or smoothing projection offsets. Mixing the gameplay Control matrix with a newer camera view can leave transient object-shaped cutouts while moving. Depth conversion uses the depth projection's coefficients rather than the translated combined matrix. This does not smooth real camera motion or change the game's anti-aliasing settings.
 
+The D3D11 context owns explicit point/clamp and linear/clamp samplers. Screen draws bind point sampling for scene depth at `s0` and linear sampling for the video at `s1`; the composite and UI-mask passes also bind their samplers explicitly. HLSL state declarations alone did not configure those states, leaving depth sampling on Direct3D's default linear filter and allowing false foreground depths between adjacent texels.
+
+DLSS silhouette distortion remains a known limitation of the current compositing path. FSR with TSCMAA was clean in the reported live comparison. Spatial coverage filtering and a one-pixel foreground guard did not resolve the DLSS artifact; both experiments were removed. See `../docs/RENDERING_VALIDATION.md` before pursuing changes to that path.
+
 ## Validation and next steps
 
 `CrystalRenderer.Tests` has no CrystalCast project reference. Tests cover the host contract, frame lifecycle/capacity, geometry validation, deferred scheduling, COM identity, depth formats, shader compilation, and software D3D11 pixel output. Test injected scene capture also verifies compositing and missing-depth recovery without FFXIV.

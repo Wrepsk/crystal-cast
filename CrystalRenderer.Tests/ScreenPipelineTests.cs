@@ -144,6 +144,39 @@ public sealed class ScreenPipelineTests
         }
     }
 
+    [Theory]
+    [InlineData(0.25f, true)]
+    [InlineData(0.75f, false)]
+    public void DepthSamplingDoesNotInventForegroundBetweenDepthTexels(float offsetPixels, bool expectedVisible)
+    {
+        using var scene = new SoftwareScene();
+        scene.SetDepth((x, _) => x >= 9 ? 1f : 0f);
+        var frame = scene.Frame;
+        var depthProjection = frame.DepthViewProjection;
+        depthProjection.M41 = offsetPixels * 2f / 16;
+        frame = frame with { DepthViewProjection = depthProjection };
+        using var pipeline = scene.CreatePipeline(() => frame);
+        // The quarter-pixel sample is over clear depth; linear interpolation would
+        // invent a foreground surface. The three-quarter sample must remain hidden.
+        pipeline.Submit(scene.RedScreen with { Center = new Vector3(0, 0, -0.05f) });
+        Assert.Equal(expectedVisible ? 0xFFFF0000u : 0u,
+            scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture));
+    }
+
+    [Fact]
+    public void VideoKeepsLinearFilteringAfterThePointSampledCompositePass()
+    {
+        using var scene = new SoftwareScene([0xFFFF0000u, 0xFF0000FFu]);
+        using var pipeline = scene.CreatePipeline(() => scene.Frame);
+        for (var frame = 0; frame < 2; frame++)
+        {
+            pipeline.Submit(scene.RedScreen);
+            var pixel = scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture);
+            Assert.InRange((pixel >> 16) & 255, 110u, 113u);
+            Assert.InRange(pixel & 255, 142u, 145u);
+        }
+    }
+
     private static Matrix ToSharpDx(System.Numerics.Matrix4x4 matrix)
         => System.Runtime.CompilerServices.Unsafe.BitCast<System.Numerics.Matrix4x4, Matrix>(matrix);
 
@@ -181,7 +214,7 @@ public sealed class ScreenPipelineTests
         private readonly Texture2D screen;
         private readonly ShaderResourceView screenView;
 
-        internal SoftwareScene()
+        internal SoftwareScene(uint[]? screenPixels = null)
         {
             BackBuffer = CreateTarget(Format.B8G8R8A8_UNorm);
             depth = CreateTarget(Format.R32_Typeless);
@@ -190,14 +223,15 @@ public sealed class ScreenPipelineTests
                 new RenderTargetViewDescription { Format = Format.R32_Float, Dimension = RenderTargetViewDimension.Texture2D });
             Device.ImmediateContext.ClearRenderTargetView(backbufferView, new Color4(0));
             Device.ImmediateContext.ClearRenderTargetView(depthView, new Color4(0));
-            using var pixels = new DataStream(4, true, true);
-            pixels.Write(0xFFFF0000u);
+            screenPixels ??= [0xFFFF0000u];
+            using var pixels = new DataStream(screenPixels.Length * 4, true, true);
+            foreach (var pixel in screenPixels) pixels.Write(pixel);
             screen = new Texture2D(Device, new Texture2DDescription
             {
-                Width = 1, Height = 1, MipLevels = 1, ArraySize = 1,
+                Width = screenPixels.Length, Height = 1, MipLevels = 1, ArraySize = 1,
                 Format = Format.B8G8R8A8_UNorm, SampleDescription = new(1, 0),
                 Usage = ResourceUsage.Immutable, BindFlags = BindFlags.ShaderResource,
-            }, new DataRectangle(pixels.DataPointer, 4));
+            }, new DataRectangle(pixels.DataPointer, screenPixels.Length * 4));
             screenView = new ShaderResourceView(Device, screen);
         }
 

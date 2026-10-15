@@ -45,12 +45,7 @@ internal class FullScreenPass : IDisposable
                 Texture2D<float4> inputTexture : register(t0);
                 Texture2D<float4> maskTexture  : register(t1);
 
-                SamplerState TextureSampler
-                {
-                    Filter = MIN_MAG_MIP_POINT;
-                    AddressU = CLAMP;
-                    AddressV = CLAMP;
-                };
+                SamplerState TextureSampler : register(s0);
 
                 struct VSOutput
                 {
@@ -124,6 +119,7 @@ internal class FullScreenPass : IDisposable
         ctx.Context.VertexShader.Set(_vs);
         ctx.Context.PixelShader.Set(_ps);
         ctx.Context.PixelShader.SetConstantBuffer(0, _constantBuffer);
+        ctx.Context.PixelShader.SetSampler(0, ctx.PointClampSampler);
         ctx.Context.GeometryShader.Set(null);
     }
 

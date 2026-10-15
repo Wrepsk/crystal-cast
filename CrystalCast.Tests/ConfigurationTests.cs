@@ -3,9 +3,9 @@ namespace CrystalCast.Tests;
 public sealed class ConfigurationTests
 {
     [Fact]
-    public void ExistingSceneOutputRequiresSeparateWineOptIn()
+    public void SavedSceneOutputCanDisableTheWineTrial()
     {
-        var configuration = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"Version\":3,\"OutputMode\":2}")!;
+        var configuration = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"Version\":3,\"OutputMode\":2,\"EnableWineSceneComposite\":false}")!;
         configuration.Normalize();
         Assert.Equal(ScreenOutputMode.SceneComposite, configuration.OutputMode);
         Assert.False(configuration.EnableWineSceneComposite);
@@ -15,6 +15,23 @@ public sealed class ConfigurationTests
             System.Text.Json.JsonSerializer.Serialize(configuration))!;
         restored.Normalize();
         Assert.True(restored.EnableWineSceneComposite);
+    }
+
+    [Theory]
+    [InlineData(true, true, ScreenOutputMode.SceneComposite, true)]
+    [InlineData(true, false, ScreenOutputMode.SceneComposite, false)]
+    [InlineData(false, false, ScreenOutputMode.NativeOverlay, false)]
+    public void NewConfigurationUsesPlatformDefaults(bool windows, bool wine, ScreenOutputMode output, bool linuxFeatures)
+    {
+        var configuration = new Configuration(windows, wine);
+        configuration.Normalize();
+        Assert.Equal(output, configuration.OutputMode);
+        Assert.Equal(linuxFeatures, configuration.EnableWineSceneComposite);
+        Assert.Equal(linuxFeatures, configuration.EnableNativeLinuxBrowser);
+        var policy = new CrystalCast.Rendering.RenderOutputPolicy();
+        Assert.Equal(output, policy.Resolve(configuration.OutputMode, wine, false, false, configuration.EnableWineSceneComposite));
+        if (wine)
+            Assert.Equal(ScreenOutputMode.NativeOverlay, policy.Resolve(output, true, true, false, configuration.EnableWineSceneComposite));
     }
 
     [Fact]

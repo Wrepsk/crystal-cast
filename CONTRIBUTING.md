@@ -23,6 +23,8 @@ CrystalCast is a Windows-targeted Dalamud plugin. Contributions should preserve 
 
 Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud development plugin for manual testing.
 
+For native Linux browser work, see [the helper build and tests](NativeLinuxBrowser/README.md) and [measured results/remaining blockers](docs/NATIVE_LINUX_BROWSER.md). Build the native helper independently against system WPE 2.54+; it is not bundled into the Windows plugin package. The standalone `tools/CrystalCast.LinuxBrowserProbe` exercises the real frame-source adapter without starting FFXIV.
+
 ## Pull requests
 
 - Keep changes focused and explain user-visible behavior and compatibility impact.

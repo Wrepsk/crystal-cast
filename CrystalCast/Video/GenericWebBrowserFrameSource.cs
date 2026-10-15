@@ -1040,7 +1040,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         }
     }
 
-    private static string BuildControllerScript(string nonce)
+    internal static string BuildControllerScript(string nonce)
     {
         var script = """
 (() => {

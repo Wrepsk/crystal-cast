@@ -8,7 +8,7 @@ internal sealed class RenderOutputPolicy
     public string? FallbackReason { get; private set; }
 
     public static ScreenOutputMode GetDefault(bool isWindows, bool isWine)
-        => isWindows && !isWine ? ScreenOutputMode.SceneComposite : ScreenOutputMode.NativeOverlay;
+        => isWindows || isWine ? ScreenOutputMode.SceneComposite : ScreenOutputMode.NativeOverlay;
 
     public ScreenOutputMode Resolve(ScreenOutputMode requested, bool isWine, bool hookUnavailable, bool stalled,
         bool enableWineSceneComposite = false)

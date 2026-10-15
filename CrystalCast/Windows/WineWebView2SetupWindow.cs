@@ -22,6 +22,8 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 
     internal static bool ShouldOpenAutomatically(Configuration configuration)
     {
+        if (BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, configuration.EnableNativeLinuxBrowser))
+            return false;
         var runtimeAvailable = WebView2BrowserFrameSource.TryGetWebView2Runtime(out _, out _);
         return WineWebView2SetupPolicy.ShouldShow(
             WineEnvironment.IsWine,
@@ -44,6 +46,11 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 
     public override void Draw()
     {
+        if (BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, plugin.Configuration.EnableNativeLinuxBrowser))
+        {
+            IsOpen = false;
+            return;
+        }
         DrawHero();
 
         var footerHeight = ImGui.GetFrameHeightWithSpacing() + (ImGui.GetStyle().ItemSpacing.Y * 2.0f);
@@ -190,9 +197,10 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
             "Wine support is experimental and still needs broader testing on real Linux installations.");
     }
 
-    private static void DrawCard(string id, string title, params string[] bullets)
+    internal static void DrawCard(string id, string title, params string[] bullets)
     {
-        var height = 48.0f + (bullets.Length * 35.0f);
+        var textWidth = Math.Max(1.0f, ImGui.GetContentRegionAvail().X - 42.0f);
+        var height = 48.0f + bullets.Sum(bullet => ImGui.CalcTextSize(bullet, false, textWidth).Y + ImGui.GetStyle().ItemSpacing.Y);
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8.0f);
         ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.10f, 0.12f, 0.64f));
@@ -214,8 +222,13 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
         ImGui.Spacing();
     }
 
-    private void RefreshRuntimeStatus()
+    internal void RefreshRuntimeStatus()
     {
+        if (BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, plugin.Configuration.EnableNativeLinuxBrowser))
+        {
+            runtimeStatus = "Native Linux browser selected; WebView2 is not required.";
+            return;
+        }
         runtimeStatus = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var version, out var error)
             ? $"WebView2 detected: {version}"
             : error;

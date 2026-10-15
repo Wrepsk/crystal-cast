@@ -250,29 +250,65 @@ public sealed class ConfigWindow : Window, IDisposable
         var changed = false;
         var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
 
-        CrystalCastUiTheme.DrawSectionHeader("Browser backend", "Choose how WebView2 pages are captured into screen textures.");
-        ImGui.TextDisabled("Browser backend");
-        ImGui.SetNextItemWidth(-1.0f);
-        if (ImGui.BeginCombo("##CrystalCastBrowserBackend", BrowserEngineNames[current]))
+        if (WineEnvironment.IsWine)
         {
-            for (var i = 0; i < BrowserEngineNames.Length; i++)
+            var nativeLinuxBrowser = config.EnableNativeLinuxBrowser;
+            CrystalCastUiTheme.DrawSectionHeader("Linux browser backend", "Choose the browser used by CrystalCast under Wine.");
+            ImGui.SetNextItemWidth(-1.0f);
+            if (ImGui.BeginCombo("##CrystalCastLinuxBrowserBackend", nativeLinuxBrowser
+                ? "Native WPE WebKit (default, experimental)" : "WebView2 JPEG capture"))
             {
-                var selected = i == current;
-                if (ImGui.Selectable(BrowserEngineNames[i], selected))
+                for (var i = 0; i < 2; i++)
                 {
-                    config.YouTubeBrowserEngine = BrowserEngines[i];
-                    changed = true;
+                    var selected = nativeLinuxBrowser == (i == 1);
+                    if (ImGui.Selectable(i == 1 ? "Native WPE WebKit (default, experimental)" : "WebView2 JPEG capture", selected)
+                        && !selected)
+                    {
+                        config.EnableNativeLinuxBrowser = nativeLinuxBrowser = i == 1;
+                        plugin.OnLinuxBrowserBackendChanged();
+                        changed = true;
+                    }
+                    if (selected) ImGui.SetItemDefaultFocus();
+                }
+                ImGui.EndCombo();
+            }
+            if (nativeLinuxBrowser)
+            {
+                ImGui.TextWrapped("Uses the host's crystalcast-browser-helper and WPE WebKit 2.54+. WebView2 is not required. CPU frames up to 1920 x 1080; interactive browser controls and provider compatibility are still being validated.");
+                ImGui.Spacing();
+                ImGui.TextWrapped(plugin.NativeLinuxBrowserStatus);
+                if (ImGui.Button("Check WPE / open native browser setup")) plugin.ShowNativeLinuxBrowserSetup();
+                return changed;
+            }
+            ImGui.Spacing();
+        }
+
+        if (!WineEnvironment.IsWine)
+        {
+            CrystalCastUiTheme.DrawSectionHeader("Browser backend", "Choose how WebView2 pages are captured into screen textures.");
+            ImGui.TextDisabled("Browser backend");
+            ImGui.SetNextItemWidth(-1.0f);
+            if (ImGui.BeginCombo("##CrystalCastBrowserBackend", BrowserEngineNames[current]))
+            {
+                for (var i = 0; i < BrowserEngineNames.Length; i++)
+                {
+                    var selected = i == current;
+                    if (ImGui.Selectable(BrowserEngineNames[i], selected))
+                    {
+                        config.YouTubeBrowserEngine = BrowserEngines[i];
+                        changed = true;
+                    }
+
+                    if (selected)
+                        ImGui.SetItemDefaultFocus();
                 }
 
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
+                ImGui.EndCombo();
             }
-
-            ImGui.EndCombo();
         }
 
         ImGui.TextDisabled(WineEnvironment.IsWine
-            ? "Wine detected: WebView2 JPEG capture is forced for every browser option."
+            ? "WebView2 uses JPEG capture under Wine; Windows Graphics Capture is unavailable."
             : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
 
         if (WineEnvironment.IsWine)
@@ -426,6 +462,9 @@ public sealed class ConfigWindow : Window, IDisposable
 
         if (ImGui.Button("Open Wine WebView2 setup"))
             plugin.ShowWineWebView2Setup();
+
+        if (ImGui.Button("Open native WPE setup"))
+            plugin.PreviewNativeLinuxBrowserSetup();
 
         if (ImGui.Button("Open onboarding guide"))
             plugin.ShowFirstRunGuide();

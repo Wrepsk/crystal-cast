@@ -22,3 +22,5 @@ CrystalCast renders browser content locally and exposes state-only Dalamud IPC. 
 - automate gameplay or communicate with FFXIV servers.
 
 Generic Web intentionally loads a user-supplied HTTP/HTTPS page and therefore has a broader trust boundary. Reports that demonstrate an escape beyond the documented page-level tracking and navigation behavior are in scope.
+
+The experimental native Linux helper keeps WebKit's sandbox enabled, runs as the desktop user, uses ephemeral per-screen profiles, and authenticates its loopback connection with a random token stored only in a private runtime file. Shared frame slots require sequence-matched acknowledgement before reuse. Native IPC credentials, endpoint files and frame data must not be included in diagnostics or commits. See [native IPC/lifecycle boundaries](NativeLinuxBrowser/README.md#ipc-and-lifecycle), including the conservative navigation restriction for IPC-approved Generic Web pages. System WebKit and GStreamer security updates remain the Linux user's/package manager's responsibility.

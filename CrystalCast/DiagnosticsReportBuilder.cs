@@ -14,7 +14,10 @@ internal static class DiagnosticsReportBuilder
     public static string Build(Configuration configuration, WorldScreenManager renderer)
     {
         var graphics = GraphicsDiagnostics.CaptureEnvironment();
-        var webView2Available = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var webView2Version, out var webView2Error);
+        var nativeLinuxBrowser = BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, configuration.EnableNativeLinuxBrowser);
+        var webView2Version = "";
+        var webView2Error = "";
+        var webView2Available = !nativeLinuxBrowser && WebView2BrowserFrameSource.TryGetWebView2Runtime(out webView2Version, out webView2Error);
         var screens = renderer.GetDiagnosticSnapshots();
         var assembly = typeof(DiagnosticsReportBuilder).Assembly;
         var pluginVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -37,7 +40,8 @@ internal static class DiagnosticsReportBuilder
         Append(report, "OS", RuntimeInformation.OSDescription);
         Append(report, "Architecture", $"process {RuntimeInformation.ProcessArchitecture}; OS {RuntimeInformation.OSArchitecture}");
         Append(report, "Wine", YesNo(WineEnvironment.IsWine));
-        Append(report, "WebView2", webView2Available ? webView2Version : $"unavailable; {webView2Error}");
+        Append(report, "WebView2", nativeLinuxBrowser ? "not required by the selected native Linux backend"
+            : webView2Available ? webView2Version : $"unavailable; {webView2Error}");
 
         report.AppendLine();
         report.AppendLine("[Graphics]");
@@ -51,7 +55,7 @@ internal static class DiagnosticsReportBuilder
             ? DescribeOutputMode(effectiveOutput) : "not selected");
         Append(report, "Scene composite fallback", renderer.SceneCompositeFallbackReason ?? "none");
         Append(report, "Configured browser backend", configuration.YouTubeBrowserEngine);
-        Append(report, "Resolved capture mode", DescribeCaptureMode(resolvedCaptureMode));
+        Append(report, "Resolved capture mode", nativeLinuxBrowser ? "Native WPE WebKit; uncompressed CPU frames (experimental)" : DescribeCaptureMode(resolvedCaptureMode));
         Append(report, "GPU texture sampling", configuration.EnableGpuDiagnostics ? "enabled" : "disabled");
         Append(report, "Renderer", renderer.Status);
         Append(report, "Draw", renderer.LastDrawStatus);
@@ -98,7 +102,7 @@ internal static class DiagnosticsReportBuilder
         Append(report, "Playback paused", YesNo(screen.PlaybackPaused));
         Append(report, "Placement", screen.PlacementMode);
         Append(report, "Panel", $"{Format(screen.WidthMeters)} x {Format(screen.HeightMeters)} m; curve {Format(screen.CurveMeters)} m; occluded alpha {Format(screen.OccludedAlpha)}; distance fade {YesNo(screen.DistanceFadeEnabled)}");
-        Append(report, "Browser", $"{screen.ConfiguredWidth} x {screen.ConfiguredHeight}; {Format(screen.ConfiguredCaptureFps)} fps ({(screen.CaptureFpsManual ? "manual" : "automatic")}); {DescribeCaptureMode(screen.CaptureMode)}");
+        Append(report, "Browser", $"{screen.ConfiguredWidth} x {screen.ConfiguredHeight}; {Format(screen.ConfiguredCaptureFps)} fps ({(screen.CaptureFpsManual ? "manual" : "automatic")}); {(screen.NativeLinuxBrowser ? "native WPE WebKit CPU frames" : DescribeCaptureMode(screen.CaptureMode))}");
         Append(report, "Runtime", $"created {YesNo(screen.RuntimeCreated)}; capturing {YesNo(screen.CaptureRunning)}; controls visible {YesNo(screen.BrowserControlsVisible)}");
         Append(report, "Source", screen.SourceName);
         Append(report, "Source status", screen.SourceStatus);

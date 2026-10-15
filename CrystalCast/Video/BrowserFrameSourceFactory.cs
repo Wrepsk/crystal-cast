@@ -28,14 +28,19 @@ internal interface IBrowserFrameSourceFactory
 internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
 {
     private readonly IPluginLog log;
+    private readonly Func<bool> nativeLinuxBrowserEnabled;
 
-    public BrowserFrameSourceFactory(IPluginLog log)
+    public BrowserFrameSourceFactory(IPluginLog log, Func<bool>? nativeLinuxBrowserEnabled = null)
     {
         this.log = log;
+        this.nativeLinuxBrowserEnabled = nativeLinuxBrowserEnabled ?? (() => false);
     }
 
     public IVideoFrameSource Create(BrowserFrameSourceRequest request)
     {
+        if (BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, nativeLinuxBrowserEnabled()))
+            return new LinuxBrowserFrameSource(request);
+
         if (request.ProviderKind == BrowserSourceProviderKind.GenericWeb)
         {
             return new GenericWebBrowserFrameSource(

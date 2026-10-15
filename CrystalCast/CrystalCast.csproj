@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CrystalCast.Tests" />
+    <InternalsVisibleTo Include="CrystalCast.LinuxBrowserProbe" />
   </ItemGroup>
 
   <ItemGroup>

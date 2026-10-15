@@ -287,6 +287,7 @@ public sealed class WorldScreenManager : IDisposable
             var source = BrowserSourceProviderRegistry.GetSnapshot(screen);
             browserScreens.TryGetValue(screen.ScreenId, out var instance);
             var captureMode = BrowserPlatformPolicy.ResolveCaptureMode(configuration.YouTubeBrowserEngine, WineEnvironment.IsWine);
+            var nativeLinuxBrowser = BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, configuration.EnableNativeLinuxBrowser);
             var texturePipeline = instance == null
                 ? "not initialized"
                 : captureMode == WebView2CaptureMode.WindowGraphicsCapture
@@ -294,7 +295,7 @@ public sealed class WorldScreenManager : IDisposable
                     : instance.TextureWidth > 0 ? "CPU frame upload" : "CPU frame upload pending";
             var gpuSampleStatus = captureMode == WebView2CaptureMode.WindowGraphicsCapture
                 ? instance?.GpuSampleStatus ?? "game texture sample pending"
-                : "not applicable to JPEG capture";
+                : "not applicable to CPU frame capture";
 
             return new WorldScreenDiagnosticSnapshot(
                 index + 1,
@@ -311,6 +312,7 @@ public sealed class WorldScreenManager : IDisposable
                 source.CaptureSettings.FramesPerSecond,
                 source.CaptureSettings.Manual,
                 captureMode,
+                nativeLinuxBrowser,
                 instance?.HasBrowserRuntime == true,
                 instance?.IsBrowserRuntimeActive == true,
                 instance?.BrowserControlsVisible == true,
@@ -1171,9 +1173,11 @@ public sealed class WorldScreenManager : IDisposable
 
         private string BuildFrameSourceSignature()
         {
-            return BrowserSourceProviderRegistry.BuildFrameSourceSignature(
+            var signature = BrowserSourceProviderRegistry.BuildFrameSourceSignature(
                 browserScreen,
                 configuration.YouTubeBrowserEngine);
+            return BrowserPlatformPolicy.UseNativeLinuxBrowser(WineEnvironment.IsWine, configuration.EnableNativeLinuxBrowser)
+                ? signature + "|native-linux-wpe" : signature;
         }
 
         private void ApplyLiveSourceSettings()
@@ -1535,6 +1539,7 @@ internal sealed record WorldScreenDiagnosticSnapshot(
     float ConfiguredCaptureFps,
     bool CaptureFpsManual,
     WebView2CaptureMode CaptureMode,
+    bool NativeLinuxBrowser,
     bool RuntimeCreated,
     bool CaptureRunning,
     bool BrowserControlsVisible,

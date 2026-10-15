@@ -6,7 +6,8 @@ public sealed class RenderOutputPolicyTests
 {
     [Theory]
     [InlineData(true, false, ScreenOutputMode.SceneComposite)]
-    [InlineData(true, true, ScreenOutputMode.NativeOverlay)]
+    [InlineData(true, true, ScreenOutputMode.SceneComposite)]
+    [InlineData(false, true, ScreenOutputMode.SceneComposite)]
     [InlineData(false, false, ScreenOutputMode.NativeOverlay)]
     public void DefaultAccountsForWine(bool windows, bool wine, ScreenOutputMode expected)
         => Assert.Equal(expected, RenderOutputPolicy.GetDefault(windows, wine));

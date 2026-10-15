@@ -4,6 +4,8 @@ namespace CrystalCast.Video;
 
 internal static class BrowserPlatformPolicy
 {
+    public static bool UseNativeLinuxBrowser(bool isWine, bool enabled) => isWine && enabled;
+
     public static WebView2CaptureMode ResolveCaptureMode(BrowserMediaEngine engine, bool isWine)
     {
         var normalized = BrowserMediaEnginePolicy.Normalize(engine);

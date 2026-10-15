@@ -1,0 +1,9 @@
+# Development/test environment only. The distributed helper links host libraries;
+# this image and the browser engine are not bundled with the Dalamud plugin.
+FROM docker.io/archlinux/archlinux:base
+RUN pacman -Syu --noconfirm && pacman -S --needed --noconfirm \
+    gcc make pkgconf wpewebkit gst-plugins-base gst-plugins-good gst-plugins-bad \
+    gst-plugins-ugly gst-libav python dbus && useradd -m -u 1000 tester
+USER tester
+WORKDIR /work/NativeLinuxBrowser
+CMD ["python", "tests/smoke.py"]

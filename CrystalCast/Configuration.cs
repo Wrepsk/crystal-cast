@@ -15,6 +15,17 @@ public class Configuration : IPluginConfiguration
     public const int MaxRenderableBrowserScreens = MaxBrowserScreens + MaxIpcBrowserScreens;
     public const int MaxActiveBrowserScreens = 8;
 
+    public Configuration() : this(OperatingSystem.IsWindows(), WineEnvironment.IsWine)
+    {
+    }
+
+    internal Configuration(bool isWindows, bool isWine)
+    {
+        OutputMode = Rendering.RenderOutputPolicy.GetDefault(isWindows, isWine);
+        EnableWineSceneComposite = isWine;
+        EnableNativeLinuxBrowser = isWine;
+    }
+
     public int Version { get; set; } = 3;
 
     public bool Enabled { get; set; } = true;
@@ -41,13 +52,15 @@ public class Configuration : IPluginConfiguration
     public bool EnableDistanceFade { get; set; }
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
-    public ScreenOutputMode OutputMode { get; set; } = DefaultOutputMode;
+    public ScreenOutputMode OutputMode { get; set; }
     public bool EnableWineSceneComposite { get; set; }
+    public bool EnableNativeLinuxBrowser { get; set; }
     public bool ShowDebugMarker { get; set; }
     public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
     public bool WineWebView2SetupDismissed { get; set; }
+    public bool NativeLinuxBrowserSetupDismissed { get; set; }
     public bool FirstRunGuideCompleted { get; set; }
 
     public bool SpatialAudioEnabled { get; set; } = true;

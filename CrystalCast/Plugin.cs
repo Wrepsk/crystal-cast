@@ -28,6 +28,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly WineWebView2SetupWindow? wineWebView2SetupWindow;
+    private readonly NativeLinuxBrowserSetupWindow? nativeLinuxBrowserSetupWindow;
+    private bool? setupNativeSelection;
     private readonly FirstRunGuideWindow firstRunGuideWindow;
     private readonly GenericWebIpcApprovalWindow genericWebIpcApprovalWindow;
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
@@ -47,6 +49,11 @@ public sealed class Plugin : IDalamudPlugin
             Log.Warning(ex, "Could not apply the pending CrystalCast browser-data clear request; it will be retried on the next load.");
         }
 
+        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
+        if (Configuration.Normalize())
+            Configuration.Save();
+
         var placementResolver = new ScreenPlacementResolver(ObjectTable, ClientState);
         genericWebIpcApprovals = new GenericWebIpcApprovalService();
         var services = new CrystalCastServices(
@@ -58,21 +65,18 @@ public sealed class Plugin : IDalamudPlugin
             GameGui,
             Log,
             placementResolver,
-            new BrowserFrameSourceFactory(Log),
+            new BrowserFrameSourceFactory(Log, () => Configuration.EnableNativeLinuxBrowser),
             genericWebIpcApprovals);
-        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
-        if (Configuration.Normalize())
-            Configuration.Save();
-
         renderer = new WorldScreenManager(Configuration, services);
         ipc = new ScreenStateIpc(Configuration, renderer, services);
         mainWindow = new MainWindow(this, renderer, ipc, placementResolver);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
+        nativeLinuxBrowserSetupWindow = new NativeLinuxBrowserSetupWindow(this);
 #else
         wineWebView2SetupWindow = WineEnvironment.IsWine ? new WineWebView2SetupWindow(this) : null;
+        nativeLinuxBrowserSetupWindow = WineEnvironment.IsWine ? new NativeLinuxBrowserSetupWindow(this) : null;
 #endif
         firstRunGuideWindow = new FirstRunGuideWindow(this);
         genericWebIpcApprovalWindow = new GenericWebIpcApprovalWindow(genericWebIpcApprovals);
@@ -82,6 +86,8 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.AddWindow(configWindow);
         if (wineWebView2SetupWindow != null)
             windowSystem.AddWindow(wineWebView2SetupWindow);
+        if (nativeLinuxBrowserSetupWindow != null)
+            windowSystem.AddWindow(nativeLinuxBrowserSetupWindow);
         windowSystem.AddWindow(firstRunGuideWindow);
         windowSystem.AddWindow(genericWebIpcApprovalWindow);
 
@@ -121,6 +127,7 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.Dispose();
         configWindow.Dispose();
         wineWebView2SetupWindow?.Dispose();
+        nativeLinuxBrowserSetupWindow?.Dispose();
         firstRunGuideWindow.Dispose();
         genericWebIpcApprovalWindow.Dispose();
         ipc.Dispose();
@@ -140,6 +147,57 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.WineWebView2SetupDismissed = false;
         Configuration.Save();
         wineWebView2SetupWindow.IsOpen = true;
+        wineWebView2SetupWindow.RefreshRuntimeStatus();
+    }
+
+    internal string NativeLinuxBrowserStatus => nativeLinuxBrowserSetupWindow?.Status ?? "Native Linux browser detection is only available under Wine.";
+
+    internal void ShowNativeLinuxBrowserSetup()
+        => nativeLinuxBrowserSetupWindow?.CheckAvailability(openIfMissing: true, showWhileChecking: true);
+
+#if DEBUG
+    internal void PreviewNativeLinuxBrowserSetup()
+        => nativeLinuxBrowserSetupWindow?.ShowDebugPreview();
+#endif
+
+    internal void OnLinuxBrowserBackendChanged()
+    {
+        if (!WineEnvironment.IsWine) return;
+        setupNativeSelection = Configuration.EnableNativeLinuxBrowser;
+        if (Configuration.EnableNativeLinuxBrowser)
+        {
+            if (wineWebView2SetupWindow != null) wineWebView2SetupWindow.IsOpen = false;
+            nativeLinuxBrowserSetupWindow?.CheckAvailability(openIfMissing: true);
+        }
+        else
+        {
+            nativeLinuxBrowserSetupWindow?.Suspend();
+            ShowWineWebView2Setup();
+        }
+    }
+
+    private void RefreshLinuxBrowserSetup()
+    {
+        if (!WineEnvironment.IsWine) return;
+        if (setupNativeSelection != Configuration.EnableNativeLinuxBrowser)
+        {
+            setupNativeSelection = Configuration.EnableNativeLinuxBrowser;
+            if (Configuration.EnableNativeLinuxBrowser)
+            {
+                if (wineWebView2SetupWindow != null) wineWebView2SetupWindow.IsOpen = false;
+                nativeLinuxBrowserSetupWindow?.CheckAvailability(!Configuration.NativeLinuxBrowserSetupDismissed);
+            }
+            else
+            {
+                nativeLinuxBrowserSetupWindow?.Suspend();
+                if (wineWebView2SetupWindow != null)
+                {
+                    wineWebView2SetupWindow.RefreshRuntimeStatus();
+                    wineWebView2SetupWindow.IsOpen = WineWebView2SetupWindow.ShouldOpenAutomatically(Configuration);
+                }
+            }
+        }
+        nativeLinuxBrowserSetupWindow?.RefreshState();
     }
 
     internal void ShowFirstRunGuide()
@@ -159,6 +217,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (ClientRuntimePolicy.CanStart(ClientState.IsLoggedIn))
         {
+            RefreshLinuxBrowserSetup();
             UpdateFirstRunGuide();
             genericWebIpcApprovalWindow.RefreshState();
         }
@@ -183,7 +242,8 @@ public sealed class Plugin : IDalamudPlugin
         if (FirstRunGuidePolicy.ShouldShow(
                 Configuration.FirstRunGuideCompleted,
                 Configuration.Enabled,
-                wineWebView2SetupWindow?.IsOpen == true))
+                wineWebView2SetupWindow?.IsOpen == true || nativeLinuxBrowserSetupWindow?.IsOpen == true
+                    || nativeLinuxBrowserSetupWindow?.IsChecking == true))
         {
             firstRunGuideWindow.Show();
         }
@@ -200,17 +260,16 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnLogin()
     {
-        if (wineWebView2SetupWindow != null
-            && WineWebView2SetupWindow.ShouldOpenAutomatically(Configuration))
-        {
-            wineWebView2SetupWindow.IsOpen = true;
-        }
+        setupNativeSelection = null;
+        RefreshLinuxBrowserSetup();
     }
 
     private void OnLogout(int type, int code)
     {
         renderer.SuspendForLogout();
         wineWebView2SetupWindow?.IsOpen = false;
+        nativeLinuxBrowserSetupWindow?.Suspend();
+        setupNativeSelection = null;
         firstRunGuideWindow.Suspend();
         genericWebIpcApprovalWindow.Suspend();
     }

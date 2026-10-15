@@ -36,6 +36,8 @@ public sealed class WorldScreenManager : IDisposable
     public string LastDrawStatus { get; private set; } = "not drawn yet";
     public string LastGraphicsError { get; private set; } = "none recorded";
     public string SceneCompositeStatus => renderBackend?.SceneCompositeStatus ?? "CrystalRenderer is not initialized";
+    public ScreenOutputMode? EffectiveOutputMode { get; private set; }
+    public string? SceneCompositeFallbackReason => renderOutputPolicy.FallbackReason;
     public string SourceStatus => ActiveInstance?.SourceStatus ?? "no dynamic source";
     public string AudioStatus => ActiveInstance?.AudioStatus ?? "audio stopped";
     public string SourceName => ActiveInstance?.SourceName ?? "no source";
@@ -116,6 +118,9 @@ public sealed class WorldScreenManager : IDisposable
             catch (Exception ex)
             {
                 // The callback may leave resources unusable even without a device-loss HRESULT.
+                if (WineEnvironment.IsWine && configuration.EnableWineSceneComposite
+                    && !NativeGraphicsError.IsDeviceLost(ex))
+                    renderOutputPolicy.ReportSceneCompositeFailure();
                 HandleGraphicsFailure(ex);
                 return;
             }
@@ -370,7 +375,8 @@ public sealed class WorldScreenManager : IDisposable
                 MaxSurfaces = (Configuration.MaxActiveBrowserScreens * CurvedScreenTessellation.MaxSegments) + 1,
             });
             Status = "CrystalRenderer ready";
-            renderOutputPolicy.Reset();
+            EffectiveOutputMode = null;
+            renderOutputPolicy.ResetAfterGraphicsInitialization();
         }
         catch (Exception ex)
         {
@@ -406,6 +412,7 @@ public sealed class WorldScreenManager : IDisposable
 
     private void HandleGraphicsFailure(Exception exception)
     {
+        EffectiveOutputMode = null;
         var failure = NativeGraphicsError.IsDeviceLost(exception) ? "graphics device lost" : "render callback failed";
         LastDrawStatus = $"{failure}; retrying: {exception.GetBaseException().Message}";
         Status = failure;
@@ -612,16 +619,24 @@ public sealed class WorldScreenManager : IDisposable
     {
         var mode = renderOutputPolicy.Resolve(configuration.OutputMode, WineEnvironment.IsWine,
             (renderBackend?.IsSceneCompositeHookUnavailable ?? true),
-            (renderBackend?.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout) == true));
+            (renderBackend?.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout) == true),
+            configuration.EnableWineSceneComposite);
         if (mode != ScreenOutputMode.SceneComposite)
             renderBackend?.CancelSceneComposite(renderOutputPolicy.FallbackReason ?? "output layer changed");
-        return mode switch
+        var output = mode switch
         {
             ScreenOutputMode.NativeOverlay => (renderBackend?.IsNativeOverlayAvailable == true)
                 ? RenderOutput.NativeOverlay : RenderOutput.ImGuiOverlay,
             ScreenOutputMode.SceneComposite => RenderOutput.SceneComposite,
             _ => RenderOutput.ImGuiOverlay,
         };
+        EffectiveOutputMode = output switch
+        {
+            RenderOutput.SceneComposite => ScreenOutputMode.SceneComposite,
+            RenderOutput.NativeOverlay => ScreenOutputMode.NativeOverlay,
+            _ => ScreenOutputMode.ImGuiOverlay,
+        };
+        return output;
     }
 
     private static string DescribeDrawMode(RenderOutput output)

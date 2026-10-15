@@ -42,6 +42,7 @@ public class Configuration : IPluginConfiguration
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
     public ScreenOutputMode OutputMode { get; set; } = DefaultOutputMode;
+    public bool EnableWineSceneComposite { get; set; }
     public bool ShowDebugMarker { get; set; }
     public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }

@@ -43,7 +43,7 @@ For YouTube, use **Show browser controls** to open the interactive player and ch
 
 CrystalCast's intended Windows render output is CrystalRenderer `RenderOutput.SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
 
-On Windows, an unavailable scene-composite hook or a pending frame older than two seconds automatically selects the native overlay for the current graphics session. Diagnostics report the fallback reason. Switching output layers or reinitializing the graphics session allows another attempt. Wine uses the native overlay, including when an existing configuration selects scene compositing. ImGui output uses game-UI masking; masking remains approximate, especially around translucent UI.
+An unavailable scene-composite hook or a pending frame older than two seconds automatically selects the native overlay for the current graphics session. Diagnostics report the effective output layer and fallback reason. Switching output layers or reinitializing the graphics session allows another attempt. Wine defaults to native overlay, including when an existing configuration selects scene compositing. Linux users can explicitly opt into the experimental scene-composite trial described below. ImGui output uses game-UI masking; masking remains approximate, especially around translucent UI.
 
 Opaque screen pixels use per-pixel reverse-depth testing, so intersecting solid screens occlude one another correctly. Transparent pixels are drawn afterward without writing depth; intersections between translucent surfaces still use distance sorting. Camera state and scene depth are sampled at the composite pass. If scene depth is unavailable or its format cannot be sampled, world screens are skipped until depth becomes usable again.
 
@@ -65,6 +65,10 @@ WebView2 JPEG capture uses browser screenshot capture rather than a direct raw f
 Microsoft does not officially support WebView2 on Linux or Wine. CrystalCast detects Wine, disables Windows Graphics Capture, and uses JPEG capture only. If WebView2 is missing, first-time Wine users see a setup assistant with the command `WINEPREFIX="/path/to/your/ffxiv-wine-prefix" winetricks webview2`.
 
 Use a recent Winetricks release and install WebView2 into the exact Wine prefix that runs FFXIV. Check the generated prefix path before running the command and back up important prefixes first. This path is intentionally manual: CrystalCast does not download installers or modify a Wine prefix itself. Wine support remains experimental and is not yet tested on a real Linux installation.
+
+To try scene compositing under Wine, open **Settings > Rendering**, select **Scene composite**, and enable **Try experimental scene composite under Wine**. This uses the existing D3D11 renderer through the game's Wine graphics stack; it has not yet been validated in a Linux game session. Browser capture still uses WebView2 JPEG.
+
+Missing or stalled scene hooks fall back to native overlay (or ImGui if the native overlay is unavailable). A non-device-loss scene callback exception also disables the experimental path while graphics resources recover, preventing repeated failure/reinitialization loops. Switch output layers and back, or turn the experimental option off and on, to retry after a callback failure. Copy diagnostics to check the effective layer, fallback reason, hook activity, and scheduled/flushed frame counts. See the [Linux trial checklist](docs/RENDERING_VALIDATION.md#experimental-wine-scene-composite-trial).
 
 Each WebView2 screen serves its player from a unique immutable in-memory page resource. Browser controls and telemetry use per-screen WebMessages protected by an instance nonce, so concurrent screens cannot overwrite a shared page or accept another screen's messages. Browser initialization and capture are cancellation-driven; commands and disposal do not synchronously wait on the render or UI thread.
 

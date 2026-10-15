@@ -13,7 +13,7 @@ public sealed class ConfigWindow : Window, IDisposable
     [
         (ScreenOutputMode.ImGuiOverlay, "ImGui overlay"),
         (ScreenOutputMode.NativeOverlay, "Native overlay"),
-        (ScreenOutputMode.SceneComposite, "Scene composite (Windows only)"),
+        (ScreenOutputMode.SceneComposite, "Scene composite"),
     ];
 
     private static readonly string[] BrowserEngineNames =
@@ -139,6 +139,18 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         ImGui.TextDisabled(GetOutputModeDescription(config.OutputMode));
+        if (WineEnvironment.IsWine && config.OutputMode == ScreenOutputMode.SceneComposite)
+        {
+            var enableWineSceneComposite = config.EnableWineSceneComposite;
+            if (ImGui.Checkbox("Try experimental scene composite under Wine", ref enableWineSceneComposite))
+            {
+                config.EnableWineSceneComposite = enableWineSceneComposite;
+                changed = true;
+            }
+            ImGui.TextWrapped("Experimental and unverified on Linux. Falls back to overlay output if scene compositing fails or stops responding.");
+        }
+        if (config.OutputMode == ScreenOutputMode.SceneComposite && renderer.SceneCompositeFallbackReason is { } fallback)
+            ImGui.TextWrapped($"Using overlay output: {fallback}. Switch output layers and back to retry.");
         ImGui.TextDisabled("UI mask: disabled");
 
 #if DEBUG
@@ -353,7 +365,9 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         return outputMode switch
         {
-            ScreenOutputMode.SceneComposite => "Windows scene integration. Try another layer if output is invisible on this PC.",
+            ScreenOutputMode.SceneComposite => WineEnvironment.IsWine
+                ? "Draws into the game scene before native UI. Requires the experimental option below."
+                : "Draws into the game scene before native UI.",
             ScreenOutputMode.NativeOverlay => "Uses Dalamud's native overlay rendering path.",
             _ => "Compatibility path drawn through the plugin UI layer.",
         };

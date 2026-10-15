@@ -46,6 +46,10 @@ internal static class DiagnosticsReportBuilder
         Append(report, "Game viewport", $"{graphics.ViewportWidth} x {graphics.ViewportHeight}");
         Append(report, "Graphics query", graphics.Status);
         Append(report, "Configured output layer", DescribeOutputMode(configuration.OutputMode));
+        Append(report, "Experimental Wine scene composite", YesNo(configuration.EnableWineSceneComposite));
+        Append(report, "Effective output layer", renderer.EffectiveOutputMode is { } effectiveOutput
+            ? DescribeOutputMode(effectiveOutput) : "not selected");
+        Append(report, "Scene composite fallback", renderer.SceneCompositeFallbackReason ?? "none");
         Append(report, "Configured browser backend", configuration.YouTubeBrowserEngine);
         Append(report, "Resolved capture mode", DescribeCaptureMode(resolvedCaptureMode));
         Append(report, "GPU texture sampling", configuration.EnableGpuDiagnostics ? "enabled" : "disabled");

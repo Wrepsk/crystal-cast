@@ -72,6 +72,23 @@ public sealed class ScreenPipelineTests
     }
 
     [Fact]
+    public void StalledCompositeCanFallBackToOverlayWithoutReplayingIntoTheScene()
+    {
+        using var scene = new SoftwareScene();
+        using var pipeline = scene.CreatePipeline(() => scene.Frame);
+        pipeline.Submit(scene.RedScreen);
+        pipeline.Schedule();
+        pipeline.Cancel("scene composite timed out");
+        pipeline.Submit(scene.RedScreen);
+        Assert.Equal(0xFFFF0000u,
+            scene.ReadCenter(pipeline.Render(RenderOutput.NativeOverlay)!.ProcessedTexture));
+        pipeline.FlushSceneComposite();
+        pipeline.Failures.ThrowIfFailed();
+        Assert.False(pipeline.Pending);
+        Assert.Equal(0u, scene.ReadCenter(scene.BackBuffer));
+    }
+
+    [Fact]
     public void ImGuiOutputMasksOpaqueGameUi()
     {
         using var scene = new SoftwareScene();

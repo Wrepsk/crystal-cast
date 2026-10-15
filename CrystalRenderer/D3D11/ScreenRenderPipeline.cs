@@ -15,6 +15,7 @@ internal sealed class ScreenRenderPipeline : IDisposable
     private readonly FullScreenPass composite;
     private readonly DepthStencilState shapeState;
     private readonly UIMaskCapture? hook;
+    private readonly string? hookError;
     private readonly DeferredFrameTracker frames = new();
     private RenderTarget? target;
     private bool disposed;
@@ -31,6 +32,7 @@ internal sealed class ScreenRenderPipeline : IDisposable
         }
         catch (Exception ex)
         {
+            hookError = ex.GetBaseException().Message;
             log.Warning(ex, "CrystalRenderer scene hook unavailable; native output remains available.");
         }
     }
@@ -67,7 +69,9 @@ internal sealed class ScreenRenderPipeline : IDisposable
                 return $"scene composite {(frames.HasWork ? $"pending for {frames.PendingMilliseconds} ms" : "not pending")}; "
                     + $"scheduled {frames.ScheduledCount}; flushed {frames.FlushedCount}; "
                     + $"hook {(HookUnavailable ? "unavailable" : "installed")}; calls {hook?.HookCallCount ?? 0}; "
-                    + $"backbuffer binds {hook?.BackbufferBindCount ?? 0}; relaxed flushes {hook?.DsvlessBackbufferCallbackCount ?? 0}";
+                    + $"backbuffer binds {hook?.BackbufferBindCount ?? 0}; scene-stage binds {hook?.BackbufferDsvBindCount ?? 0}; "
+                    + $"relaxed flushes {hook?.DsvlessBackbufferCallbackCount ?? 0}; "
+                    + $"hook error {hook?.HookError ?? hookError ?? "none"}";
         }
     }
 

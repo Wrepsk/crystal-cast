@@ -49,4 +49,91 @@ public sealed class RenderOutputPolicyTests
             policy.Resolve(ScreenOutputMode.SceneComposite, false, false, false));
         Assert.Null(policy.FallbackReason);
     }
+
+    [Fact]
+    public void WineCanExplicitlyTryHealthySceneOutput()
+    {
+        var policy = new RenderOutputPolicy();
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false));
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, enableWineSceneComposite: true));
+        Assert.Null(policy.FallbackReason);
+    }
+
+    [Theory]
+    [InlineData(true, false, "scene composite hook unavailable")]
+    [InlineData(false, true, "scene composite timed out")]
+    public void WineOptInRetainsHookAndTimeoutFallback(bool unavailable, bool stalled, string reason)
+    {
+        var policy = new RenderOutputPolicy();
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, unavailable, stalled, true));
+        Assert.Equal(reason, policy.FallbackReason);
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+        policy.ResetAfterGraphicsInitialization();
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+    }
+
+    [Fact]
+    public void DisablingWineOptInStopsSceneOutputAndReenablingAllowsRetry()
+    {
+        var policy = new RenderOutputPolicy();
+        policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true);
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, false));
+        Assert.Equal("experimental Wine scene compositing is not enabled", policy.FallbackReason);
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+    }
+
+    [Fact]
+    public void CallbackFailureDoesNotLoopAfterGraphicsRecovery()
+    {
+        var policy = new RenderOutputPolicy();
+        policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true);
+        policy.ReportSceneCompositeFailure();
+        policy.ResetAfterGraphicsInitialization();
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+        Assert.Equal("scene composite callback failed", policy.FallbackReason);
+
+        policy.Resolve(ScreenOutputMode.NativeOverlay, true, false, false, true);
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+        Assert.Null(policy.FallbackReason);
+    }
+
+    [Fact]
+    public void CallbackFailureCanBeRetriedByTogglingWineOptIn()
+    {
+        var policy = new RenderOutputPolicy();
+        policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true);
+        policy.ReportSceneCompositeFailure();
+        policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, false);
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, true, false, false, true));
+    }
+
+    [Fact]
+    public void OverlayFailureDoesNotDisableSceneOutput()
+    {
+        var policy = new RenderOutputPolicy();
+        policy.Resolve(ScreenOutputMode.NativeOverlay, true, false, false, true);
+        policy.ReportSceneCompositeFailure();
+        Assert.Null(policy.FallbackReason);
+    }
+
+    [Fact]
+    public void WineOptionHasNoEffectOnWindowsOutputOrItsLatchedFallback()
+    {
+        var policy = new RenderOutputPolicy();
+        Assert.Equal(ScreenOutputMode.SceneComposite,
+            policy.Resolve(ScreenOutputMode.SceneComposite, false, false, false, true));
+        policy.Resolve(ScreenOutputMode.SceneComposite, false, false, true, true);
+        Assert.Equal(ScreenOutputMode.NativeOverlay,
+            policy.Resolve(ScreenOutputMode.SceneComposite, false, false, false, false));
+    }
 }

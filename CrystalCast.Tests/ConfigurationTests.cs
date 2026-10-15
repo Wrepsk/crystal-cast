@@ -3,6 +3,21 @@ namespace CrystalCast.Tests;
 public sealed class ConfigurationTests
 {
     [Fact]
+    public void ExistingSceneOutputRequiresSeparateWineOptIn()
+    {
+        var configuration = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"Version\":3,\"OutputMode\":2}")!;
+        configuration.Normalize();
+        Assert.Equal(ScreenOutputMode.SceneComposite, configuration.OutputMode);
+        Assert.False(configuration.EnableWineSceneComposite);
+
+        configuration.EnableWineSceneComposite = true;
+        var restored = System.Text.Json.JsonSerializer.Deserialize<Configuration>(
+            System.Text.Json.JsonSerializer.Serialize(configuration))!;
+        restored.Normalize();
+        Assert.True(restored.EnableWineSceneComposite);
+    }
+
+    [Fact]
     public void NewConfigurationNormalizesToBrowserMode()
     {
         var configuration = new Configuration();

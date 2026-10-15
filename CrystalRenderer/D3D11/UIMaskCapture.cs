@@ -46,7 +46,8 @@ internal unsafe class UIMaskCapture : IDisposable
 
     public ShaderResourceView? MaskSRV => _maskSRV;
     public bool HasSnapshot => _snapshot != null;
-    public bool IsHookInstalled => _hook != null;
+    public bool IsHookInstalled => _hook != null && HookError == null;
+    public string? HookError { get; }
     public long HookCallCount => Interlocked.Read(ref _hookCallCount);
     public long BackbufferBindCount => Interlocked.Read(ref _backbufferBindCount);
     public long BackbufferDsvBindCount => Interlocked.Read(ref _backbufferDsvBindCount);
@@ -144,12 +145,13 @@ internal unsafe class UIMaskCapture : IDisposable
         {
             nint contextPtr = _ctx.Device.ImmediateContext.NativePointer;
             nint vtable = Marshal.ReadIntPtr(contextPtr);
-            nint omSetPtr = Marshal.ReadIntPtr(vtable, 33 * nint.Size);
+            nint omSetPtr = Marshal.ReadIntPtr(vtable, OMSetRenderTargetsVTableIndex * nint.Size);
             _hook = hookProvider.HookFromAddress<OMSetRenderTargetsDelegate>(omSetPtr, OMSetRenderTargetsDetour);
             _hook.Enable();
         }
         catch (Exception e)
         {
+            HookError = e.GetBaseException().Message;
             _ctx.Log?.Error(e, "[CrystalRenderer] UIMaskCapture: failed to install OMSetRenderTargets hook.");
         }
     }

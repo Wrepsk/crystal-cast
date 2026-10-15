@@ -99,16 +99,6 @@
           "SharpDX": "4.2.0"
         }
       },
-      "SharpDX.Direct2D1": {
-        "type": "Transitive",
-        "resolved": "4.2.0",
-        "contentHash": "Qs8LzDMaQf1u3KB8ArHu9pDv6itZ++QXs99a/bVAG+nKr0Hx5NG4mcN5vsfE0mVR2TkeHfeUm4PksRah6VUPtA==",
-        "dependencies": {
-          "NETStandard.Library": "1.6.1",
-          "SharpDX": "4.2.0",
-          "SharpDX.DXGI": "4.2.0"
-        }
-      },
       "SharpDX.Direct3D11": {
         "type": "Transitive",
         "resolved": "4.2.0",
@@ -137,12 +127,11 @@
           "SharpDX": "4.2.0"
         }
       },
-      "pictomancy": {
+      "crystalrenderer": {
         "type": "Project",
         "dependencies": {
           "KamiToolKit": "[1.1.2, )",
           "SharpDX.D3DCompiler": "[4.2.0, )",
-          "SharpDX.Direct2D1": "[4.2.0, )",
           "SharpDX.Direct3D11": "[4.2.0, )",
           "SharpDX.Mathematics": "[4.2.0, )"
         }

@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
-using Pictomancy.DXDraw;
+using CrystalRenderer.D3D11;
 
-namespace CrystalCast.Tests;
+namespace CrystalRenderer.Tests;
 
 public sealed class ComResourceIdentityTests
 {

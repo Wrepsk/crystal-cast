@@ -1,8 +1,8 @@
-using Pictomancy.DXDraw;
+using CrystalRenderer.D3D11;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 
-namespace CrystalCast.Tests;
+namespace CrystalRenderer.Tests;
 
 public sealed class ScreenDepthPolicyTests
 {

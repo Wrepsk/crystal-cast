@@ -1,18 +1,18 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
-using Pictomancy;
-using Pictomancy.DXDraw;
+using CrystalRenderer;
+using CrystalRenderer.D3D11;
 using SharpDX;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 using Vector2 = System.Numerics.Vector2;
 using Vector3 = System.Numerics.Vector3;
-using ScreenImage = Pictomancy.DXDraw.Image;
+using ScreenImage = CrystalRenderer.D3D11.ScreenImage;
 using D3DDevice = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 
-namespace CrystalCast.Tests;
+namespace CrystalRenderer.Tests;
 
 // Render actual screen shaders using Windows' software D3D11 device; no game or GPU is needed.
 public sealed class ScreenImageRenderingTests
@@ -115,7 +115,7 @@ public sealed class ScreenImageRenderingTests
                 var view = new ShaderResourceView(device, texture);
                 views.Add(view);
                 image.Add(view.NativePointer, panel.Center, panel.Right, new Vector3(0, -2, 0),
-                    Vector2.Zero, Vector2.One, new PctDxParams
+                    Vector2.Zero, Vector2.One, new ScreenAppearance
                     {
                         OccludedAlpha = 0, OcclusionTolerance = 0.001f,
                         FadeStart = float.PositiveInfinity, FadeStop = float.PositiveInfinity,

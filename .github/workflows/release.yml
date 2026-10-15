@@ -19,10 +19,9 @@ jobs:
             throw "Release tags must contain only a numeric version, for example 0.6.0."
           }
 
-      - name: Check out repository and submodules
+      - name: Check out repository
         uses: actions/checkout@v5
         with:
-          submodules: recursive
           fetch-depth: 0
 
       - name: Install .NET SDK
@@ -33,7 +32,8 @@ jobs:
           cache-dependency-path: |
             CrystalCast/packages.lock.json
             CrystalCast.Tests/packages.lock.json
-            ThirdParty/ffxiv_pictomancy/Pictomancy/packages.lock.json
+            CrystalRenderer/packages.lock.json
+            CrystalRenderer.Tests/packages.lock.json
 
       - name: Install Dalamud development files
         shell: pwsh
@@ -44,17 +44,11 @@ jobs:
       - name: Restore locked dependencies
         run: dotnet restore CrystalCast.sln --locked-mode -p:Platform=x64
 
-      - name: Build pinned Pictomancy source
-        run: dotnet build ThirdParty/ffxiv_pictomancy/Pictomancy/Pictomancy.csproj --configuration Release --no-restore -p:Platform=x64 -p:RunAnalyzers=false
-
-      - name: Build CrystalCast and run analyzers
-        run: dotnet build CrystalCast/CrystalCast.csproj --configuration Release --no-restore --no-dependencies -p:Platform=x64 -p:RunAnalyzers=true
-
-      - name: Build tests and run analyzers
-        run: dotnet build CrystalCast.Tests/CrystalCast.Tests.csproj --configuration Release --no-restore --no-dependencies -p:Platform=x64 -p:RunAnalyzers=true
+      - name: Build plugin, renderer, and tests with analyzers
+        run: dotnet build CrystalCast.sln --configuration Release --no-restore -p:Platform=x64 -p:RunAnalyzers=true
 
       - name: Run tests
-        run: dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj --configuration Release --no-build --no-restore -p:Platform=x64
+        run: dotnet test CrystalCast.sln --configuration Release --no-build --no-restore -p:Platform=x64
 
       - name: Verify package and version
         shell: pwsh

@@ -14,6 +14,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Changed
 
+- Migrated the screen renderer into the in-repository CrystalRenderer library behind an instance-based backend/frame API, with its own test project and no dependency on CrystalCast media state.
+- Removed the Pictomancy submodule and its build/runtime dependency, excluding unused general-shape, decal, and VFX rendering paths; retained source attribution and license text.
+- Preserved existing dependency versions, and documented ImageSharp's direct JPEG-decoding use, KamiToolKit transitive use, and current audit failures for separate follow-up.
+
 - Removed local-file playback and FFmpeg support; CrystalCast is browser-only.
 - Removed the legacy embedded browser runtime and standardized browser playback on WebView2.
 - Refactored provider registration, browser lifecycle ownership, native capture, rendering, and IPC responsibilities.

@@ -1,0 +1,205 @@
+// Derived from Pictomancy (sourpuh and contributors), AGPL-3.0-or-later.
+// See LICENSE.Pictomancy and THIRD_PARTY_NOTICES.md.
+using SharpDX.Direct3D11;
+using Format = SharpDX.DXGI.Format;
+
+namespace CrystalRenderer.D3D11;
+
+internal class RenderTarget : IDisposable
+{
+    public SharpDX.Vector2 Size { get; private set; }
+    public uint Width => (uint)Size.X;
+    public uint Height => (uint)Size.Y;
+
+    private readonly Texture2D _baseRT;
+    private readonly RenderTargetView _baseRTV;
+    private readonly ShaderResourceView _baseSRV;
+
+    private readonly Texture2D _processedRT;
+    private readonly RenderTargetView _processedRTV;
+    private readonly ShaderResourceView _processedSRV;
+
+    private Texture2D? _backBufferCopy;
+    private ShaderResourceView? _backBufferSRV;
+
+    // Local depth-stencil at viewport size, used as a stencil-only DSV for clip-zone masking.
+    private readonly Texture2D _clipStencil;
+    private readonly DepthStencilView _clipStencilDSV;
+    internal DepthStencilView ClipStencilDSV => _clipStencilDSV;
+    internal RenderTargetView BaseRTV => _baseRTV;
+
+    private readonly BlendState _defaultBlendState;
+
+    public nint ImguiHandle => _processedSRV.NativePointer;
+
+    /// <summary>
+    /// The processed texture for use with the overlay system.
+    /// </summary>
+    public Texture2D ProcessedTexture => _processedRT;
+    /// <summary>
+    /// The processed SRV for use with the overlay system.
+    /// </summary>
+    public ShaderResourceView ProcessedSRV => _processedSRV;
+
+    public RenderTarget(RenderContext ctx, int width, int height, AlphaBlendMode blendMode)
+    {
+        try
+        {
+            Size = new(width, height);
+            var desc = new Texture2DDescription()
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                CpuAccessFlags = CpuAccessFlags.None,
+                OptionFlags = ResourceOptionFlags.None
+            };
+
+            _baseRT = new(ctx.Device, desc);
+            _baseRTV = new(ctx.Device, _baseRT);
+            _baseSRV = new(ctx.Device, _baseRT);
+
+            _processedRT = new(ctx.Device, desc);
+            _processedRTV = new(ctx.Device, _processedRT);
+            _processedSRV = new(ctx.Device, _processedRT);
+
+            var depthDesc = new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.R24G8_Typeless,
+                SampleDescription = new(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.DepthStencil,
+                CpuAccessFlags = CpuAccessFlags.None,
+                OptionFlags = ResourceOptionFlags.None
+            };
+            _clipStencil = new(ctx.Device, depthDesc);
+            var dsvDesc = new DepthStencilViewDescription
+            {
+                Format = Format.D24_UNorm_S8_UInt,
+                Dimension = DepthStencilViewDimension.Texture2D,
+            };
+            dsvDesc.Texture2D.MipSlice = 0;
+            _clipStencilDSV = new(ctx.Device, _clipStencil, dsvDesc);
+
+            var blendDescription = BlendStateDescription.Default();
+            if (blendMode != AlphaBlendMode.None)
+            {
+                blendDescription.RenderTarget[0].IsBlendEnabled = true;
+                blendDescription.RenderTarget[0].SourceBlend = BlendOption.SourceAlpha;
+                blendDescription.RenderTarget[0].DestinationBlend = BlendOption.InverseSourceAlpha;
+                blendDescription.RenderTarget[0].BlendOperation = BlendOperation.Add;
+                blendDescription.RenderTarget[0].SourceAlphaBlend = BlendOption.One;
+                blendDescription.RenderTarget[0].DestinationAlphaBlend = BlendOption.InverseSourceAlpha;
+
+                if (blendMode == AlphaBlendMode.Add) blendDescription.RenderTarget[0].AlphaBlendOperation = BlendOperation.Add;
+                else if (blendMode == AlphaBlendMode.Max) blendDescription.RenderTarget[0].AlphaBlendOperation = BlendOperation.Maximum;
+
+                blendDescription.RenderTarget[0].RenderTargetWriteMask = ColorWriteMaskFlags.All;
+            }
+            _defaultBlendState = new(ctx.Device, blendDescription);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+    }
+
+    public void Bind(RenderContext ctx)
+    {
+        ctx.Context.ClearRenderTargetView(_baseRTV, new());
+        ctx.Context.Rasterizer.SetViewport(0, 0, Size.X, Size.Y);
+        ctx.Context.OutputMerger.SetBlendState(_defaultBlendState);
+        ctx.Context.OutputMerger.SetTargets(_baseRTV);
+    }
+
+    public void ExecuteFSP(RenderContext ctx, Texture2D backBuffer, FullScreenPass fsp, ShaderResourceView? overrideMaskSRV = null)
+    {
+        if (overrideMaskSRV == null)
+        {
+            ValidateBackBufferResources(ctx.Device, backBuffer.Description);
+            ctx.Context.CopyResource(backBuffer, _backBufferCopy);
+        }
+
+        using var localBlend = new BlendState(ctx.Device, BlendStateDescription.Default());
+        ctx.Context.OutputMerger.SetBlendState(localBlend);
+
+        ctx.Context.ClearRenderTargetView(_processedRTV, new());
+        ctx.Context.OutputMerger.SetTargets(_processedRTV);
+
+        fsp.Draw(ctx, _baseSRV, overrideMaskSRV ?? _backBufferSRV!);
+    }
+
+    public void ExecuteFSPToBackBuffer(RenderContext ctx, Texture2D backBuffer, FullScreenPass fsp)
+    {
+        var desc = backBuffer.Description;
+        using var backBufferRTV = new RenderTargetView(ctx.Device, backBuffer);
+        using var blend = new BlendState(ctx.Device, CreateCompositeBlendDescription());
+
+        ctx.Context.OutputMerger.SetBlendState(blend);
+        ctx.Context.OutputMerger.SetTargets(backBufferRTV);
+        ctx.Context.Rasterizer.SetViewport(0, 0, desc.Width, desc.Height);
+
+        fsp.Draw(ctx, _baseSRV, _baseSRV);
+    }
+
+    private static BlendStateDescription CreateCompositeBlendDescription()
+    {
+        var blendDescription = BlendStateDescription.Default();
+        blendDescription.RenderTarget[0].IsBlendEnabled = true;
+        blendDescription.RenderTarget[0].SourceBlend = BlendOption.SourceAlpha;
+        blendDescription.RenderTarget[0].DestinationBlend = BlendOption.InverseSourceAlpha;
+        blendDescription.RenderTarget[0].BlendOperation = BlendOperation.Add;
+        blendDescription.RenderTarget[0].SourceAlphaBlend = BlendOption.One;
+        blendDescription.RenderTarget[0].DestinationAlphaBlend = BlendOption.InverseSourceAlpha;
+        blendDescription.RenderTarget[0].AlphaBlendOperation = BlendOperation.Add;
+        blendDescription.RenderTarget[0].RenderTargetWriteMask = ColorWriteMaskFlags.All;
+        return blendDescription;
+    }
+
+    private void ValidateBackBufferResources(Device device, Texture2DDescription backBufferDesc)
+    {
+        if (_backBufferCopy == null ||
+            _backBufferCopy.Description.Width != backBufferDesc.Width ||
+            _backBufferCopy.Description.Height != backBufferDesc.Height ||
+            _backBufferCopy.Description.Format != backBufferDesc.Format.ToUNorm())
+        {
+            _backBufferCopy?.Dispose();
+            _backBufferSRV?.Dispose();
+
+            var copyDesc = backBufferDesc;
+            copyDesc.BindFlags = BindFlags.ShaderResource;
+            copyDesc.Format = copyDesc.Format.ToUNorm();
+            _backBufferCopy = new Texture2D(device, copyDesc);
+            _backBufferSRV = new ShaderResourceView(device, _backBufferCopy);
+        }
+    }
+
+    public void Dispose()
+    {
+        _baseRT?.Dispose();
+        _baseRTV?.Dispose();
+        _baseSRV?.Dispose();
+
+        _processedRT?.Dispose();
+        _processedRTV?.Dispose();
+        _processedSRV?.Dispose();
+
+        _clipStencil?.Dispose();
+        _clipStencilDSV?.Dispose();
+
+        _backBufferCopy?.Dispose();
+        _backBufferSRV?.Dispose();
+
+        _defaultBlendState?.Dispose();
+    }
+}

@@ -2,38 +2,32 @@
 
 CrystalCast is a Dalamud API 15 plugin for rendering local world-space browser screens in FFXIV.
 
-It uses a pinned source checkout of [Pictomancy](https://github.com/sourpuh/ffxiv_pictomancy) and draws media through `AutoDraw.SceneComposite` with scene-depth occlusion. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through WebView2.
+It uses the in-repository [CrystalRenderer](CrystalRenderer/README.md) library to draw world-space screen surfaces with scene-depth occlusion. CrystalRenderer extracts the screen-focused implementation from the CrystalCast-specific Pictomancy fork; Pictomancy is no longer built or packaged. YouTube, Twitch, Dailymotion, Vimeo, and Generic Web screens are captured through WebView2.
 
 CrystalCast does not download or extract streaming media. Browser sources load the provider's embedded player locally and capture the resulting browser pixels for the world-space renderer.
 
 ## Build
 
-The repository pins its .NET SDK in `global.json`. A current Dalamud development installation is also required.
+The repository pins its .NET SDK in `global.json`. A current Dalamud development installation is also required. The existing ImageSharp audit issue can block an audited restore; see [dependency audit findings](docs/DEPENDENCY_AUDIT.md).
 
-1. Clone submodules:
-
-   ```powershell
-   git submodule update --init --recursive
-   ```
-
-2. Restore locked dependencies and build the solution:
+1. Restore locked dependencies and build the solution:
 
    ```powershell
    dotnet restore CrystalCast.sln --locked-mode -p:Platform=x64
    dotnet build CrystalCast.sln -c Debug --no-restore -p:Platform=x64
    ```
 
-3. Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud dev plugin.
+2. Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud dev plugin.
 
 ## Tests
 
 The browser-only model, migration, provider URL parsers, source-kind compatibility, screen and runtime budgets, IPC change filtering, remote-state sequencing, browser factory mapping, page isolation, lifecycle races, pooled-frame leases, adaptive tessellation, native graphics error classification, and placement-prediction resets are covered by the xUnit test project:
 
 ```powershell
-dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
+dotnet test CrystalCast.sln -c Debug -p:Platform=x64
 ```
 
-The browser tests use an injected frame-source factory and do not start WebView2 or Windows Graphics Capture. Rendering regressions cover output fallback, deferred-error delivery, COM resource identity, depth-state and format policies, and HLSL compilation with the Windows shader compiler. Pixel-level tests render crossing, transparent, and translucent screens using Windows' software D3D11 (WARP) device; they do not require FFXIV or a physical GPU.
+CrystalCast.Tests covers media/plugin behavior; CrystalRenderer.Tests covers the extracted renderer. The browser tests use an injected frame-source factory and do not start WebView2 or Windows Graphics Capture. Rendering regressions cover output fallback, deferred-error delivery, COM resource identity, depth-state and format policies, and HLSL compilation with the Windows shader compiler. Pixel-level tests render crossing, transparent, and translucent screens using Windows' software D3D11 (WARP) device; they do not require FFXIV or a physical GPU.
 
 Pull requests and pushes to `master` build and test both Debug and Release configurations. Release builds produce `CrystalCast/bin/x64/Release/CrystalCast/latest.zip`; CI verifies its exact runtime contents and generated manifest before uploading it.
 
@@ -47,7 +41,7 @@ Browser screens currently support YouTube, Twitch, Dailymotion, Vimeo, and Gener
 
 For YouTube, use **Show browser controls** to open the interactive player and change captions, playback quality, playback speed, and other YouTube settings. YouTube no longer exposes programmatic quality selection through the IFrame API, so quality changes use YouTube's own settings menu.
 
-CrystalCast's intended render output is Pictomancy `SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
+CrystalCast's intended Windows render output is CrystalRenderer `RenderOutput.SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
 
 On Windows, an unavailable scene-composite hook or a pending frame older than two seconds automatically selects the native overlay for the current graphics session. Diagnostics report the fallback reason. Switching output layers or reinitializing the graphics session allows another attempt. Wine uses the native overlay, including when an existing configuration selects scene compositing. ImGui output uses game-UI masking; masking remains approximate, especially around translucent UI.
 
@@ -136,4 +130,4 @@ Configurations created before browser-only version 2 are migrated automatically.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release instructions, [CHANGELOG.md](CHANGELOG.md) for notable changes, [SECURITY.md](SECURITY.md) for vulnerability reporting and security boundaries, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency provenance.
 
-The Pictomancy submodule intentionally points to a pinned CrystalCast-specific fork derived from the upstream Pictomancy project. Tagged numeric versions trigger a Release build, tests, manifest/package verification, and GitHub Release publication.
+CrystalRenderer lives beside CrystalCast as a separate library and test project. Its source is included directly in this repository. See [renderer architecture](CrystalRenderer/README.md) and [existing ImageSharp audit findings](docs/DEPENDENCY_AUDIT.md). Tagged numeric versions trigger a Release build, tests, manifest/package verification, and GitHub Release publication.

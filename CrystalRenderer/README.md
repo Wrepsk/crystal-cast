@@ -1,0 +1,41 @@
+# CrystalRenderer
+
+CrystalRenderer is a screen-focused rendering library in the CrystalCast repository. CrystalCast references this project; the renderer has no dependency on CrystalCast, browser providers, playback, audio, configuration, or IPC.
+
+The first migration extracts the tested screen-rendering subset from the CrystalCast-specific Pictomancy fork at `ed205c725fe1d17124480823eac7affaccd669ee`. It reuses that implementation's shaders, D3D11 resource handling, scene-depth occlusion, UI masks, and native-overlay bridge. General shapes, scene decals, VFX, and the Pictomancy static service/draw-list API are excluded. The original submodule has been removed; source provenance and license text remain in this repository.
+
+## Host API
+
+- `IScreenRenderBackend` owns render resources and output integration.
+- `DalamudScreenRenderer` supplies FFXIV/Dalamud integration through instance-owned services.
+- `IScreenRenderFrame` accepts immutable `ScreenSurface` submissions and completes or cancels a frame exactly once.
+- `ScreenSurface` contains a D3D11 shader-resource-view pointer, world-space center, full-width/full-height axes, UV coordinates, and `ScreenAppearance`.
+- `RenderOutput` selects scene compositing, native overlay, or ImGui output. Output selection and compatibility fallback policy belong to the host.
+
+Create one backend per plugin, on the host's render/UI thread after character login:
+
+```csharp
+var renderer = new DalamudScreenRenderer(pluginInterface,
+    new ScreenRendererOptions { MaxSurfaces = 256 });
+
+// Inside the host's draw callback:
+using var frame = renderer.BeginFrame(RenderOutput.NativeOverlay);
+frame?.Submit(new ScreenSurface(shaderResourceViewPointer, center,
+    rightAxis * width, downAxis * height, new ScreenAppearance()));
+```
+
+Keep the original texture valid until `Submit` returns. Submission retains its shader-resource view for deferred rendering; the host continues to own its original wrapper. The renderer cache releases unused texture views after 120 rendered frames, or when the backend is disposed. Call `Cancel()` on a frame whose submissions must not render. Dispose the backend before unloading the plugin.
+
+The host must poll `ThrowIfRenderFailed()` before preparing its next frame so callback failures reach managed graphics recovery. Check pending/stalled scene-frame diagnostics before updating media textures; cancel pending compositing before switching output layers. CrystalCast's adapter implements this sequence and its Wine/native fallback policy.
+
+`D3D11/` owns the screen batch, render targets, depth views, compositing, and hook scheduling. `Integration/` contains FFXIV scene capture and the KamiToolKit native overlay. Per-frame camera, viewport, and depth pointers are captured together at the pass that consumes them. Scene-frame timeouts use a monotonic clock.
+
+## Validation and next steps
+
+`CrystalRenderer.Tests` has no CrystalCast project reference. Tests cover the host contract, frame lifecycle/capacity, geometry validation, deferred scheduling, COM identity, depth formats, shader compilation, and software D3D11 pixel output. Test injected scene capture also verifies compositing and missing-depth recovery without FFXIV.
+
+Live validation of FFXIV render timing and Windows/Wine graphics drivers remains necessary; see `../docs/RENDERING_VALIDATION.md`. This migration preserves the current transparency model: opaque intersections use depth testing; intersecting translucent surfaces still use distance sorting. SharpDX and KamiToolKit remain at their existing versions. Possible later work includes explicit texture leases, a fuller game-device abstraction, more precise translucent ordering, and replacement of the native overlay bridge.
+
+## Attribution
+
+Ported files retain Pictomancy attribution. See `LICENSE.Pictomancy` for the AGPL-3.0 license text and `../THIRD_PARTY_NOTICES.md` for provenance. This is a focused derivative implementation, not an independent reimplementation from scratch.

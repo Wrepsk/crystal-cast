@@ -1,7 +1,7 @@
-using CrystalCast.Rendering;
-using Pictomancy.DXDraw;
+using System.Runtime.InteropServices;
+using CrystalRenderer.D3D11;
 
-namespace CrystalCast.Tests;
+namespace CrystalRenderer.Tests;
 
 public sealed class RenderFailureMailboxTests
 {
@@ -9,11 +9,11 @@ public sealed class RenderFailureMailboxTests
     public void CallbackDeviceLossReachesManagedRecoveryOnceWithItsOriginalHResult()
     {
         var mailbox = new RenderFailureMailbox();
-        var failure = NativeGraphicsError.FromHResult(unchecked((int)0x887A0005));
+        var failure = new COMException("Device removed", unchecked((int)0x887A0005));
         mailbox.Report(failure);
         var received = Record.Exception(mailbox.ThrowIfFailed);
         Assert.Same(failure, received);
-        Assert.True(NativeGraphicsError.IsDeviceLost(received!));
+        Assert.Equal(unchecked((int)0x887A0005), received!.HResult);
         mailbox.ThrowIfFailed();
     }
 

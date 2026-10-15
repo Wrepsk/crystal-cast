@@ -3,13 +3,13 @@
     "Name": "Crystal Cast",
     "InternalName": "CrystalCast",
     "AssemblyVersion": "0.7.0.0",
-    "Description": "Renders browser media on configurable world-space screens through Pictomancy. Use /crystalcast to manage screens, sources, playback, and state-only sync IPC.",
+    "Description": "Renders browser media on configurable world-space screens through CrystalRenderer. Use /crystalcast to manage screens, sources, playback, and state-only sync IPC.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Wrepsk/crystal-cast",
     "Tags": [
         "video",
         "world-space",
-        "pictomancy"
+        "crystalrenderer"
     ],
     "DalamudApiLevel": 15,
     "LoadRequiredState": 0,

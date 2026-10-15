@@ -1,7 +1,7 @@
 using SharpDX.D3DCompiler;
-using ScreenImage = Pictomancy.DXDraw.Image;
+using ScreenImage = CrystalRenderer.D3D11.ScreenImage;
 
-namespace CrystalCast.Tests;
+namespace CrystalRenderer.Tests;
 
 public sealed class ScreenImageShaderTests
 {

@@ -6,10 +6,10 @@ CrystalCast is a Windows-targeted Dalamud plugin. Contributions should preserve 
 
 1. Install the .NET SDK selected by `global.json`.
 2. Install or update Dalamud through XIVLauncher so its development assemblies exist under the normal Dalamud development path.
-3. Clone the repository with its pinned submodule:
+3. Clone the repository (the renderer source is included directly):
 
    ```powershell
-   git clone --recurse-submodules https://github.com/Wrepsk/crystal-cast.git
+   git clone https://github.com/Wrepsk/crystal-cast.git
    cd crystal-cast
    ```
 
@@ -18,7 +18,7 @@ CrystalCast is a Windows-targeted Dalamud plugin. Contributions should preserve 
    ```powershell
    dotnet restore CrystalCast.sln --locked-mode -p:Platform=x64
    dotnet build CrystalCast.sln -c Debug --no-restore -p:Platform=x64
-   dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug --no-build --no-restore -p:Platform=x64
+   dotnet test CrystalCast.sln -c Debug --no-build --no-restore -p:Platform=x64
    ```
 
 Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud development plugin for manual testing.
@@ -32,7 +32,7 @@ Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud development plugin 
 - Update `CHANGELOG.md` for user-visible changes.
 - If dependencies change, run `dotnet restore CrystalCast.sln --force-evaluate` and commit the updated lock files.
 
-CI runs the SDK's default analyzers and treats warnings in CrystalCast and its tests as errors. The pinned Pictomancy project is built as a separate project so its upstream diagnostics are not promoted by CrystalCast's warning policy.
+CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers and warnings-as-errors. CrystalRenderer owns graphics and FFXIV output integration; keep browser/provider, audio, configuration, and IPC types out of its public API. Existing ImageSharp audit failures are documented in `docs/DEPENDENCY_AUDIT.md` and are not suppressed by this migration.
 
 ## Release process
 

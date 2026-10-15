@@ -2,7 +2,8 @@ using System.Numerics;
 using CrystalCast.Sync;
 using CrystalCast.Video;
 using Dalamud.Interface.Textures.TextureWraps;
-using Pictomancy;
+using CrystalRenderer;
+using Dalamud.Bindings.ImGui;
 
 namespace CrystalCast.Rendering;
 
@@ -15,7 +16,7 @@ public sealed class WorldScreenManager : IDisposable
     private readonly Configuration configuration;
     private readonly CrystalCastServices services;
     private readonly Dictionary<string, WorldScreenInstance> browserScreens = new(StringComparer.Ordinal);
-    private PctContext? pictomancyContext;
+    private IScreenRenderBackend? renderBackend;
     private long lastGraphicsInitializationAttemptUnixMs;
     private long lastGlobalDrawErrorUnixMs;
     private readonly RenderOutputPolicy renderOutputPolicy = new();
@@ -26,7 +27,7 @@ public sealed class WorldScreenManager : IDisposable
         this.services = services;
 
         if (ClientRuntimePolicy.CanStart(services.ClientState.IsLoggedIn))
-            TryInitializePictomancy(force: true);
+            TryInitializeRenderer(force: true);
         else
             Status = "waiting for character login";
     }
@@ -34,7 +35,7 @@ public sealed class WorldScreenManager : IDisposable
     public string Status { get; private set; } = "not initialized";
     public string LastDrawStatus { get; private set; } = "not drawn yet";
     public string LastGraphicsError { get; private set; } = "none recorded";
-    public string SceneCompositeStatus => PctService.SceneCompositeStatus;
+    public string SceneCompositeStatus => renderBackend?.SceneCompositeStatus ?? "CrystalRenderer is not initialized";
     public string SourceStatus => ActiveInstance?.SourceStatus ?? "no dynamic source";
     public string AudioStatus => ActiveInstance?.AudioStatus ?? "audio stopped";
     public string SourceName => ActiveInstance?.SourceName ?? "no source";
@@ -85,14 +86,14 @@ public sealed class WorldScreenManager : IDisposable
 
         SyncBrowserScreens();
 
-        if (pictomancyContext == null)
+        if (renderBackend == null)
         {
-            TryInitializePictomancy(force: false);
+            TryInitializeRenderer(force: false);
         }
 
-        if (pictomancyContext == null)
+        if (renderBackend == null)
         {
-            LastDrawStatus = "Pictomancy is not initialized";
+            LastDrawStatus = "CrystalRenderer is not initialized";
             ReleaseAllBrowserRuntimes();
             return;
         }
@@ -101,7 +102,7 @@ public sealed class WorldScreenManager : IDisposable
         {
             LastDrawStatus = "disabled";
             CancelSceneCompositeSafely("CrystalCast disabled");
-            PctService.HideNativeOverlay();
+            renderBackend?.HideNativeOverlay();
             ReleaseAllBrowserRuntimes();
             return;
         }
@@ -110,7 +111,7 @@ public sealed class WorldScreenManager : IDisposable
         {
             try
             {
-                PctService.ThrowIfRenderFailed();
+                renderBackend?.ThrowIfRenderFailed();
             }
             catch (Exception ex)
             {
@@ -122,12 +123,12 @@ public sealed class WorldScreenManager : IDisposable
         }
         catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
         {
-            PctService.HideNativeOverlay();
+            renderBackend?.HideNativeOverlay();
             HandleGraphicsFailure(ex);
         }
         catch (Exception ex)
         {
-            PctService.HideNativeOverlay();
+            renderBackend?.HideNativeOverlay();
             LastDrawStatus = $"draw pipeline failed: {ex.GetBaseException().Message}";
             LastGraphicsError = DescribeDiagnosticException(ex);
             LogGlobalDrawFailure(ex);
@@ -343,18 +344,18 @@ public sealed class WorldScreenManager : IDisposable
         browserScreens.Clear();
         try
         {
-            pictomancyContext?.Dispose();
+            renderBackend?.Dispose();
         }
         catch (Exception ex)
         {
-            services.Log.Debug(ex, "Failed to dispose the CrystalCast Pictomancy context.");
+            services.Log.Debug(ex, "Failed to dispose the CrystalCast CrystalRenderer context.");
         }
-        pictomancyContext = null;
+        renderBackend = null;
     }
 
-    private void TryInitializePictomancy(bool force)
+    private void TryInitializeRenderer(bool force)
     {
-        if (pictomancyContext != null)
+        if (renderBackend != null)
             return;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -364,30 +365,28 @@ public sealed class WorldScreenManager : IDisposable
         lastGraphicsInitializationAttemptUnixMs = now;
         try
         {
-            pictomancyContext = PctService.Initialize(services.PluginInterface, new PctOptions
+            renderBackend = new DalamudScreenRenderer(services.PluginInterface, new ScreenRendererOptions
             {
-                EnableVfxRenderer = false,
-                EnableKtkOutput = true,
-                MaxImages = (Configuration.MaxActiveBrowserScreens * CurvedScreenTessellation.MaxSegments) + 1,
+                MaxSurfaces = (Configuration.MaxActiveBrowserScreens * CurvedScreenTessellation.MaxSegments) + 1,
             });
-            Status = "Pictomancy ready";
+            Status = "CrystalRenderer ready";
             renderOutputPolicy.Reset();
         }
         catch (Exception ex)
         {
-            Status = $"Pictomancy init failed: {ex.Message}";
+            Status = $"CrystalRenderer init failed: {ex.Message}";
             LastGraphicsError = DescribeDiagnosticException(ex);
-            services.Log.Error(ex, "Failed to initialize Pictomancy.");
+            services.Log.Error(ex, "Failed to initialize CrystalRenderer.");
         }
     }
 
     internal void SuspendForLogout()
     {
         LastDrawStatus = "waiting for character login";
-        if (pictomancyContext != null)
+        if (renderBackend != null)
         {
             CancelSceneCompositeSafely("character logged out");
-            PctService.HideNativeOverlay();
+            renderBackend?.HideNativeOverlay();
         }
 
         ReleaseAllBrowserRuntimes();
@@ -397,7 +396,7 @@ public sealed class WorldScreenManager : IDisposable
     {
         try
         {
-            PctService.CancelSceneComposite(reason);
+            renderBackend?.CancelSceneComposite(reason);
         }
         catch (Exception ex)
         {
@@ -413,12 +412,12 @@ public sealed class WorldScreenManager : IDisposable
         LastGraphicsError = DescribeDiagnosticException(exception);
         try
         {
-            pictomancyContext?.Dispose();
+            renderBackend?.Dispose();
         }
         catch
         {
         }
-        pictomancyContext = null;
+        renderBackend = null;
         foreach (var instance in browserScreens.Values)
         {
             try
@@ -462,13 +461,13 @@ public sealed class WorldScreenManager : IDisposable
 
     private void DrawScreens(IEnumerable<WorldScreenInstance> screens)
     {
-        var autoDraw = GetAutoDraw();
+        var output = GetRenderOutput();
         var screenList = screens.ToList();
         if (screenList.Count == 0)
-            PctService.CancelSceneComposite("no enabled screens");
-        if (autoDraw == AutoDraw.SceneComposite && PctService.IsSceneCompositePending)
+            renderBackend?.CancelSceneComposite("no enabled screens");
+        if (output == RenderOutput.SceneComposite && (renderBackend?.IsSceneCompositePending == true))
         {
-            LastDrawStatus = $"scene composite waiting; {PctService.SceneCompositeStatus}";
+            LastDrawStatus = $"scene composite waiting; {SceneCompositeStatus}";
             return;
         }
         var prepared = new List<(WorldScreenInstance Instance, PreparedScreenTexture Texture)>();
@@ -487,8 +486,8 @@ public sealed class WorldScreenManager : IDisposable
 
         if (prepared.Count == 0)
         {
-            PctService.CancelSceneComposite("no screens ready");
-            PctService.HideNativeOverlay();
+            renderBackend?.CancelSceneComposite("no screens ready");
+            renderBackend?.HideNativeOverlay();
             LastDrawStatus = screenList.Count switch
             {
                 0 => "no enabled screens",
@@ -498,19 +497,14 @@ public sealed class WorldScreenManager : IDisposable
             return;
         }
 
-        using var drawList = PctService.Draw(hints: new PctDrawHints
-        {
-            AutoDraw = autoDraw,
-            AlphaBlendMode = AlphaBlendMode.Add,
-            UIMask = autoDraw == AutoDraw.ImGuiOverlay ? UIMask.BackbufferAlpha : UIMask.None,
-        });
+        using var renderFrame = renderBackend?.BeginFrame(output);
 
-        if (drawList == null)
+        if (renderFrame == null)
         {
-            PctService.HideNativeOverlay();
-            LastDrawStatus = autoDraw == AutoDraw.SceneComposite
-                ? $"scene composite waiting; {PctService.SceneCompositeStatus}"
-                : "Pictomancy skipped this frame";
+            renderBackend?.HideNativeOverlay();
+            LastDrawStatus = output == RenderOutput.SceneComposite
+                ? $"scene composite waiting; {SceneCompositeStatus}"
+                : "CrystalRenderer skipped this frame";
             return;
         }
 
@@ -521,22 +515,31 @@ public sealed class WorldScreenManager : IDisposable
 #endif
 
         var drawnCount = 0;
-        foreach (var (screen, texture) in prepared)
+        try
         {
-            try
+            foreach (var (screen, texture) in prepared)
             {
-                screen.DrawPrepared(drawList, texture, showDebugMarker);
-                drawnCount++;
-            }
-            catch (Exception ex) when (!NativeGraphicsError.IsDeviceLost(ex))
-            {
-                screen.RecordDrawFailure(ex, "draw");
+                try
+                {
+                    screen.DrawPrepared(renderFrame, texture, showDebugMarker);
+                    drawnCount++;
+                }
+                catch (Exception ex) when (!NativeGraphicsError.IsDeviceLost(ex))
+                {
+                    screen.RecordDrawFailure(ex, "draw");
+                }
             }
         }
+        catch
+        {
+            try { renderFrame.Cancel(); }
+            catch (Exception ex) { services.Log.Debug(ex, "Failed to cancel a CrystalRenderer frame after a draw failure."); }
+            throw;
+        }
 
-        LastDrawStatus = $"{DescribeDrawMode(autoDraw)} drawn {drawnCount}/{prepared.Count} prepared screen{(prepared.Count == 1 ? string.Empty : "s")}";
+        LastDrawStatus = $"{DescribeDrawMode(output)} drawn {drawnCount}/{prepared.Count} prepared screen{(prepared.Count == 1 ? string.Empty : "s")}";
         if (renderOutputPolicy.FallbackReason is { } reason)
-            LastDrawStatus += $"; {DescribeDrawMode(autoDraw)} fallback: {reason}";
+            LastDrawStatus += $"; {DescribeDrawMode(output)} fallback: {reason}";
     }
 
     private void SyncBrowserScreens()
@@ -605,29 +608,29 @@ public sealed class WorldScreenManager : IDisposable
         }
     }
 
-    private AutoDraw GetAutoDraw()
+    private RenderOutput GetRenderOutput()
     {
         var mode = renderOutputPolicy.Resolve(configuration.OutputMode, WineEnvironment.IsWine,
-            PctService.IsSceneCompositeHookUnavailable,
-            PctService.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout));
+            (renderBackend?.IsSceneCompositeHookUnavailable ?? true),
+            (renderBackend?.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout) == true));
         if (mode != ScreenOutputMode.SceneComposite)
-            PctService.CancelSceneComposite(renderOutputPolicy.FallbackReason ?? "output layer changed");
+            renderBackend?.CancelSceneComposite(renderOutputPolicy.FallbackReason ?? "output layer changed");
         return mode switch
         {
-            ScreenOutputMode.NativeOverlay => PctService.IsNativeOverlayAvailable
-                ? AutoDraw.NativeOverlay : AutoDraw.ImGuiOverlay,
-            ScreenOutputMode.SceneComposite => AutoDraw.SceneComposite,
-            _ => AutoDraw.ImGuiOverlay,
+            ScreenOutputMode.NativeOverlay => (renderBackend?.IsNativeOverlayAvailable == true)
+                ? RenderOutput.NativeOverlay : RenderOutput.ImGuiOverlay,
+            ScreenOutputMode.SceneComposite => RenderOutput.SceneComposite,
+            _ => RenderOutput.ImGuiOverlay,
         };
     }
 
-    private static string DescribeDrawMode(AutoDraw autoDraw)
+    private static string DescribeDrawMode(RenderOutput output)
     {
-        return autoDraw switch
+        return output switch
         {
-            AutoDraw.SceneComposite => "scene composite",
-            AutoDraw.NativeOverlay => "native overlay",
-            AutoDraw.ImGuiOverlay => "ImGui overlay",
+            RenderOutput.SceneComposite => "scene composite",
+            RenderOutput.NativeOverlay => "native overlay",
+            RenderOutput.ImGuiOverlay => "ImGui overlay",
             _ => "manual",
         };
     }
@@ -744,20 +747,27 @@ public sealed class WorldScreenManager : IDisposable
             return true;
         }
 
-        public void DrawPrepared(PctDrawList drawList, PreparedScreenTexture texture, bool showDebugMarker)
+        public void DrawPrepared(IScreenRenderFrame renderFrame, PreparedScreenTexture texture, bool showDebugMarker)
         {
-            var p = BuildDxParams();
+            var p = BuildAppearance();
             var center = GetCenter();
             var rotation = GetRotation();
             var panelSize = GetPanelSize(texture);
             var rightAxis = Vector3.Normalize(Vector3.Transform(Vector3.UnitX, rotation));
             var down = Vector3.Transform(-Vector3.UnitY * panelSize.Y, rotation);
-            DrawScreenImage(drawList, texture, center, rightAxis, down, panelSize, p);
+            DrawScreenImage(renderFrame, texture, center, rightAxis, down, panelSize, p);
 
             if (showDebugMarker)
             {
-                drawList.AddDot(center, 8.0f, 0xFF00FFFF);
-                drawList.AddText(center + new Vector3(0, panelSize.Y * 0.65f, 0), 0xFF00FFFF, browserScreen.Name, 1.0f);
+                // Debug annotations belong to the host UI, outside the screen-rendering API.
+                if (configuration.OutputMode != ScreenOutputMode.SceneComposite)
+                {
+                    var debugDrawList = ImGui.GetBackgroundDrawList();
+                    if (services.GameGui.WorldToScreen(center, out var marker))
+                        debugDrawList.AddCircleFilled(marker, 8.0f, 0xFF00FFFF);
+                    if (services.GameGui.WorldToScreen(center + new Vector3(0, panelSize.Y * 0.65f, 0), out var label))
+                        debugDrawList.AddText(label, 0xFF00FFFF, browserScreen.Name);
+                }
             }
 
             var curveAmount = GetScreenCurveAmount(panelSize.X);
@@ -1273,12 +1283,12 @@ public sealed class WorldScreenManager : IDisposable
             return MathF.Sqrt((outsideX * outsideX) + (outsideY * outsideY) + (localZ * localZ));
         }
 
-        private void DrawScreenImage(PctDrawList drawList, PreparedScreenTexture texture, Vector3 center, Vector3 rightAxis, Vector3 down, Vector2 panelSize, PctDxParams p)
+        private void DrawScreenImage(IScreenRenderFrame renderFrame, PreparedScreenTexture texture, Vector3 center, Vector3 rightAxis, Vector3 down, Vector2 panelSize, ScreenAppearance p)
         {
             var curveAmount = GetScreenCurveAmount(panelSize.X);
             if (curveAmount <= ScreenCurveEpsilonMeters)
             {
-                drawList.AddImage(texture.NativeHandle, center, rightAxis * panelSize.X, down, p);
+                renderFrame.Submit(new ScreenSurface(texture.NativeHandle, center, rightAxis * panelSize.X, down, p));
                 return;
             }
 
@@ -1295,14 +1305,14 @@ public sealed class WorldScreenManager : IDisposable
                 var stripRight = stop - start;
                 var stripCenter = (start + stop) * 0.5f;
 
-                drawList.AddImage(
+                renderFrame.Submit(new ScreenSurface(
                     texture.NativeHandle,
                     stripCenter,
                     stripRight,
                     down,
                     new Vector2(u0, 0.0f),
                     new Vector2(u1, 1.0f),
-                    p);
+                    p));
             }
         }
 
@@ -1340,10 +1350,10 @@ public sealed class WorldScreenManager : IDisposable
             Volatile.Write(ref playbackTelemetry, null);
         }
 
-        private PctDxParams BuildDxParams()
+        private ScreenAppearance BuildAppearance()
         {
             var placement = browserScreen.Placement;
-            return new PctDxParams
+            return new ScreenAppearance
             {
                 OccludedAlpha = Math.Clamp(placement.OccludedAlpha, 0.0f, 1.0f),
                 OcclusionTolerance = Math.Max(0.0f, placement.OcclusionTolerance),
@@ -1351,7 +1361,6 @@ public sealed class WorldScreenManager : IDisposable
                 FadeStop = GetDistanceFadeEnabled()
                     ? Math.Max(placement.FadeStartMeters + 0.01f, placement.FadeStopMeters)
                     : float.PositiveInfinity,
-                ProjectionHeight = 0.0f,
             };
         }
 

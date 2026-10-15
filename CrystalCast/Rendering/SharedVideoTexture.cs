@@ -46,7 +46,7 @@ public sealed class SharedVideoTexture : IDisposable
         {
             ResetDevice();
             DiagnosticStatus = $"game D3D device lost: {ex.GetBaseException().Message}";
-            return false;
+            throw;
         }
     }
 

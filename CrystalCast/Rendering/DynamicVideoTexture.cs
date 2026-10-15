@@ -69,7 +69,7 @@ public sealed class DynamicVideoTexture : IDisposable
         catch (Exception ex) when (NativeGraphicsError.IsDeviceLost(ex))
         {
             DisposeTexture();
-            return false;
+            throw;
         }
     }
 

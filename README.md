@@ -33,7 +33,7 @@ The browser-only model, migration, provider URL parsers, source-kind compatibili
 dotnet test CrystalCast.Tests/CrystalCast.Tests.csproj -c Debug -p:Platform=x64
 ```
 
-The tests use an injected browser-frame-source factory and do not start WebView2, Windows Graphics Capture, or D3D resources.
+The browser tests use an injected frame-source factory and do not start WebView2 or Windows Graphics Capture. Rendering regressions cover output fallback, deferred-error delivery, COM resource identity, depth-state and format policies, and HLSL compilation with the Windows shader compiler. Pixel-level tests render crossing, transparent, and translucent screens using Windows' software D3D11 (WARP) device; they do not require FFXIV or a physical GPU.
 
 Pull requests and pushes to `master` build and test both Debug and Release configurations. Release builds produce `CrystalCast/bin/x64/Release/CrystalCast/latest.zip`; CI verifies its exact runtime contents and generated manifest before uploading it.
 
@@ -48,6 +48,10 @@ Browser screens currently support YouTube, Twitch, Dailymotion, Vimeo, and Gener
 For YouTube, use **Show browser controls** to open the interactive player and change captions, playback quality, playback speed, and other YouTube settings. YouTube no longer exposes programmatic quality selection through the IFrame API, so quality changes use YouTube's own settings menu.
 
 CrystalCast's intended render output is Pictomancy `SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
+
+On Windows, an unavailable scene-composite hook or a pending frame older than two seconds automatically selects the native overlay for the current graphics session. Diagnostics report the fallback reason. Switching output layers or reinitializing the graphics session allows another attempt. Wine uses the native overlay, including when an existing configuration selects scene compositing. ImGui output uses game-UI masking; masking remains approximate, especially around translucent UI.
+
+Opaque screen pixels use per-pixel reverse-depth testing, so intersecting solid screens occlude one another correctly. Transparent pixels are drawn afterward without writing depth; intersections between translucent surfaces still use distance sorting. Camera state and scene depth are sampled at the composite pass. If scene depth is unavailable or its format cannot be sampled, world screens are skipped until depth becomes usable again.
 
 ## Browser compatibility
 

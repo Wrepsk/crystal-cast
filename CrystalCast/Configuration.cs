@@ -72,9 +72,8 @@ public class Configuration : IPluginConfiguration
     public List<ScreenPlacementPreset> PlacementPresets { get; set; } = [];
     public string ActivePlacementPresetId { get; set; } = string.Empty;
 
-    public static ScreenOutputMode DefaultOutputMode => OperatingSystem.IsWindows()
-        ? ScreenOutputMode.SceneComposite
-        : ScreenOutputMode.NativeOverlay;
+    public static ScreenOutputMode DefaultOutputMode => Rendering.RenderOutputPolicy.GetDefault(
+        OperatingSystem.IsWindows(), WineEnvironment.IsWine);
 
     public bool Normalize()
     {

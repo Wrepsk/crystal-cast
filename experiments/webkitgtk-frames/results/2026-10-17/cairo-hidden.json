@@ -1,0 +1,151 @@
+{
+  "options": {
+    "mode": "shm",
+    "seconds": 8,
+    "warmup": 5,
+    "audit_every": 60,
+    "consumer_delay_ms": 0,
+    "hide_after": 3,
+    "exercise_pause": false,
+    "overlay": false,
+    "software_webkit": false,
+    "poll_hz": 0,
+    "preview": false,
+    "png": false,
+    "output": "/work/experiments/webkitgtk-frames/artifacts/matrix/cairo-hidden"
+  },
+  "environment": [
+    {
+      "kind": "start",
+      "time_us": 1040685723,
+      "warmup": 5,
+      "seconds": 8,
+      "gtk": "4.14.5",
+      "webkit": "2.52.6",
+      "renderer": "GskCairoRenderer",
+      "display": "GdkX11Display"
+    }
+  ],
+  "exit_code": 0,
+  "frames": 151,
+  "fps_fixed_window": 18.875,
+  "frame_interval_ms": {
+    "mean": 20.243,
+    "p95": 25.023,
+    "max": 31.347
+  },
+  "extraction_us": {
+    "snapshot_us": {
+      "mean": 27.06,
+      "p95": 33,
+      "max": 96
+    },
+    "render_us": {
+      "mean": 874.457,
+      "p95": 1211,
+      "max": 1756
+    },
+    "download_us": {
+      "mean": 547.616,
+      "p95": 841,
+      "max": 8166
+    },
+    "release_us": {
+      "mean": 10.636,
+      "p95": 15,
+      "max": 73
+    },
+    "total_us": {
+      "mean": 1518.709,
+      "p95": 2042,
+      "max": 9067
+    }
+  },
+  "unaudited_total_us": null,
+  "output_textures": {
+    "GdkMemoryTexture": 151
+  },
+  "source_textures": {
+    "composite": 151
+  },
+  "direct_frames": 0,
+  "marker_audits": 151,
+  "marker_changes": 150,
+  "distinct_markers": 151,
+  "adjacent_marker_repeats": 0,
+  "marker_step_distribution": {
+    "mean": 1.213,
+    "p95": 2,
+    "max": 2
+  },
+  "changed_frame_fps": 18.683682269783404,
+  "consumer_frames": 151,
+  "consumer_errors": [],
+  "consumer_copy_us": {
+    "mean": 736.431,
+    "p95": 1254.24,
+    "max": 4204.85
+  },
+  "consumer_age_us": {
+    "mean": 2334.966,
+    "p95": 3107.323,
+    "max": 12872.388
+  },
+  "channel_bars_ok": true,
+  "channel_bar_failures": 0,
+  "consumer_marker_mismatches": 0,
+  "tree_cpu_percent": 160.07,
+  "tree_rss_peak_mib": 731.48,
+  "media_first": {
+    "kind": "media",
+    "time_us": 1041163434,
+    "data": {
+      "event": "playing",
+      "time": 0.000728735,
+      "width": 1920,
+      "height": 1080,
+      "paused": false,
+      "ready": 4,
+      "decoded": 1,
+      "dropped": 0,
+      "callbacks": 0,
+      "lastMediaTime": 0,
+      "error": null
+    }
+  },
+  "media_last": {
+    "kind": "media",
+    "time_us": 1053145406,
+    "data": {
+      "event": "interval",
+      "time": 5.153033044,
+      "width": 1920,
+      "height": 1080,
+      "paused": true,
+      "ready": 4,
+      "decoded": 294,
+      "dropped": 0,
+      "callbacks": 453,
+      "lastMediaTime": 5.25,
+      "error": null
+    }
+  },
+  "end": [
+    {
+      "kind": "end",
+      "time_us": 1053714119,
+      "frames": 151,
+      "invalidations": 386,
+      "drops": 0,
+      "empty": 1
+    }
+  ],
+  "measured_window_seconds": 8.028396,
+  "fps_measured_window": 18.80824015158196,
+  "raw_sha256": {
+    "summary.json": "50b22e183258d43b5266a1f4e163294b3e5a880ec94106940554ead8221485b6",
+    "events.jsonl": "95286dbc0514ec6c3f3f0715f4e9820c4a7064f16f50cf63c3a45ef40aa258ee",
+    "consumer.jsonl": "5013053dc2df34a3bc2ed65b67765e7a37ba3f1b73eaf7942cafbba135f2d82d",
+    "stderr.log": "ccf08ddadd0433a054a3a7956ee99eb7ac30abcb66b2100b9716fa8025cd8c7c"
+  }
+}

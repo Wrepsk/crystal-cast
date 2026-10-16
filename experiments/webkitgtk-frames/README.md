@@ -1,5 +1,57 @@
 # WebKitGTK widget-frame experiment
 
+For Linux volunteers, use the **precompiled standalone benchmark package** and
+[READ-ME.txt](READ-ME.txt). Extract it and run `sh run-benchmark.sh`; no repository
+checkout, compiler, FFmpeg, game or Wine is required. The launcher uses system
+runtime libraries and Python 3.10+, checks availability, and saves only local
+privacy-conscious `summary.txt` / `results.json` reports.
+
+The standalone runner reuses `benchmark.py`, the encoded H.264 fixture generator,
+the native `probe.c` capture path and independent mmap consumer below. It does not
+select software drivers, change system packages, or disable sandboxing. Its small
+mapped viewport contains a full 1920x1080 WebView; frame dimensions and independent
+pixel checks verify that capture has not silently become a 960x540 test.
+
+The package runs `texture`, strict `direct`, `shm`, `render-shm` and a separate
+short overlay check. Warmup begins after playback readiness. Texture-only passes
+have sparse audits and report submission cadence; fully audited SHM companions
+report unique delivery, repeats/skips, sampled integrity hashes and readback/copy
+costs. A direct path that needs additional rendering is reported unavailable.
+Source DMA-BUF textures are inspected separately from GSK's output texture.
+
+## Maintainer package build
+
+On Ubuntu 24.04, install the developer prerequisites below plus
+`libgstreamer1.0-dev` and Git, then:
+
+```sh
+python3 -m unittest -v test_reports.py
+python3 build_package.py --version 0.1.0
+bash smoke_package.sh artifacts/package/*.tar.gz
+```
+
+The build makes a small dynamic x86_64 executable and a 20-second copy of the same
+counter/RGB-bar fixture recipe. It packages source/license, executable, Python
+stdlib runner and video into tar.gz and ZIP with SHA-256 manifests. No shared
+libraries are copied. `smoke_package.sh` is a **maintainer/CI-only** disposable
+Ubuntu runtime-container test; it checks actual playback with no compiler,
+headers, pkg-config or FFmpeg present, plus a clean unavailable-desktop report.
+It does not change the host's runtime packages.
+
+[The GitHub Actions workflow](../../.github/workflows/webkitgtk-benchmark.yml)
+builds/tests on Ubuntu 24.04 and uploads the archives. After the workflow is in the
+default branch, manual dispatch can optionally publish an immutable separate
+`webkitgtk-benchmark-vX.Y.Z` prerelease. Existing versions are never replaced;
+benchmark prereleases are never selected as the latest plugin release. Plugin
+release tags remain numeric and their workflow ignores benchmark tags.
+
+Ubuntu 24.04 is the initial tested ABI target. Fedora and Arch runtime names are
+documented, and missing libraries/codecs produce availability reports; desktop GPU
+operation on those systems and SteamOS requires volunteer measurements.
+
+The remaining sections describe the original developer investigation and its
+WSL-specific controls; they are not required by volunteer testers.
+
 Developer-only standalone probe, based on `origin/master` at `9a97fde`. No plugin
 backend, configuration, Windows capture code, WPE runtime, or packaging changes.
 Uses distro-installed **WebKitGTK API 6.0** and **GTK >= 4.14**. The API namespace
@@ -13,7 +65,7 @@ Ubuntu 24.04 prerequisites (developer machine only):
 
 ```sh
 sudo apt-get install build-essential pkg-config libwebkitgtk-6.0-dev libgtk-4-dev \
-  libepoxy-dev gstreamer1.0-libav gstreamer1.0-plugins-good \
+  libepoxy-dev libgstreamer1.0-dev gstreamer1.0-libav gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-gl \
   ffmpeg python3 dbus-x11 xvfb xauth mesa-utils
 cd experiments/webkitgtk-frames

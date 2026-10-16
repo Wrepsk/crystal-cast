@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: ['*']
+    # Standalone benchmark prereleases have their own workflow and tag prefix.
+    tags: ['[0-9]*']
 
 permissions:
   contents: write

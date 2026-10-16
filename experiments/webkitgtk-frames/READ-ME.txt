@@ -1,0 +1,109 @@
+CrystalCast WebKitGTK desktop frame benchmark (experimental)
+
+1. Download the x86_64 Linux tar.gz or ZIP and extract the entire folder.
+2. Open a terminal in the extracted folder on your normal Linux desktop.
+3. Run this one command:
+
+   sh run-benchmark.sh
+
+No FFXIV, Dalamud, CrystalCast, Wine, compiler, development headers or FFmpeg
+is needed. The included native executable uses your system's browser/media
+libraries. Nothing is installed and nothing is uploaded. Do not run as root.
+
+The test takes approximately 70 seconds with working dependencies. It opens
+one small browser window at a time; keep the window mapped, visible, and not
+minimized. The browser inside it renders the full 1920x1080 test. Continue
+ordinary light desktop use if needed, but other heavy work can affect results.
+Ctrl+C or closing the test window cancels. A mode that cannot run may take up
+to 30 seconds to time out.
+
+When it finishes, send these two files from the new webkitgtk-results folder:
+
+   summary.txt
+   results.json
+
+They contain hardware/runtime/performance information, not your username,
+home path, IP address, hostname or machine ID. Review them before sharing.
+You can request a sanitized diagnostic.log as well:
+
+   sh run-benchmark.sh --diagnostics --output another-results-folder
+
+Each output directory must be empty; previous results are preserved. Raw
+browser logs and temporary frame mappings are discarded. Nothing is sent
+automatically. To only check dependencies and create an availability report:
+
+   sh run-benchmark.sh --check
+
+SYSTEM REQUIREMENTS
+
+x86_64 Linux, glibc 2.39 or newer, Python 3.10 or newer (standard library only),
+GTK 4.14 or newer, WebKitGTK API 6.0, GStreamer and working MP4/H.264 decoding.
+WebKit's normal sandbox must work. A Wayland or X11 desktop must be active.
+WebKitGTK API 6.0 is a library namespace, not the WebKit engine version.
+
+The launcher checks runtime libraries and codec factories and explains missing
+components. It never calls a package manager, requests root, changes your GPU
+settings or disables the browser sandbox. Codec factory presence alone is not
+proof of playback; the subsequent test verifies real decoded video pixels.
+
+Ubuntu 24.04 is the initial build target. Runtime package names include:
+  python3, libwebkitgtk-6.0-4, libgtk-4-1, libepoxy0,
+  gstreamer1.0-plugins-base, gstreamer1.0-plugins-good,
+  gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl.
+Use your normal software manager if you choose to install missing runtimes.
+No -dev packages are needed. Ubuntu 22.04 is below this executable's baseline.
+
+Fedora: the browser runtime is webkitgtk6.0 with gtk4 and GStreamer runtime
+plugins. H.264 availability depends on your enabled repositories and codec
+policy. An unavailable codec is not a performance failure. Do not change
+repositories just for this benchmark unless you choose to do so independently.
+
+Arch: runtime names include python, webkitgtk-6.0, gtk4, libepoxy,
+gst-plugins-base, gst-plugins-good, gst-plugins-bad, gst-libav.
+
+SteamOS: use Desktop Mode. This is not a Steam runtime or Flatpak package.
+If the system libraries are missing or older than the baseline, send the
+unavailable report. Do not unlock or replace SteamOS system libraries for this
+test. Being Arch-derived does not establish compatibility.
+
+Other distributions: the same runtime/ABI checks apply. Musl systems and ARM64
+are outside this package's target. Fedora/Arch/SteamOS desktop GPU operation
+must be established by reports from those users, not inferred from package names.
+
+INTERPRETING RESULTS
+
+texture: GSK texture rendering, with sparse CPU pixel audits.
+direct: retains an exact full-browser texture when available. A complex node
+        reports unavailable rather than silently measuring a different route.
+shm: direct texture when safe, otherwise GSK; readback/download into shared BGRA.
+render-shm: always GSK rendering plus readback/download into shared BGRA.
+overlay-check: a short separate HTML-over-video correctness check.
+
+texture/direct submission speed is NOT verified frame delivery. The shm and
+render-shm companions copy and independently verify every delivered frame.
+Repeated/skipped frames and explicit backpressure drops are reported separately.
+Counter resets/reordering are distinct from skips; skipped-frame totals remain
+unknown when the source sequence is discontinuous or ambiguous.
+Download time is a GPU readback only when the actual output is GPU-backed;
+GdkMemoryTexture download is a CPU copy. Output types and actual browser-node
+DMA-BUF types are reported separately, including uninspected node counts.
+
+"Sustained verified 1080p60" requires at least 59 independent unique frames/s,
+at least 57 in every complete 1-second bucket, at most 2% skipped input frames,
+at least 10 measured seconds, the requested window completed, all frame-integrity
+checks passing, and no counter resets/reordering/ambiguity. This is
+a stated near-60fps tolerance, not a claim that every input frame was delivered.
+Extraction time excludes upstream decode/browser work. No game upload is timed.
+
+GPU API names and DMA-BUF support alone do not prove hardware acceleration,
+hardware decoding, zero-copy export, or Wine/DXVK compatibility. Those require
+separate integration tests. The results classify observable software, mixed or
+hardware-context evidence and explicitly leave unobservable parts unknown.
+
+The synthetic H.264 fixture is generated locally during package building and
+included in the download. Tests use loopback HTTP only, not internet providers.
+No YouTube/Twitch login or network-dependent sample affects the primary test.
+
+Source, build recipe and AGPL-3.0 license accompany the package in source/ and
+LICENSE.md. Browser/media engines are system supplied and are not redistributed.
+Project: https://github.com/Wrepsk/crystal-cast

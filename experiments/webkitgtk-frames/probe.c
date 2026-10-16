@@ -3,6 +3,7 @@
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
 #include <webkit/webkit.h>
+#include <gst/gst.h>
 #include <epoxy/gl.h>
 #include <epoxy/egl.h>
 #include <errno.h>
@@ -30,6 +31,90 @@ static gboolean shm_mode, direct_mode, dumped, saved, failed;
 static gboolean software_webkit;
 static gboolean preview;
 static gboolean software_web_process;
+static gboolean check_only, require_direct, unavailable;
+static int window_width = WIDTH, window_height = HEIGHT;
+static gboolean wait_for_video, video_ready;
+static guint stop_source;
+static gboolean stop(gpointer unused);
+static gboolean hide_window(gpointer unused);
+
+static void json_string(const char *value)
+{
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *) (value ? value : "unknown"); *p; ++p) {
+        if (*p == '"' || *p == '\\') printf("\\%c", *p);
+        else if (*p < 32) printf("\\u%04x", *p);
+        else putchar(*p);
+    }
+    putchar('"');
+}
+
+/* Inventory the actual browser node tree, independently of the output texture.
+ * Unknown future nodes are explicit rather than evidence of no DMA-BUF. */
+typedef struct { unsigned dmabuf, gl, memory, cairo, unknown; } Inventory;
+static void inventory(GskRenderNode *node, Inventory *out, int depth)
+{
+    if (depth > 64) { ++out->unknown; return; }
+    switch (gsk_render_node_get_node_type(node)) {
+    case GSK_TEXTURE_NODE:
+    case GSK_TEXTURE_SCALE_NODE: {
+        GdkTexture *t = gsk_render_node_get_node_type(node) == GSK_TEXTURE_NODE
+            ? gsk_texture_node_get_texture(node) : gsk_texture_scale_node_get_texture(node);
+        if (GDK_IS_DMABUF_TEXTURE(t)) ++out->dmabuf;
+        else if (GDK_IS_GL_TEXTURE(t)) ++out->gl;
+        else if (GDK_IS_MEMORY_TEXTURE(t)) ++out->memory;
+        else ++out->unknown;
+        break;
+    }
+    case GSK_CAIRO_NODE: ++out->cairo; break;
+    case GSK_CONTAINER_NODE:
+        for (guint i = 0; i < gsk_container_node_get_n_children(node); ++i)
+            inventory(gsk_container_node_get_child(node, i), out, depth + 1);
+        break;
+#define CHILD(kind, name) case kind: inventory(name(node), out, depth + 1); break
+    CHILD(GSK_TRANSFORM_NODE, gsk_transform_node_get_child);
+    CHILD(GSK_OPACITY_NODE, gsk_opacity_node_get_child);
+    CHILD(GSK_COLOR_MATRIX_NODE, gsk_color_matrix_node_get_child);
+    CHILD(GSK_REPEAT_NODE, gsk_repeat_node_get_child);
+    CHILD(GSK_CLIP_NODE, gsk_clip_node_get_child);
+    CHILD(GSK_ROUNDED_CLIP_NODE, gsk_rounded_clip_node_get_child);
+    CHILD(GSK_SHADOW_NODE, gsk_shadow_node_get_child);
+    CHILD(GSK_BLUR_NODE, gsk_blur_node_get_child);
+    CHILD(GSK_DEBUG_NODE, gsk_debug_node_get_child);
+    CHILD(GSK_SUBSURFACE_NODE, gsk_subsurface_node_get_child);
+#undef CHILD
+    case GSK_BLEND_NODE:
+        inventory(gsk_blend_node_get_bottom_child(node), out, depth + 1);
+        inventory(gsk_blend_node_get_top_child(node), out, depth + 1); break;
+    case GSK_CROSS_FADE_NODE:
+        inventory(gsk_cross_fade_node_get_start_child(node), out, depth + 1);
+        inventory(gsk_cross_fade_node_get_end_child(node), out, depth + 1); break;
+    case GSK_COLOR_NODE: case GSK_LINEAR_GRADIENT_NODE: case GSK_RADIAL_GRADIENT_NODE:
+    case GSK_REPEATING_LINEAR_GRADIENT_NODE: case GSK_REPEATING_RADIAL_GRADIENT_NODE:
+    case GSK_CONIC_GRADIENT_NODE: case GSK_BORDER_NODE: case GSK_TEXT_NODE:
+    case GSK_INSET_SHADOW_NODE: case GSK_OUTSET_SHADOW_NODE: break;
+    default: ++out->unknown; break;
+    }
+}
+
+static void check_runtime(void)
+{
+    gst_init(NULL, NULL);
+    guint major, minor, micro, nano;
+    gst_version(&major, &minor, &micro, &nano);
+    printf("{\"kind\":\"runtime\",\"gtk\":\"%d.%d.%d\",\"webkit\":\"%d.%d.%d\",\"gstreamer\":\"%u.%u.%u\",\"factories\":{",
+        gtk_get_major_version(), gtk_get_minor_version(), gtk_get_micro_version(),
+        webkit_get_major_version(), webkit_get_minor_version(), webkit_get_micro_version(), major, minor, micro);
+    const char *names[] = { "qtdemux", "h264parse", "videoconvert", "avdec_h264", "openh264dec",
+        "vah264dec", "vaapih264dec", "nvh264dec", "v4l2slh264dec", "v4l2h264dec", NULL };
+    for (int i = 0; names[i]; ++i) {
+        GstElementFactory *factory = gst_element_factory_find(names[i]);
+        if (i) putchar(',');
+        json_string(names[i]); printf(":%s", factory ? "true" : "false");
+        if (factory) gst_object_unref(factory);
+    }
+    printf("}}\n");
+}
 
 /* Accept only a texture covering the exact viewport, with no transform,
  * overlay, opacity, scaling or clipping that could change its pixels. */
@@ -110,6 +195,7 @@ static gboolean capture(gpointer unused)
 {
     (void) unused;
     pending = 0;
+    if (wait_for_video && !video_ready) return G_SOURCE_REMOVE;
     gint64 begin = g_get_monotonic_time();
     if (begin - started >= (gint64) (warmup + seconds) * G_USEC_PER_SEC) {
         g_main_loop_quit(loop);
@@ -124,6 +210,17 @@ static gboolean capture(gpointer unused)
     gint64 snap_end = g_get_monotonic_time();
     if (!node) { ++empty; return G_SOURCE_REMOVE; }
     GdkTexture *source = exact_texture(node);
+    Inventory observed = { 0 };
+    inventory(node, &observed, 0);
+    if (require_direct && !source) {
+        printf("{\"kind\":\"unavailable\",\"reason\":\"Browser node is not an exact full-viewport texture; direct mode would require rendering or scaling\","
+               "\"browser_dmabuf\":%u,\"browser_gl\":%u,\"browser_memory\":%u,\"browser_cairo\":%u,\"uninspected_nodes\":%u}\n",
+               observed.dmabuf, observed.gl, observed.memory, observed.cairo, observed.unknown);
+        unavailable = TRUE;
+        gsk_render_node_unref(node);
+        g_main_loop_quit(loop);
+        return G_SOURCE_REMOVE;
+    }
     GdkTexture *texture;
     gboolean direct = direct_mode && source;
     if (direct)
@@ -136,6 +233,11 @@ static gboolean capture(gpointer unused)
     if (!texture) { gsk_render_node_unref(node); quit_error("no rendered texture"); return G_SOURCE_REMOVE; }
     if (!dumped && gdk_gl_context_get_current())
         fprintf(stderr, "GSK current GL renderer=%s\n", glGetString(GL_RENDERER));
+    if (!dumped) {
+        printf("{\"kind\":\"render_context\",\"gl_renderer\":");
+        json_string(gdk_gl_context_get_current() ? (const char *) glGetString(GL_RENDERER) : "not observable");
+        printf("}\n");
+    }
     ++sequence;
     gboolean download = shm_mode || (audit_every > 0 && (sequence - 1) % audit_every == 0);
     unsigned char *pixels = shm_mode ? mapping + FRAME_BYTES * slot : audit;
@@ -159,20 +261,36 @@ static gboolean capture(gpointer unused)
             quit_error("consumer notification failed");
     }
     int marker = -1;
+    uint64_t sample_hash = 14695981039346656037ULL;
+    gboolean bars_valid = FALSE, overlay_valid = FALSE;
     if (download) {
         marker = 0;
         for (int bit = 0; bit < 10; ++bit) {
             size_t offset = 24 * STRIDE + (bit * 96 + 40) * 4;
             if (pixels[offset] > 127) marker |= 1 << bit;
         }
+        for (size_t i = 0; i < FRAME_BYTES; i += 4096)
+            sample_hash = (sample_hash ^ pixels[i]) * 1099511628211ULL;
+        const unsigned char *r = pixels + (1040 * WIDTH + 80) * 4;
+        const unsigned char *g = pixels + (1040 * WIDTH + 240) * 4;
+        const unsigned char *b = pixels + (1040 * WIDTH + 400) * 4;
+        bars_valid = r[2] > 180 && r[0] < 40 && g[1] > 180 && g[0] < 40 &&
+                     b[0] > 180 && b[2] < 40 && r[3] == 255 && g[3] == 255 && b[3] == 255;
+        const unsigned char *o = pixels + (810 * WIDTH + 1510) * 4;
+        overlay_valid = o[0] == 255 && o[1] == 255 && o[2] == 0 && o[3] == 255;
     }
     gint64 end = g_get_monotonic_time();
     printf("{\"kind\":\"frame\",\"seq\":%lu,\"time_us\":%ld,\"snapshot_us\":%ld,"
            "\"render_us\":%ld,\"download_us\":%ld,\"release_us\":%ld,\"total_us\":%ld,"
-           "\"downloaded\":%s,\"marker\":%d,\"direct\":%s,\"source\":\"%s\",\"texture\":\"%s\"}\n",
+           "\"downloaded\":%s,\"marker\":%d,\"direct\":%s,\"source\":\"%s\",\"texture\":\"%s\","
+           "\"browser_dmabuf\":%u,\"browser_gl\":%u,\"browser_memory\":%u,\"browser_cairo\":%u,\"uninspected_nodes\":%u,"
+           "\"sample_hash\":%lu,\"bars_valid\":%s,\"overlay_valid\":%s,\"widget_width\":%d,\"widget_height\":%d}\n",
            sequence, begin, snap_end - begin, render_end - snap_end,
            download_end - download_begin, release_end - download_end, end - begin,
-           download ? "true" : "false", marker, direct ? "true" : "false", input_type, output_type);
+           download ? "true" : "false", marker, direct ? "true" : "false", input_type, output_type,
+           observed.dmabuf, observed.gl, observed.memory, observed.cairo, observed.unknown,
+           sample_hash, bars_valid ? "true" : "false", overlay_valid ? "true" : "false",
+           gtk_widget_get_width(view), gtk_widget_get_height(view));
     g_free(input_type); g_free(output_type);
     /* Diagnostics are optional and outside measured extraction time. */
     if (!dumped) {
@@ -219,6 +337,27 @@ static void media_message(WebKitUserContentManager *manager, JSCValue *value, gp
     g_free(json);
 }
 
+static void ready_message(WebKitUserContentManager *manager, JSCValue *value, gpointer unused)
+{
+    (void) manager; (void) value; (void) unused;
+    if (!wait_for_video || video_ready) return;
+    video_ready = TRUE;
+    if (stop_source) g_source_remove(stop_source);
+    started = g_get_monotonic_time();
+    printf("{\"kind\":\"measurement_start\",\"time_us\":%ld}\n", started);
+    stop_source = g_timeout_add((warmup + seconds) * 1000, stop, NULL);
+    if (hide_after > 0) g_timeout_add((warmup + hide_after) * 1000, hide_window, NULL);
+}
+
+static gboolean startup_timeout(gpointer unused)
+{
+    (void) unused;
+    printf("{\"kind\":\"unavailable\",\"reason\":\"Local H.264 playback was not ready within 30 seconds; codec, sandbox or browser initialization unavailable\"}\n");
+    unavailable = TRUE;
+    g_main_loop_quit(loop);
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean stop(gpointer unused)
 {
     (void) unused;
@@ -229,6 +368,7 @@ static gboolean stop(gpointer unused)
 static gboolean close_window(GtkWindow *widget, gpointer unused)
 {
     (void) widget;
+    printf("{\"kind\":\"user_closed_window\"}\n");
     stop(unused);
     return TRUE;
 }
@@ -250,24 +390,38 @@ static void graphics_info(void)
         gdk_gl_context_make_current(context);
         fprintf(stderr, "GL renderer=%s vendor=%s version=%s\n", glGetString(GL_RENDERER),
                 glGetString(GL_VENDOR), glGetString(GL_VERSION));
+        printf("{\"kind\":\"graphics\",\"gl_renderer\":"); json_string((const char *) glGetString(GL_RENDERER));
+        printf(",\"gl_vendor\":"); json_string((const char *) glGetString(GL_VENDOR));
+        printf(",\"gl_version\":"); json_string((const char *) glGetString(GL_VERSION));
         EGLDisplay egl = eglGetCurrentDisplay();
         if (egl != EGL_NO_DISPLAY) {
             const char *ext = eglQueryString(egl, EGL_EXTENSIONS);
             fprintf(stderr, "EGL dma_buf_import=%d dma_buf_export=%d\n",
                     ext && strstr(ext, "EGL_EXT_image_dma_buf_import") != NULL,
                     ext && strstr(ext, "EGL_MESA_image_dma_buf_export") != NULL);
+            printf(",\"egl_dmabuf_import\":%s,\"egl_dmabuf_export\":%s",
+                    ext && strstr(ext, "EGL_EXT_image_dma_buf_import") ? "true" : "false",
+                    ext && strstr(ext, "EGL_MESA_image_dma_buf_export") ? "true" : "false");
         }
+        printf("}\n");
         gdk_gl_context_clear_current();
     } else fprintf(stderr, "GL unavailable: %s\n", error ? error->message : "no context");
     g_clear_error(&error);
     g_clear_object(&context);
     fprintf(stderr, "GDK DMA-BUF format/modifier pairs=%zu\n",
             gdk_dmabuf_formats_get_n_formats(gdk_display_get_dmabuf_formats(display)));
+    printf("{\"kind\":\"dmabuf_capabilities\",\"format_modifier_pairs\":%zu}\n",
+            gdk_dmabuf_formats_get_n_formats(gdk_display_get_dmabuf_formats(display)));
 }
 
 int main(int argc, char **argv)
 {
     GOptionEntry options[] = {
+        { "check", 0, 0, G_OPTION_ARG_NONE, &check_only, "Check system runtime versions and codec factories without opening a window", NULL },
+        { "wait-for-video", 0, 0, G_OPTION_ARG_NONE, &wait_for_video, "Begin warmup only after local video starts; bound startup to 30 seconds", NULL },
+        { "require-direct", 0, 0, G_OPTION_ARG_NONE, &require_direct, "Report unavailable instead of silently rendering in direct mode", NULL },
+        { "window-width", 0, 0, G_OPTION_ARG_INT, &window_width, "Mapped window width (output remains 1920x1080)", "N" },
+        { "window-height", 0, 0, G_OPTION_ARG_INT, &window_height, "Mapped window height", "N" },
         { "uri", 0, 0, G_OPTION_ARG_STRING, &uri, "Trusted local fixture URL", "URL" },
         { "mode", 0, 0, G_OPTION_ARG_STRING, &mode, "texture, direct, shm, render-shm", "MODE" },
         { "seconds", 0, 0, G_OPTION_ARG_INT, &seconds, "Measured duration", "N" },
@@ -290,7 +444,8 @@ int main(int argc, char **argv)
     if (!g_option_context_parse(options_context, &argc, &argv, &error)) {
         fprintf(stderr, "%s\n", error->message); return 2;
     }
-    if (!uri || !mode || seconds < 1 || seconds > 300 || warmup < 0 || audit_every < 0 || poll_hz < 0 || poll_hz > 120 ||
+    if (check_only) { check_runtime(); return 0; }
+    if (!uri || !mode || seconds < 1 || seconds > 300 || warmup < 0 || warmup > 60 || audit_every < 0 || poll_hz < 0 || poll_hz > 120 || window_width < 320 || window_width > WIDTH || window_height < 180 || window_height > HEIGHT ||
         (strcmp(mode, "texture") && strcmp(mode, "direct") && strcmp(mode, "shm") && strcmp(mode, "render-shm")))
         return 2;
     if (getuid() == 0) { fprintf(stderr, "Run as an ordinary desktop user with WebKit sandbox enabled.\n"); return 2; }
@@ -311,8 +466,8 @@ int main(int argc, char **argv)
     loop = g_main_loop_new(NULL, FALSE);
     window = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(window), "CrystalCast GTK frame experiment");
-    gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
-    gtk_window_set_default_size(GTK_WINDOW(window), WIDTH, HEIGHT);
+    gtk_window_set_decorated(GTK_WINDOW(window), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(window), window_width, window_height);
     g_signal_connect(window, "close-request", G_CALLBACK(close_window), NULL);
     WebKitNetworkSession *session = webkit_network_session_new_ephemeral();
     view = g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", session, NULL);
@@ -323,12 +478,23 @@ int main(int argc, char **argv)
     WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(view));
     webkit_user_content_manager_register_script_message_handler(manager, "probe", NULL);
     g_signal_connect(manager, "script-message-received::probe", G_CALLBACK(media_message), NULL);
-    gtk_window_set_child(GTK_WINDOW(window), view);
+    webkit_user_content_manager_register_script_message_handler(manager, "probeReady", NULL);
+    g_signal_connect(manager, "script-message-received::probeReady", G_CALLBACK(ready_message), NULL);
+    if (window_width < WIDTH || window_height < HEIGHT) {
+        /* Keep the browser allocation at full test resolution. Only its mapped
+         * desktop viewport is smaller; capture observes the WebView itself. */
+        GtkWidget *viewport = gtk_scrolled_window_new();
+        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewport), GTK_POLICY_NEVER, GTK_POLICY_NEVER);
+        gtk_widget_set_size_request(view, WIDTH, HEIGHT);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(viewport), view);
+        gtk_window_set_child(GTK_WINDOW(window), viewport);
+    } else gtk_window_set_child(GTK_WINDOW(window), view);
     paintable = gtk_widget_paintable_new(view);
     g_signal_connect(paintable, "invalidate-contents", G_CALLBACK(invalidated), NULL);
     started = g_get_monotonic_time();
-    g_timeout_add((warmup + seconds) * 1000, stop, NULL);
-    if (hide_after > 0) g_timeout_add((warmup + hide_after) * 1000, hide_window, NULL);
+    stop_source = g_timeout_add(wait_for_video ? 30000 : (warmup + seconds) * 1000,
+                                wait_for_video ? startup_timeout : stop, NULL);
+    if (!wait_for_video && hide_after > 0) g_timeout_add((warmup + hide_after) * 1000, hide_window, NULL);
     gtk_window_present(GTK_WINDOW(window));
     if (preview) {
         preview_window = gtk_window_new();
@@ -367,5 +533,5 @@ int main(int argc, char **argv)
     if (ack_fd >= 0) close(ack_fd);
     g_free(audit);
     g_option_context_free(options_context);
-    return failed || !sequence ? 1 : 0;
+    return unavailable ? 77 : failed || !sequence ? 1 : 0;
 }

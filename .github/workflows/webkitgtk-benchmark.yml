@@ -1,0 +1,83 @@
+name: WebKitGTK desktop benchmark
+
+on:
+  push:
+    branches: [codex/webkitgtk-frame-prototype]
+    paths: ['experiments/webkitgtk-frames/**', '.github/workflows/webkitgtk-benchmark.yml']
+  pull_request:
+    paths: ['experiments/webkitgtk-frames/**', '.github/workflows/webkitgtk-benchmark.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numeric benchmark version (separate from CrystalCast plugin releases)
+        default: '0.1.0'
+        required: true
+      publish:
+        description: Publish an immutable benchmark prerelease after tests
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install developer build/test dependencies (CI only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libwebkitgtk-6.0-dev libepoxy-dev libgstreamer1.0-dev ffmpeg python3 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-gl xvfb xauth dbus-x11 fonts-dejavu-core
+      - name: Check report semantics and privacy
+        working-directory: experiments/webkitgtk-frames
+        run: python3 -m unittest -v test_reports.py
+      - name: Build the small precompiled package
+        working-directory: experiments/webkitgtk-frames
+        env:
+          BENCH_VERSION: ${{ inputs.version || '0.1.0' }}
+        run: python3 build_package.py --version "$BENCH_VERSION"
+      - name: Test extracted package with runtime libraries only
+        working-directory: experiments/webkitgtk-frames
+        run: bash smoke_package.sh artifacts/package/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebKitGTK-Benchmark-linux-x64
+          path: |
+            experiments/webkitgtk-frames/artifacts/package/*.tar.gz
+            experiments/webkitgtk-frames/artifacts/package/*.zip
+            experiments/webkitgtk-frames/artifacts/package/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WebKitGTK-Benchmark-CI-smoke-report
+          path: experiments/webkitgtk-frames/artifacts/package-smoke-report/
+          if-no-files-found: ignore
+  publish:
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: WebKitGTK-Benchmark-linux-x64
+          path: package
+      - name: Publish separate benchmark prerelease (never replaces assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BENCH_VERSION: ${{ inputs.version }}
+          BENCH_COMMIT: ${{ github.sha }}
+        run: |
+          [[ "$BENCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="webkitgtk-benchmark-v$BENCH_VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'That benchmark version already exists; choose a new version.' >&2
+            exit 1
+          fi
+          gh release create "$tag" package/* --target "$BENCH_COMMIT" --prerelease --latest=false --title "WebKitGTK desktop benchmark $BENCH_VERSION" --notes 'Standalone x86_64 Linux hardware-validation tool. Extract the tar.gz or ZIP and run: sh run-benchmark.sh. Send summary.txt and results.json. Uses system WebKitGTK/GStreamer; Ubuntu 24.04 ABI baseline. No game, Wine, compiler or browser runtime bundle required. Native benchmark results do not establish Wine/DXVK/FFXIV compatibility.'

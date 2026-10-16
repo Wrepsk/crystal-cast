@@ -10,6 +10,7 @@ import mmap
 import os
 from pathlib import Path
 import socket
+import signal
 import statistics
 import struct
 import subprocess
@@ -22,7 +23,7 @@ WIDTH, HEIGHT = 1920, 1080
 FRAME_BYTES = WIDTH * HEIGHT * 4
 
 
-def fixture(directory):
+def fixture(directory, seconds=45):
     video = directory / "video.mp4"
     if not video.exists():
         filters = ["drawbox=x=0:y=0:w=960:h=64:color=black:t=fill"]
@@ -32,7 +33,7 @@ def fixture(directory):
         filters += [f"drawbox=x={x}:y=1000:w=160:h=80:color={color}:t=fill"
                     for x, color in [(0, "red"), (160, "lime"), (320, "blue")]]
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
-                        "testsrc2=size=1920x1080:rate=60", "-t", "45", "-vf",
+                        "testsrc2=size=1920x1080:rate=60", "-t", str(seconds), "-vf",
                         ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
                         "-crf", "23", "-pix_fmt", "yuv420p", "-threads", "4",
                         "-movflags", "+faststart", str(video)], check=True)
@@ -54,6 +55,7 @@ function report(event){const q=v.getVideoPlaybackQuality();
  decoded:q.totalVideoFrames,dropped:q.droppedVideoFrames,callbacks,lastMediaTime,
  error:v.error&&v.error.message}));}
 ['playing','pause','seeked','error'].forEach(e=>v.addEventListener(e,()=>report(e)));
+v.addEventListener('playing',()=>window.webkit.messageHandlers.probeReady.postMessage(true));
 setInterval(()=>report('interval'),500);
 v.play().catch(e=>report(String(e))); PAUSE
 </script>""".replace("PAUSE", "setTimeout(()=>v.pause(),8000);setTimeout(()=>v.play(),10000);" if pause else "").replace(
@@ -61,10 +63,14 @@ v.play().catch(e=>report(String(e))); PAUSE
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, video_path=None, **kwargs):
+        self.video_path = video_path
+        super().__init__(*args, **kwargs)
+
     def do_GET(self):
         if self.path != "/video.mp4":
             return super().do_GET()
-        path = Path(self.directory) / "video.mp4"
+        path = self.video_path or Path(self.directory) / "video.mp4"
         size = path.stat().st_size
         start, end, status = 0, size - 1, 200
         requested = self.headers.get("Range")
@@ -130,7 +136,7 @@ def distribution(values):
             "max": round(max(values), 3)} if values else None
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=["texture", "direct", "shm", "render-shm"], default="texture")
     parser.add_argument("--seconds", type=int, default=20)
@@ -146,25 +152,41 @@ def main():
     parser.add_argument("--software-web-process", action="store_true")
     parser.add_argument("--png", action="store_true", help="Diagnostic run; introduces extra readback")
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--fixture", type=Path, help="Use prebuilt fixture; no FFmpeg needed")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build/gtk-frame-probe")
+    parser.add_argument("--require-direct", action="store_true")
+    parser.add_argument("--window-width", type=int, default=1920)
+    parser.add_argument("--window-height", type=int, default=1080)
+    parser.add_argument("--wait-for-video", action="store_true")
+    args = parser.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=True)
-    media_dir = ROOT / "artifacts" / "fixture-v2"
-    media_dir.mkdir(parents=True, exist_ok=True)
-    fixture(media_dir)
+    page_directory = tempfile.TemporaryDirectory(prefix="crystalcast-gtk-page-")
+    media_dir = Path(page_directory.name)
+    if args.fixture:
+        video = args.fixture.resolve(strict=True)
+    else:
+        fixture_dir = ROOT / "artifacts" / "fixture-v2"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+        video = fixture(fixture_dir)
     (media_dir / "index.html").write_text(page(args.exercise_pause, args.overlay))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
-        functools.partial(Handler, directory=str(media_dir)))
+        functools.partial(Handler, directory=str(media_dir), video_path=video))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    consumed, consumer_errors, ticks, rss = [], [], {}, []
+    consumed, consumer_errors, ticks, rss, total_ticks = [], [], {}, [], {}
     stop_sampler = threading.Event()
     shm_mode = args.mode in ("shm", "render-shm")
     with tempfile.TemporaryDirectory(prefix="crystalcast-gtk-") as private:
         shm_path = Path(private) / "frames.bgra"
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        command = [str(ROOT / "build/gtk-frame-probe"), "--uri", f"http://127.0.0.1:{server.server_port}/",
+        command = [str(args.binary), "--uri", f"http://127.0.0.1:{server.server_port}/",
                    "--mode", args.mode, "--seconds", str(args.seconds), "--warmup", str(args.warmup),
                    "--audit-every", str(args.audit_every), "--hide-after", str(args.hide_after),
-                   "--poll-hz", str(args.poll_hz)]
+                   "--poll-hz", str(args.poll_hz), "--window-width", str(args.window_width),
+                   "--window-height", str(args.window_height)]
+        if args.require_direct:
+            command += ["--require-direct"]
+        if args.wait_for_video:
+            command += ["--wait-for-video"]
         if args.png:
             command += ["--png", str(args.output / "first.png"), "--node", str(args.output / "first.node")]
         if args.software_webkit:
@@ -177,7 +199,7 @@ def main():
             command += ["--shm", str(shm_path), "--ack-fd", str(child.fileno())]
         with (args.output / "stderr.log").open("w") as log:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True,
-                                       pass_fds=(child.fileno(),) if shm_mode else ())
+                                       pass_fds=(child.fileno(),) if shm_mode else (), start_new_session=True, errors="replace")
             child.close()
 
             def consume():
@@ -199,9 +221,13 @@ def main():
                             marker = sum((image[24 * WIDTH * 4 + (bit * 96 + 40) * 4] > 127) << bit for bit in range(10))
                             bars = [tuple(image[(1040 * WIDTH + x) * 4:(1040 * WIDTH + x) * 4 + 4]) for x in (80, 240, 400)]
                             overlay_pixel = tuple(image[(810 * WIDTH + 1510) * 4:(810 * WIDTH + 1510) * 4 + 4])
+                            sample_hash = 14695981039346656037
+                            for offset in range(0, FRAME_BYTES, 4096):
+                                sample_hash = ((sample_hash ^ image[offset]) * 1099511628211) & 0xffffffffffffffff
                             end = time.monotonic_ns()
                             consumed.append({"seq": seq, "marker": marker, "bars_bgra": bars,
                                              "overlay_bgra": overlay_pixel,
+                                             "sample_hash": sample_hash,
                                              "copy_us": (end - start) / 1000,
                                              "age_us": end / 1000 - timestamp})
                             if args.consumer_delay_ms:
@@ -230,38 +256,54 @@ def main():
                     now = time.monotonic_ns() / 1000
                     tree = process_tree(process.pid)
                     ticks.update({pid: data[1] for pid, data in tree.items()})
-                    rss.append((now, sum(data[2] for data in tree.values()), sum(ticks.values())))
+                    total_tree = process_tree(os.getpid())
+                    total_ticks.update({pid: data[1] for pid, data in total_tree.items()})
+                    rss.append((now, sum(data[2] for data in tree.values()), sum(ticks.values()),
+                                sum(data[2] for data in total_tree.values()), sum(total_ticks.values())))
                     stop_sampler.wait(.1)
 
             sampler = threading.Thread(target=sample, daemon=True)
             sampler.start()
             events = []
-            watchdog = threading.Timer(args.warmup + args.seconds + 30, process.kill)
+            watchdog = threading.Timer(args.warmup + args.seconds + 40, process.kill)
             watchdog.start()
             try:
                 with (args.output / "events.jsonl").open("w") as raw:
                     for line in process.stdout:
-                        raw.write(line)
-                        events.append(json.loads(line))
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            log.write("Unstructured native stdout was discarded.\n")
+                            continue
+                        if isinstance(event, dict) and "kind" in event:
+                            raw.write(line)
+                            events.append(event)
                 code = process.wait(timeout=5)
             finally:
                 watchdog.cancel()
                 stop_sampler.set()
                 sampler.join()
                 if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
                 if consumer:
                     consumer.join(timeout=5)
                 parent.close()
                 server.shutdown()
+                server.server_close()
+                page_directory.cleanup()
     (args.output / "consumer.jsonl").write_text("".join(json.dumps(x) + "\n" for x in consumed))
     frames = [event for event in events if event["kind"] == "frame"]
     starts = [event for event in events if event["kind"] == "start"]
     media = [event for event in events if event["kind"] == "media"]
-    baseline = starts[0]["time_us"] + args.warmup * 1e6 if starts else 0
+    measurement_start = next((x["time_us"] for x in events if x["kind"] == "measurement_start"), starts[0]["time_us"] if starts else 0)
+    baseline = measurement_start + args.warmup * 1e6 if starts else 0
     ends = [x for x in events if x["kind"] == "end"]
-    measured_duration = (ends[-1]["time_us"] - baseline) / 1e6 if ends else args.seconds
+    measured_duration = max((ends[-1]["time_us"] - baseline) / 1e6, .000001) if ends else args.seconds
     measured = [sample for sample in rss if sample[0] >= baseline]
     duration = args.seconds
     markers = [x["marker"] for x in frames if x["downloaded"]]
@@ -269,6 +311,7 @@ def main():
     deltas = [(b - a) % 1024 for a, b in zip(markers, markers[1:])]
     intervals = [(b["time_us"] - a["time_us"]) / 1000 for a, b in zip(frames, frames[1:])]
     cpu = (measured[-1][2] - measured[0][2]) / os.sysconf("SC_CLK_TCK") / ((measured[-1][0] - measured[0][0]) / 1e6) * 100 if len(measured) > 1 else None
+    total_cpu = (measured[-1][4] - measured[0][4]) / os.sysconf("SC_CLK_TCK") / ((measured[-1][0] - measured[0][0]) / 1e6) * 100 if len(measured) > 1 else None
     def correct_bars(x):
         red, green, blue = x["bars_bgra"]
         return (red[2] > 180 and red[0] < 40 and green[1] > 180 and green[0] < 40
@@ -279,9 +322,11 @@ def main():
     mismatch = sum(producer_markers.get(x["seq"]) != x["marker"] for x in consumed)
     overlay_ok = all(x["overlay_bgra"] == (255, 255, 0, 255) for x in consumed) if args.overlay and consumed else None
     summary = {
-        "options": vars(args) | {"output": str(args.output)}, "environment": starts,
+        "options": vars(args) | {"output": str(args.output), "fixture": str(args.fixture) if args.fixture else None,
+                                 "binary": str(args.binary)}, "environment": starts,
         "exit_code": code, "frames": len(frames), "fps_fixed_window": len(frames) / duration,
         "measured_window_seconds": measured_duration,
+        "measurement_start_us": measurement_start,
         "fps_measured_window": len(frames) / measured_duration,
         "frame_interval_ms": distribution(intervals),
         "extraction_us": {key: distribution([x[key] for x in frames]) for key in
@@ -302,11 +347,16 @@ def main():
         "overlay_ok": overlay_ok,
         "tree_cpu_percent": round(cpu, 2) if cpu is not None else None,
         "tree_rss_peak_mib": round(max(x[1] for x in measured) / 1024**2, 2) if measured else None,
+        "benchmark_tree_cpu_percent": round(total_cpu, 2) if total_cpu is not None else None,
+        "benchmark_tree_peak_summed_rss_mib": round(max(x[3] for x in measured) / 1024**2, 2) if measured else None,
         "media_first": media[0] if media else None, "media_last": media[-1] if media else None,
         "end": ends,
+        "observations": [x for x in events if x["kind"] in ("graphics", "dmabuf_capabilities", "render_context", "unavailable")],
     }
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
+    if code == 77:
+        raise SystemExit(77)
     media_ok = media and any(x["data"]["time"] > 1 and x["data"]["width"] == WIDTH and
                             x["data"]["height"] == HEIGHT for x in media) and not any(x["data"]["error"] for x in media)
     if (code or not frames or consumer_errors or (len(markers) > 1 and changes < 1) or

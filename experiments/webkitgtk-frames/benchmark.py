@@ -351,7 +351,7 @@ def main(argv=None):
         "benchmark_tree_peak_summed_rss_mib": round(max(x[3] for x in measured) / 1024**2, 2) if measured else None,
         "media_first": media[0] if media else None, "media_last": media[-1] if media else None,
         "end": ends,
-        "observations": [x for x in events if x["kind"] in ("graphics", "dmabuf_capabilities", "render_context", "unavailable")],
+        "observations": [x for x in events if x["kind"] in ("graphics", "dmabuf_capabilities", "render_context", "geometry", "unavailable")],
     }
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))

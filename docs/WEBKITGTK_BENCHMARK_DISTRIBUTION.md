@@ -109,6 +109,8 @@ On Ubuntu's GitHub-hosted runner, a container-specific AppArmor profile explicit
 allows the nested user namespace required by the browser sandbox. It is removed
 after the test. Global kernel restrictions and WebKit sandboxing are unchanged;
 this CI-only setup is not part of the volunteer package or launcher.
+Docker's container-only proc masks are also removed so the nested sandbox can
+mount its own procfs; no privileged container or host PID namespace is used.
 [Ubuntu namespace policy](https://documentation.ubuntu.com/release-notes/24.04/),
 [Docker container profiles](https://docs.docker.com/engine/security/apparmor/).
 

@@ -212,6 +212,10 @@ static gboolean capture(gpointer unused)
     GdkTexture *source = exact_texture(node);
     Inventory observed = { 0 };
     inventory(node, &observed, 0);
+    if (!dumped)
+        printf("{\"kind\":\"geometry\",\"browser_width\":%d,\"browser_height\":%d,\"window_width\":%d,\"window_height\":%d}\n",
+               gtk_widget_get_width(view), gtk_widget_get_height(view),
+               gtk_widget_get_width(window), gtk_widget_get_height(window));
     if (require_direct && !source) {
         printf("{\"kind\":\"unavailable\",\"reason\":\"Browser node is not an exact full-viewport texture; direct mode would require rendering or scaling\","
                "\"browser_dmabuf\":%u,\"browser_gl\":%u,\"browser_memory\":%u,\"browser_cairo\":%u,\"uninspected_nodes\":%u}\n",
@@ -484,7 +488,8 @@ int main(int argc, char **argv)
         /* Keep the browser allocation at full test resolution. Only its mapped
          * desktop viewport is smaller; capture observes the WebView itself. */
         GtkWidget *viewport = gtk_scrolled_window_new();
-        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewport), GTK_POLICY_NEVER, GTK_POLICY_NEVER);
+        /* NEVER propagates the child's minimum size; EXTERNAL actually clips. */
+        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(viewport), GTK_POLICY_EXTERNAL, GTK_POLICY_EXTERNAL);
         gtk_widget_set_size_request(view, WIDTH, HEIGHT);
         gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(viewport), view);
         gtk_window_set_child(GTK_WINDOW(window), viewport);

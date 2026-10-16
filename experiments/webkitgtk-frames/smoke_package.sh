@@ -6,7 +6,10 @@ engine=${CONTAINER_ENGINE:-docker}
 output=$(realpath -m "${SMOKE_REPORT_DIR:-artifacts/package-smoke-report}")
 mkdir -p "$output"
 options=(-i --rm --security-opt seccomp=unconfined)
-if [[ "$engine" == docker ]]; then options+=(--security-opt "apparmor=${BENCH_CONTAINER_APPARMOR:-unconfined}"); fi
+if [[ "$engine" == docker ]]; then
+    # Container-only proc masks otherwise prevent bwrap mounting its own procfs.
+    options+=(--security-opt "apparmor=${BENCH_CONTAINER_APPARMOR:-unconfined}" --security-opt systempaths=unconfined)
+fi
 "$engine" run "${options[@]}" -v "$archive:/input/test.tar.gz:ro" -v "$output:/reports" ubuntu:24.04 bash -s <<'RUNTIME'
 set -euo pipefail
 apt-get update -qq
@@ -30,6 +33,9 @@ r = json.loads(Path('/reports/success/results.json').read_text())
 assert r['tests']['shm'].get('fully_independently_verified'), r
 assert r['tests']['render-shm'].get('fully_independently_verified'), r
 assert r['tests']['overlay-check']['integrity_passed'], r
+geometry = r['tests']['shm']['geometry']
+assert (geometry['browser_width'], geometry['browser_height']) == (1920, 1080), r
+assert (geometry['window_width'], geometry['window_height']) == (960, 540), r
 assert r['tests']['direct']['status'] == 'unavailable', r
 assert all(not x.get('sustained_1080p60_verified') for x in r['tests'].values())
 for path in Path('/reports/success').iterdir():

@@ -238,6 +238,7 @@ def analyze(summary, events, consumer, overlay=False):
             "versions": {k: summary["environment"][0][k] for k in ("gtk", "webkit")},
             "acceleration_classification": acceleration(observations, counts, summary["environment"][0]["renderer"]),
             "browser_node_frames": counts, "output_texture_counts": summary["output_textures"],
+            "geometry": next((e for e in observations if e["kind"] == "geometry"), None),
             "direct_frames": summary["direct_frames"], "frames_observed": len(frames),
             "audited_frames": len(audited), "fully_independently_verified": fully_audited and integrity_ok,
             "invalid_frames_or_dimensions": corrupt, "consumer_mismatches": mismatches,

@@ -2,7 +2,7 @@ name: WebKitGTK desktop benchmark
 
 on:
   push:
-    branches: [codex/webkitgtk-frame-prototype]
+    branches: [webkitgtk-frame-prototype]
     paths: ['experiments/webkitgtk-frames/**', '.github/workflows/webkitgtk-benchmark.yml']
   pull_request:
     paths: ['experiments/webkitgtk-frames/**', '.github/workflows/webkitgtk-benchmark.yml']

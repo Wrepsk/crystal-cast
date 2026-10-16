@@ -1,7 +1,7 @@
 # WebKitGTK widget-frame investigation
 
 Measured 2026-10-17. Experimental standalone prototype on
-`codex/webkitgtk-frame-prototype`, based on `origin/master` at `9a97fde`.
+`webkitgtk-frame-prototype`, based on `origin/master` at `9a97fde`.
 The WPE commits are not ancestors of this branch. Windows WebView2 and the plugin
 are unchanged. No browser-runtime packaging or engine builds were added.
 

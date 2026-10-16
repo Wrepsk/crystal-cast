@@ -27,10 +27,15 @@ and reproducible test commands are in
   three held frame leases, no overwrite while leased, invalid ACK rejection,
   bounded frame drops/resumption, abrupt client EOF, WebKit child-process cleanup,
   oversized packet rejection, startup timeout and removal of runtime files.
-* The setup UI's actual C# readiness probe authenticated against WPE 2.54.1,
+* The original setup UI's actual C# readiness probe authenticated against WPE 2.54.1,
   obtained initialized engine and software H.264/AAC factory information without
   loading a page, then exited with its session files removed. Missing helper,
   incompatible engine and cancellation paths are covered by automated tests.
+
+These measurements describe the original system-linked Arch helper. The optional
+portable runtime and stronger setup probe are tracked separately in
+[distribution verification](LINUX_BROWSER_DISTRIBUTION.md); the current probe
+also requires a local page's JavaScript response and rendered pixels.
 
 ## Measurement conditions
 

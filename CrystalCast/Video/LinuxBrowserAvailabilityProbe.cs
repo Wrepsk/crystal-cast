@@ -7,7 +7,8 @@ namespace CrystalCast.Video;
 internal sealed record LinuxBrowserAvailability(bool Available, string Message);
 
 // Exercise the same launcher and authenticated bridge as a screen, without
-// loading a website or downloading content. Run off the Dalamud draw thread.
+// contacting a website. A tiny in-memory page verifies child-process startup,
+// JavaScript and actual frame delivery. Run off the Dalamud draw thread.
 internal sealed class LinuxBrowserAvailabilityProbe(ILinuxBrowserLauncher? launcher = null)
 {
     public async Task<LinuxBrowserAvailability> CheckAsync(CancellationToken cancellationToken)
@@ -37,6 +38,7 @@ internal sealed class LinuxBrowserAvailabilityProbe(ILinuxBrowserLauncher? launc
             {
                 using var message = await ReadMessage(stream, deadline.Token).ConfigureAwait(false);
                 var root = message.RootElement;
+                ThrowIfError(root);
                 if (root.GetProperty("type").GetString() != "probe") continue;
                 if (root.GetProperty("protocol").GetInt32() != 1 || root.GetProperty("major").GetInt32() < 2
                     || root.GetProperty("major").GetInt32() == 2 && root.GetProperty("minor").GetInt32() < 54)
@@ -45,7 +47,8 @@ internal sealed class LinuxBrowserAvailabilityProbe(ILinuxBrowserLauncher? launc
                 var codecs = root.GetProperty("h264Software").GetBoolean() && root.GetProperty("aacSoftware").GetBoolean()
                     ? "Software H.264/AAC decoders found."
                     : "Some software H.264/AAC decoders are missing; check GStreamer plugins.";
-                return new(true, $"WPE WebKit {version} initialized and the native helper connected successfully. {codecs} Playback and audio still need testing.");
+                await CheckRenderingAsync(stream, deadline.Token).ConfigureAwait(false);
+                return new(true, $"WPE WebKit {version} initialized; browser startup, JavaScript and frame delivery verified. {codecs} Playback and audio still need testing.");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -62,6 +65,44 @@ internal sealed class LinuxBrowserAvailabilityProbe(ILinuxBrowserLauncher? launc
             // EOF shuts the temporary probe helper down, including its children.
             client.Close();
             endpoint?.Launcher?.Dispose();
+        }
+    }
+
+    private static void ThrowIfError(JsonElement root)
+    {
+        if (root.GetProperty("type").GetString() == "error")
+            throw new IOException(BrowserMessageValidator.BoundText(root.GetProperty("message").GetString(), "Native browser startup failed."));
+    }
+
+    private static async Task CheckRenderingAsync(Stream stream, CancellationToken token)
+    {
+        var nonce = Guid.NewGuid().ToString("N");
+        var ready = JsonSerializer.Serialize(new { type = "setupReady", nonce });
+        await LinuxBrowserProtocol.WriteJsonAsync(stream, JsonSerializer.Serialize(new
+        {
+            type = "load", uri = $"https://crystalcast.local/player/{nonce}.html", generic = false,
+            width = 320, height = 180, fps = 5,
+            html = "<!doctype html><body style='margin:0;background:#123456'><script>window.chrome.webview.postMessage(" + ready + ");</script>",
+        }), token).ConfigureAwait(false);
+        var javascript = false;
+        var pixels = false;
+        while (!javascript || !pixels)
+        {
+            var header = await LinuxBrowserProtocol.ReadHeaderAsync(stream, token).ConfigureAwait(false);
+            if (header.Kind == 2)
+            {
+                using var frame = await LinuxBrowserProtocol.ReadFrameAsync(stream, header.Length, token).ConfigureAwait(false);
+                if (frame.Width != 320 || frame.Height != 180) throw new InvalidDataException("Unexpected setup frame dimensions.");
+                pixels = true;
+                continue;
+            }
+            using var message = await LinuxBrowserProtocol.ReadJsonAsync(stream, header.Length, token).ConfigureAwait(false);
+            var root = message.RootElement;
+            ThrowIfError(root);
+            if (root.GetProperty("type").GetString() != "message") continue;
+            using var payload = JsonDocument.Parse(root.GetProperty("message").GetString()!, new JsonDocumentOptions { MaxDepth = 4 });
+            javascript |= payload.RootElement.TryGetProperty("type", out var type) && type.GetString() == "setupReady"
+                && payload.RootElement.TryGetProperty("nonce", out var received) && received.GetString() == nonce;
         }
     }
 

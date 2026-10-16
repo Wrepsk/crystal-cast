@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using CrystalCast;
 using CrystalCast.Video;
@@ -26,6 +27,40 @@ if (arguments.TryGetValue("--describe-distro", out var distroFile))
     var distro = LinuxDistribution.Parse(File.ReadAllText(distroFile), "test os-release file");
     Console.WriteLine(JsonSerializer.Serialize(new { Distribution = distro, Guide = LinuxBrowserInstallationGuide.For(distro) },
         new JsonSerializerOptions { WriteIndented = true }));
+    return;
+}
+if (arguments.GetValueOrDefault("--wine-launch-check", "false") == "true")
+{
+    Console.WriteLine(JsonSerializer.Serialize(new { Wine = WineEnvironment.IsWine, Distribution = LinuxDistribution.Detect(), Installed = LinuxBrowserRuntimeInstaller.Installed() }));
+    var result = await new LinuxBrowserAvailabilityProbe().CheckAsync(CancellationToken.None);
+    Console.WriteLine(JsonSerializer.Serialize(result));
+    if (!result.Available) Environment.ExitCode = 1;
+    return;
+}
+if (arguments.TryGetValue("--verify-package", out var packageFile))
+{
+    // Developer-only validation of a locally built candidate; the plugin never
+    // trusts caller-provided hashes and uses its embedded release catalog.
+    var manifestBytes = File.ReadAllBytes(arguments["--manifest"]);
+    var version = JsonSerializer.Deserialize<LinuxRuntimeManifest>(manifestBytes, LinuxBrowserRuntimePackage.JsonOptions)!.Version;
+    var release = new LinuxRuntimeRelease(version, "", Convert.ToHexStringLower(SHA256.HashData(manifestBytes)), "", "", 0, []);
+    var manifest = LinuxBrowserRuntimePackage.ReadManifest(manifestBytes, release);
+    await using var archive = File.OpenRead(packageFile);
+    var destination = arguments["--extract-to"];
+    await LinuxBrowserRuntimePackage.ExtractVerifiedAsync(archive, manifest, destination, null, CancellationToken.None);
+    if (arguments.TryGetValue("--native-directory", out var nativeDirectory))
+    {
+        if (!WineEnvironment.IsWine || string.IsNullOrEmpty(Environment.GetEnvironmentVariable("XDG_DATA_HOME")))
+            throw new InvalidOperationException("Native candidate validation requires Wine and an isolated test XDG_DATA_HOME.");
+        if (!string.Equals(Path.GetFullPath(LinuxBrowserLauncher.ToWinePath(nativeDirectory)), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Native candidate path must match the verified extraction destination.");
+        Directory.CreateDirectory(LinuxBrowserLauncher.ToWinePath(LinuxBrowserRuntimeInstaller.NativeRoot));
+        await LinuxBrowserRuntimeInstaller.SetPermissionsAsync(nativeDirectory, manifest, CancellationToken.None);
+        var readiness = await new LinuxBrowserAvailabilityProbe(new LinuxBrowserLauncher(nativeDirectory + "/" + manifest.Entrypoint)).CheckAsync(CancellationToken.None);
+        Console.WriteLine(JsonSerializer.Serialize(readiness));
+        if (!readiness.Available) Environment.ExitCode = 1;
+    }
+    Console.WriteLine(JsonSerializer.Serialize(new { manifest.Version, Files = manifest.Files.Length, Bytes = manifest.Files.Sum(file => file.Size), Destination = destination }));
     return;
 }
 if (arguments.TryGetValue("--youtube-url", out var youtubeUrl)) samples[BrowserSourceProviderKind.YouTube] = youtubeUrl;

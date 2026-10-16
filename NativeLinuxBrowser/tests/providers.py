@@ -12,6 +12,7 @@ import time
 from smoke import Client
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--helper", default="build/crystalcast-browser-helper")
 parser.add_argument("--pages", default="artifacts/providers")
 parser.add_argument("--seconds", type=float, default=20)
 parser.add_argument("--output", default="artifacts/providers.json")
@@ -26,7 +27,7 @@ for page in sorted(Path(args.pages).glob("*.json")):
     endpoint = runtime / "crystalcast" / session / "endpoint.json"
     client = None
     with (runtime / "helper.log").open("wb") as log:
-        process = subprocess.Popen([str(Path("build/crystalcast-browser-helper").resolve()), "--runtime-root", str(runtime), "--session", session], stdout=log, stderr=log)
+        process = subprocess.Popen([str(Path(args.helper).resolve()), "--runtime-root", str(runtime), "--session", session], stdout=log, stderr=log)
         try:
             deadline = time.monotonic() + 10
             while not endpoint.exists():

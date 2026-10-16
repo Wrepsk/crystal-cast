@@ -26,7 +26,7 @@ internal interface ILinuxBrowserLauncher
     Task<LinuxBrowserEndpoint> LaunchAsync(CancellationToken cancellationToken);
 }
 
-internal sealed class LinuxBrowserLauncher : ILinuxBrowserLauncher
+internal sealed class LinuxBrowserLauncher(string? executableOverride = null) : ILinuxBrowserLauncher
 {
     public static string ToWinePath(string nativePath)
     {
@@ -38,6 +38,8 @@ internal sealed class LinuxBrowserLauncher : ILinuxBrowserLauncher
 
     public static string? FindHelper()
     {
+        var installed = LinuxBrowserRuntimeInstaller.InstalledEntrypoint();
+        if (installed != null) return installed;
         var home = Environment.GetEnvironmentVariable("HOME");
         string?[] candidates =
         [
@@ -51,14 +53,17 @@ internal sealed class LinuxBrowserLauncher : ILinuxBrowserLauncher
     {
         if (!WineEnvironment.IsWine)
             throw new PlatformNotSupportedException("The native Linux browser launcher is only available under Wine.");
-        var executable = FindHelper() ?? throw new FileNotFoundException(
-            "Native browser helper is not installed. Install crystalcast-browser-helper and WPE WebKit 2.54+ on the Linux host.");
+        var executable = executableOverride ?? FindHelper() ?? throw new FileNotFoundException(
+            "Linux Browser is not installed. Open Linux Browser Setup to install a verified runtime when available.");
         var runtime = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
         if (string.IsNullOrWhiteSpace(runtime))
             throw new InvalidOperationException("XDG_RUNTIME_DIR is missing; start the game from your Linux desktop session.");
         var session = Guid.NewGuid().ToString("N");
         var endpointPath = ToWinePath(runtime.TrimEnd('/') + "/crystalcast/" + session + "/endpoint.json");
         var start = new ProcessStartInfo("start.exe") { UseShellExecute = false, CreateNoWindow = true };
+        start.Environment.Remove("LD_PRELOAD");
+        start.Environment.Remove("LD_AUDIT");
+        start.Environment.Remove("LD_LIBRARY_PATH");
         start.ArgumentList.Add("/wait");
         start.ArgumentList.Add("/unix");
         start.ArgumentList.Add(executable);
@@ -77,8 +82,9 @@ internal sealed class LinuxBrowserLauncher : ILinuxBrowserLauncher
                     try { return LinuxBrowserEndpoint.Read(endpointPath, process); }
                     catch (JsonException) { /* The helper may still be publishing its endpoint. */ }
                 }
-                if (process.HasExited)
-                    throw new InvalidOperationException($"Native browser helper exited during startup ({process.ExitCode}); check its WPE/GStreamer dependencies.");
+                // Wine can finish start.exe before its native Unix child. The
+                // authenticated endpoint, rather than that wrapper's lifetime,
+                // establishes whether the helper started successfully.
                 await Task.Delay(50, deadline.Token).ConfigureAwait(false);
             }
         }

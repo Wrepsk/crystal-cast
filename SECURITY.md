@@ -14,7 +14,7 @@ Include the affected version or commit, impact, reproduction conditions, and any
 
 CrystalCast renders browser content locally and exposes state-only Dalamud IPC. It must not:
 
-- execute downloaded programs or silently modify Wine prefixes;
+- execute arbitrary downloaded programs or silently modify Wine prefixes;
 - expose browser credentials, cookies, local files, or profile data through IPC;
 - accept unbounded or unauthenticated browser telemetry;
 - permit provider pages to open popups, downloads, external schemes, or sensitive browser permissions;
@@ -23,4 +23,6 @@ CrystalCast renders browser content locally and exposes state-only Dalamud IPC. 
 
 Generic Web intentionally loads a user-supplied HTTP/HTTPS page and therefore has a broader trust boundary. Reports that demonstrate an escape beyond the documented page-level tracking and navigation behavior are in scope.
 
-The experimental native Linux helper keeps WebKit's sandbox enabled, runs as the desktop user, uses ephemeral per-screen profiles, and authenticates its loopback connection with a random token stored only in a private runtime file. Shared frame slots require sequence-matched acknowledgement before reuse. Native IPC credentials, endpoint files and frame data must not be included in diagnostics or commits. See [native IPC/lifecycle boundaries](NativeLinuxBrowser/README.md#ipc-and-lifecycle), including the conservative navigation restriction for IPC-approved Generic Web pages. System WebKit and GStreamer security updates remain the Linux user's/package manager's responsibility.
+The optional Linux browser installer is an explicit exception for a reviewed browser runtime: it requires a user action, an HTTPS release location and manifest/archive hashes pinned in the plugin. Installation must reject unexpected files, path traversal and links, run without root privileges, and preserve the previous installation if initialization fails. Release assets must include license notices and corresponding sources. A remote manifest alone must never authorize executable content or broaden supported platforms.
+
+The experimental native Linux helper keeps WebKit's sandbox enabled, runs as the desktop user, uses ephemeral per-screen profiles, and authenticates its loopback connection with a random token stored only in a private runtime file. Shared frame slots require sequence-matched acknowledgement before reuse. Native IPC credentials, endpoint files and frame data must not be included in diagnostics or commits. See [native IPC/lifecycle boundaries](NativeLinuxBrowser/README.md#ipc-and-lifecycle), including the conservative navigation restriction for IPC-approved Generic Web pages. System-installed WebKit and GStreamer updates remain the Linux user's/package manager's responsibility; optional bundled runtimes need new reviewed releases and catalog pins for security updates.

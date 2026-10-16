@@ -38,6 +38,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Browser\CommandBridge.js" LogicalName="CrystalCast.BrowserAssets.CommandBridge.js" />
+    <EmbeddedResource Include="Assets\Browser\LinuxRuntimeCatalog.json" LogicalName="CrystalCast.BrowserAssets.LinuxRuntimeCatalog.json" />
   </ItemGroup>
 
   <ItemGroup>

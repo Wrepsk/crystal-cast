@@ -1,4 +1,5 @@
 using System.Net;
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text.Json;
 using CrystalCast.Video;
@@ -8,11 +9,12 @@ namespace CrystalCast.Tests;
 public sealed class LinuxBrowserAvailabilityProbeTests
 {
     [Theory]
-    [InlineData(54, true, true)]
-    [InlineData(54, false, true)]
-    [InlineData(53, true, false)]
-    public async Task ProbeAuthenticatesChecksTheInitializedEngineAndDisconnectsWithoutLoadingAPage(
-        int minorVersion, bool codecsPresent, bool expectedAvailable)
+    [InlineData(54, true, true, false)]
+    [InlineData(54, false, true, false)]
+    [InlineData(53, true, false, false)]
+    [InlineData(54, true, false, true)]
+    public async Task ProbeRequiresCompatibleEngineJavascriptAndRenderedPixels(
+        int minorVersion, bool codecsPresent, bool expectedAvailable, bool childFailure)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -35,6 +37,35 @@ public sealed class LinuxBrowserAvailabilityProbeTests
                 type = "probe", protocol = 1, major = 2, minor = minorVersion, micro = 1,
                 h264Software = codecsPresent, aacSoftware = codecsPresent,
             }), deadline.Token);
+            if (minorVersion >= 54)
+            {
+                using var load = await ReadMessage(stream, deadline.Token);
+                Assert.Equal("load", load.RootElement.GetProperty("type").GetString());
+                Assert.False(load.RootElement.GetProperty("generic").GetBoolean());
+                if (childFailure)
+                    await LinuxBrowserProtocol.WriteJsonAsync(stream, "{\"type\":\"error\",\"message\":\"sandbox child failed\"}", deadline.Token);
+                else
+                {
+                    var uri = new Uri(load.RootElement.GetProperty("uri").GetString()!);
+                    var nonce = Path.GetFileNameWithoutExtension(uri.AbsolutePath);
+                    await LinuxBrowserProtocol.WriteJsonAsync(stream, JsonSerializer.Serialize(new
+                    {
+                        type = "message", message = JsonSerializer.Serialize(new { type = "setupReady", nonce }),
+                    }), deadline.Token);
+                    var frame = new byte[32 + 320 * 180 * 4];
+                    BinaryPrimitives.WriteInt32LittleEndian(frame, 320);
+                    BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(4), 180);
+                    BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(8), 1280);
+                    BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(12), 1);
+                    BinaryPrimitives.WriteInt64LittleEndian(frame.AsSpan(16), 1);
+                    var header = new byte[16];
+                    BinaryPrimitives.WriteUInt32LittleEndian(header, LinuxBrowserProtocol.Magic);
+                    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 2);
+                    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(8), frame.Length);
+                    await stream.WriteAsync(header, deadline.Token);
+                    await stream.WriteAsync(frame, deadline.Token);
+                }
+            }
             Assert.Equal(0, await stream.ReadAsync(new byte[1], deadline.Token));
         }, deadline.Token);
         var probe = new LinuxBrowserAvailabilityProbe(new Launcher(new(port, new string('b', 64), "unused", launcherHandle)));

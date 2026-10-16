@@ -12,6 +12,7 @@ from smoke import Client
 from resources import Resources
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--helper", default="build/crystalcast-browser-helper")
 parser.add_argument("--fixture", default="artifacts/test-h264-aac.mp4")
 parser.add_argument("--script", default="artifacts/generic-controller.js")
 parser.add_argument("--transport", choices=["tcp", "shared-file"], default="shared-file")
@@ -31,7 +32,7 @@ endpoint = runtime / "crystalcast" / session / "endpoint.json"
 client = None
 with (fixture.directory / "helper.log").open("wb") as log:
     environment = dict(os.environ, GST_DEBUG=os.environ.get("GST_DEBUG", "2"))
-    process = subprocess.Popen([str(Path("build/crystalcast-browser-helper").resolve()), "--runtime-root", str(runtime), "--session", session], stdout=log, stderr=log, env=environment)
+    process = subprocess.Popen([str(Path(args.helper).resolve()), "--runtime-root", str(runtime), "--session", session], stdout=log, stderr=log, env=environment)
     try:
         deadline = time.monotonic() + 15
         while not endpoint.exists():

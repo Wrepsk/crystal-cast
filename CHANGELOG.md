@@ -14,6 +14,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 - Native Linux WPE WebKit browser proof of concept: separate system-linked helper, authenticated local control bridge, leased shared BGRA frames with raw TCP fallback, and reuse of existing provider/player logic. YouTube VOD and local H.264/AAC/MSE were verified independently; native Wine launch, audio, wider provider coverage and GPU interoperability remain pending.
 - Linux browser selector with backend-specific setup: WebView2 opens its Wine setup screen; native WPE performs an asynchronous helper/engine readiness check and shows installation guidance on failure, with retry and separate dismissal preferences.
 - Distribution-aware native setup guidance using host `os-release` metadata, separate handling for SteamOS/Fedora Atomic/runtime environments, and distro-selectable Debug previews. Ubuntu/Fedora prerequisites are explicitly distinguished from an unavailable/unverified complete WPE installer.
+- Optional Linux Browser distribution/installer: separate Ubuntu-baseline runtime build, pinned manifests and file hashes, user-directory installation with progress, update/repair and failed-startup rollback. Developer commands move under Advanced; automatic installation remains disabled until a tested release is published and pinned.
 - Automated Debug/Release CI, package validation, and tag-based GitHub releases.
 
 ### Changed

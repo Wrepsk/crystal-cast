@@ -1,0 +1,168 @@
+name: Experimental Linux browser runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numeric runtime version (major.minor.patch)
+        required: true
+        default: '0.1.0'
+      publish:
+        description: Publish a prerelease after all candidate checks pass
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CRYSTALCAST_BUILD_ROOT: /var/tmp/crystalcast-runtime-build
+      CRYSTALCAST_BUILD_JOBS: '3'
+      RUNTIME_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate version
+        run: '[[ "$RUNTIME_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]'
+      - name: Install developer build dependencies
+        run: |
+          sudo apt-get update
+          # Ephemeral runner only: retired intermediate security versions may
+          # no longer have matching source records in the current apt indices.
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get upgrade -y --no-install-recommends -o Dpkg::Options::=--force-confold
+          sudo xargs -r apt-get install -y --no-install-recommends < NativeLinuxBrowser/packaging/ubuntu24-build-dependencies.txt
+      - name: Build pinned WPE with sandbox and rendering support
+        run: bash NativeLinuxBrowser/packaging/build_wpe.sh
+      - name: Package optional runtime separately from Windows plugin
+        run: |
+          mkdir -p NativeLinuxBrowser/artifacts/release
+          python3 NativeLinuxBrowser/packaging/package_runtime.py --version "$RUNTIME_VERSION" --output NativeLinuxBrowser/artifacts/release | tee NativeLinuxBrowser/artifacts/release/package-result.json
+      - name: Enable source indices on this ephemeral build runner
+        run: |
+          sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get update
+      - name: Collect corresponding sources and license provenance
+        run: |
+          python3 NativeLinuxBrowser/packaging/collect_sources.py --runtime "$CRYSTALCAST_BUILD_ROOT/runtime-$RUNTIME_VERSION" --output NativeLinuxBrowser/artifacts/sources --bundle-output NativeLinuxBrowser/artifacts/source-release
+      - name: Standalone runtime smoke test
+        env:
+          GST_PLUGIN_FEATURE_RANK: fakeaudiosink:1000
+        run: |
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1920x1080:rate=60 \
+            -f lavfi -i sine=frequency=440:sample_rate=48000 -t 12 \
+            -c:v libx264 -preset fast -crf 32 -g 60 -profile:v baseline -level 4.2 \
+            -pix_fmt yuv420p -c:a aac -movflags +frag_keyframe+empty_moov+default_base_moof \
+            NativeLinuxBrowser/artifacts/test-fixture.mp4
+          ffmpeg -hide_banner -loglevel error -i NativeLinuxBrowser/artifacts/test-fixture.mp4 -c copy -movflags +faststart NativeLinuxBrowser/artifacts/test-progressive.mp4
+          bash NativeLinuxBrowser/packaging/smoke_portable.sh NativeLinuxBrowser/artifacts/release/*.zip "$GITHUB_WORKSPACE/NativeLinuxBrowser/tests" "$GITHUB_WORKSPACE/NativeLinuxBrowser/artifacts/test-fixture.mp4" /dev/null "$GITHUB_WORKSPACE/NativeLinuxBrowser/artifacts/test-progressive.mp4"
+      - name: Wine native launch, shared frames and cleanup test
+        timeout-minutes: 10
+        env:
+          GST_PLUGIN_FEATURE_RANK: fakeaudiosink:1000
+        run: |
+          sudo apt-get install -y --no-install-recommends wine64 gcc-mingw-w64-x86-64-posix
+          x86_64-w64-mingw32-gcc -Os -s -Wall -Wextra -Werror NativeLinuxBrowser/tests/wine_launch_probe.c -o NativeLinuxBrowser/artifacts/wine-launch-probe.exe -lws2_32
+          bash NativeLinuxBrowser/packaging/smoke_wine.sh NativeLinuxBrowser/artifacts/release/*.zip "$GITHUB_WORKSPACE/NativeLinuxBrowser/artifacts/wine-launch-probe.exe" | tee /tmp/crystalcast-portable-wine.txt
+      - name: Upload generated media fixtures for clean targets
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-test-fixtures
+          path: |
+            NativeLinuxBrowser/artifacts/test-fixture.mp4
+            NativeLinuxBrowser/artifacts/test-progressive.mp4
+          if-no-files-found: error
+      - name: Upload standalone frame and media test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-native-test-results
+          path: |
+            /tmp/crystalcast-portable-*.json
+            /tmp/crystalcast-portable-wine.txt
+          if-no-files-found: error
+      - name: Upload precompiled runtime and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-runtime
+          path: NativeLinuxBrowser/artifacts/release/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Upload corresponding sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-sources
+          path: NativeLinuxBrowser/artifacts/source-release/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Publication status
+        run: |
+          echo 'Candidate only: publish versioned runtime and corresponding-source assets after clean-distro/Wine validation, then pin the manifest/archive hashes in LinuxRuntimeCatalog.json.' >> "$GITHUB_STEP_SUMMARY"
+
+  clean-distro-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu:24.04
+            setup: apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates
+          - image: debian:13
+            setup: apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates
+          - image: fedora:44
+            setup: dnf --disablerepo=fedora-cisco-openh264 install -y python3 ca-certificates
+          - image: archlinux:base
+            setup: pacman -Syu --noconfirm python ca-certificates
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-runtime
+          path: NativeLinuxBrowser/artifacts/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-test-fixtures
+          path: NativeLinuxBrowser/artifacts/test-fixtures
+      - name: Run without installing WPE or GStreamer in the target
+        env:
+          IMAGE: ${{ matrix.image }}
+          SETUP: ${{ matrix.setup }}
+        run: |
+          docker run --rm --security-opt seccomp=unconfined -v "$GITHUB_WORKSPACE:/work:ro" "$IMAGE" \
+            bash -c "$SETUP && useradd -m tester && su tester -s /bin/bash -c 'GST_PLUGIN_FEATURE_RANK=fakeaudiosink:1000 bash /work/NativeLinuxBrowser/packaging/smoke_portable.sh /work/NativeLinuxBrowser/artifacts/release/*.zip /work/NativeLinuxBrowser/tests /work/NativeLinuxBrowser/artifacts/test-fixtures/test-fixture.mp4 /dev/null /work/NativeLinuxBrowser/artifacts/test-fixtures/test-progressive.mp4 && python3 /work/NativeLinuxBrowser/packaging/smoke_failures.py /work/NativeLinuxBrowser/artifacts/release/*.zip'"
+
+  publish:
+    if: inputs.publish
+    needs: [build, clean-distro-smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-runtime
+          path: runtime
+      - uses: actions/download-artifact@v4
+        with:
+          name: CrystalCast-LinuxBrowser-${{ inputs.version }}-sources
+          path: sources
+      - name: Publish immutable prerelease with corresponding source
+        run: |
+          tag="linux-browser-$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'This runtime version already exists. Use a new version; never replace a pinned package.' >&2
+            exit 1
+          fi
+          printf '%s\n' 'Experimental optional Linux browser runtime. Includes WPE and multimedia runtime components; no FFXIV validation or GPU-performance guarantee. Corresponding source archives and source-index.json accompany the binaries. See docs/LINUX_BROWSER_DISTRIBUTION.md for platform limits.' > notes.txt
+          mapfile -d '' assets < <(find runtime sources -type f -print0)
+          gh release create "$tag" "${assets[@]}" --target "$GITHUB_SHA" --prerelease --title "CrystalCast Linux Browser $VERSION" --notes-file notes.txt
+          echo 'Pin runtime-manifest.json and archive hashes in the plugin catalog before enabling its Install button for any tested platform.' >> "$GITHUB_STEP_SUMMARY"

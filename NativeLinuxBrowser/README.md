@@ -31,7 +31,25 @@ not by itself fix a provider rejecting WebKit, a missing codec, or DRM support.
 [Graphics implementation](https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Graphics.html),
 [multimedia implementation](https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Multimedia.html).
 
-## Build and installation
+## User installation
+
+Select **Native WPE WebKit** in CrystalCast's Linux browser settings. The setup
+window checks the installed browser and displays its version. When a verified
+download exists for the detected environment, click **Install Linux Browser**.
+Updates and repairs use the same window. No source checkout, build tools, manual
+WPE installation or system-package changes are part of this flow.
+
+The optional runtime installs in `$XDG_DATA_HOME/crystalcast/browser`, falling
+back to `$HOME/.local/share/crystalcast/browser`. CrystalCast starts the native
+helper automatically for active screens. Windows continues using WebView2.
+
+**Current availability:** the trusted download catalog is empty while the first
+portable candidate is tested. Install therefore remains disabled with a clear
+message; the existing Wine WebView2 option remains available. Do not ask ordinary
+users to compile the helper as a substitute for a published runtime.
+See [distribution strategy and current test results](../docs/LINUX_BROWSER_DISTRIBUTION.md).
+
+## Developer-only build and installation
 
 The validated build is **x86-64 Arch Linux, WPE WebKit 2.54.1**, running in an
 unprivileged development container on WSL2. A native desktop/game installation
@@ -73,9 +91,11 @@ Package references: [Arch WPE](https://archlinux.org/packages/extra/x86_64/wpewe
 [Ubuntu WPE search](https://packages.ubuntu.com/search?keywords=wpewebkit&searchon=sourcenames&section=all&suite=all),
 [Fedora WebKitGTK 6.0](https://packages.fedoraproject.org/pkgs/webkitgtk/webkitgtk6.0-devel/),
 [upstream installation options](https://wpewebkit.org/about/get-wpe.html).
-No automatic engine download or source build is implemented.
+These source-build commands are for developers. The optional package is built
+separately by `packaging/build_wpe.sh` and `packaging/package_runtime.py`; source
+collection and release checks are described in the distribution document.
 
-### Distribution-aware setup screen
+### Advanced distribution-aware developer guidance
 
 The setup screen reads Linux `os-release` data through Wine's `Z:` mapping even
 when the helper is missing. It prefers exposed host metadata at

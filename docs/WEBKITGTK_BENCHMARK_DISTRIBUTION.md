@@ -105,6 +105,19 @@ preserving the latest Windows plugin release. Source and AGPL license accompany
 the executable. This workflow does not build an engine, install a game, or package
 a transitive browser-runtime library closure.
 
+On Ubuntu's GitHub-hosted runner, a container-specific AppArmor profile explicitly
+allows the nested user namespace required by the browser sandbox. It is removed
+after the test. Global kernel restrictions and WebKit sandboxing are unchanged;
+this CI-only setup is not part of the volunteer package or launcher.
+[Ubuntu namespace policy](https://documentation.ubuntu.com/release-notes/24.04/),
+[Docker container profiles](https://docs.docker.com/engine/security/apparmor/).
+
+The same locally Ubuntu-built executable also passed runtime/ABI checks in Fedora
+44 (GTK 4.22.5, WebKitGTK 2.54.1, GStreamer 1.28.8) and Arch (GTK 4.24.1,
+WebKitGTK 2.54.1, GStreamer 1.28.8) containers. The tested Fedora repository set
+had no H.264 decoder factory; Arch had both libav and OpenH264 factories. These
+are loadability/capability checks, not native desktop playback or GPU measurements.
+
 The Ubuntu runtime package names include `libwebkitgtk-6.0-4` and GStreamer codec
 plugins. Fedora uses `webkitgtk6.0`; Arch uses `webkitgtk-6.0`. These are guidance,
 not evidence of codec availability or native GPU playback on every distro.

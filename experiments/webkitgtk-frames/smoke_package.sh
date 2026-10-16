@@ -6,7 +6,7 @@ engine=${CONTAINER_ENGINE:-docker}
 output=$(realpath -m "${SMOKE_REPORT_DIR:-artifacts/package-smoke-report}")
 mkdir -p "$output"
 options=(-i --rm --security-opt seccomp=unconfined)
-if [[ "$engine" == docker ]]; then options+=(--security-opt apparmor=unconfined); fi
+if [[ "$engine" == docker ]]; then options+=(--security-opt "apparmor=${BENCH_CONTAINER_APPARMOR:-unconfined}"); fi
 "$engine" run "${options[@]}" -v "$archive:/input/test.tar.gz:ro" -v "$output:/reports" ubuntu:24.04 bash -s <<'RUNTIME'
 set -euo pipefail
 apt-get update -qq
@@ -21,13 +21,14 @@ install -d -m 700 -o 1000 -g 1000 /tmp/benchmark-runtime /home/ubuntu/test
 tar -xzf /input/test.tar.gz --no-same-owner -C /home/ubuntu/test
 chown 1000:1000 /reports
 launcher=$(find /home/ubuntu/test -mindepth 2 -maxdepth 2 -name run-benchmark.sh -print -quit)
+runuser -u ubuntu -- bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-pid --unshare-net true
 runuser -u ubuntu -- env XDG_RUNTIME_DIR=/tmp/benchmark-runtime GTK_A11Y=none GDK_BACKEND=x11 GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 LP_NUM_THREADS=4 WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 WEBKIT_GST_DISABLE_GL_SINK=1 dbus-run-session -- xvfb-run -a -s '-screen 0 1920x1080x24' sh "$launcher" --seconds 3 --warmup 1 --diagnostics --output /reports/success
 python3 - <<'PY'
 import json
 from pathlib import Path
 r = json.loads(Path('/reports/success/results.json').read_text())
-assert r['tests']['shm']['fully_independently_verified'], r
-assert r['tests']['render-shm']['fully_independently_verified'], r
+assert r['tests']['shm'].get('fully_independently_verified'), r
+assert r['tests']['render-shm'].get('fully_independently_verified'), r
 assert r['tests']['overlay-check']['integrity_passed'], r
 assert r['tests']['direct']['status'] == 'unavailable', r
 assert all(not x.get('sustained_1080p60_verified') for x in r['tests'].values())

@@ -38,9 +38,28 @@ jobs:
         env:
           BENCH_VERSION: ${{ inputs.version || '0.1.0' }}
         run: python3 build_package.py --version "$BENCH_VERSION"
+      - name: Allow nested user namespaces in this CI test container only
+        run: |
+          # Do not alter global sysctls or WebKit's own sandbox.
+          if [ -f /sys/module/apparmor/parameters/enabled ] && grep -q Y /sys/module/apparmor/parameters/enabled; then
+            cat > "$RUNNER_TEMP/crystalcast-gtk-benchmark-ci" <<'PROFILE'
+          abi <abi/4.0>,
+          profile crystalcast-gtk-benchmark-ci flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+            sudo apparmor_parser -r "$RUNNER_TEMP/crystalcast-gtk-benchmark-ci"
+            echo 'BENCH_CONTAINER_APPARMOR=crystalcast-gtk-benchmark-ci' >> "$GITHUB_ENV"
+          fi
       - name: Test extracted package with runtime libraries only
         working-directory: experiments/webkitgtk-frames
         run: bash smoke_package.sh artifacts/package/*.tar.gz
+      - name: Remove the CI-only container profile
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/crystalcast-gtk-benchmark-ci" ]; then
+            sudo apparmor_parser -R "$RUNNER_TEMP/crystalcast-gtk-benchmark-ci"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: WebKitGTK-Benchmark-linux-x64

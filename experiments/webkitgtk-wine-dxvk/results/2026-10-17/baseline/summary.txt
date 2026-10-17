@@ -1,0 +1,49 @@
+CrystalCast native GTK / Wine / DXVK experiment
+Standalone native GTK -> BGRA file mapping -> Wine/D3D11/DXVK. No game/CLR/plugin, DMA-BUF export, desktop scanout, or zero-copy claim.
+Wine: wine-9.0 (Ubuntu 9.0~repack-4build3)
+
+upload: ok
+  DXVK: v2.7.1
+  Adapter: llvmpipe (LLVM 20.1.2, 256 bits)
+  Acceleration: software Vulkan device observed
+  Source-verified unique fps: 59.9973501170365
+  Every frame verified after upload: False
+  Complete-path verified unique fps: None
+  Sustained verified 1080p60: False
+  Repeated / skipped / backpressure: (0, 0, 0)
+  Counter resets/reordering / ambiguous: (0, False)
+  Capture start -> Present ack (us): {'mean': 4615.143, 'p95': 5234.881, 'max': 47992.688}
+  CPU percent / summed peak RSS MiB: (366.93, 979.73)
+  Native extraction (us): {'mean': 1290.76, 'p95': 1565, 'max': 10540}
+  source_check_us: {'mean': 17.717, 'p95': 25.9, 'max': 536.1}
+  update_api_us: {'mean': 541.841, 'p95': 687.1, 'max': 9013.4}
+  gpu_copy_completion_us: {'mean': 1330.213, 'p95': 1682.4, 'max': 16462.7}
+  gpu_readback_validation_us: {'mean': 1278.017, 'p95': 1527.3, 'max': 1527.3}
+  present_api_us: {'mean': 69.533, 'p95': 68.5, 'max': 13520.0}
+  consumer_total_us: {'mean': 1980.752, 'p95': 2433.4, 'max': 40649.9}
+  Consumer exception: None
+
+verify: ok
+  DXVK: v2.7.1
+  Adapter: llvmpipe (LLVM 20.1.2, 256 bits)
+  Acceleration: software Vulkan device observed
+  Source-verified unique fps: 59.9973951130955
+  Every frame verified after upload: True
+  Complete-path verified unique fps: 59.9973951130955
+  Sustained verified 1080p60: True
+  Repeated / skipped / backpressure: (0, 0, 0)
+  Counter resets/reordering / ambiguous: (0, False)
+  Capture start -> Present ack (us): {'mean': 6740.659, 'p95': 7646.909, 'max': 48484.498}
+  CPU percent / summed peak RSS MiB: (399.08, 978.29)
+  Native extraction (us): {'mean': 1323.754, 'p95': 1595, 'max': 10671}
+  source_check_us: {'mean': 18.038, 'p95': 29.3, 'max': 513.4}
+  update_api_us: {'mean': 554.714, 'p95': 721.8, 'max': 10127.6}
+  gpu_copy_completion_us: {'mean': 1599.982, 'p95': 2235.2, 'max': 18568.1}
+  gpu_readback_validation_us: {'mean': 1662.832, 'p95': 2087.4, 'max': 2875.0}
+  present_api_us: {'mean': 74.538, 'p95': 67.6, 'max': 12726.0}
+  consumer_total_us: {'mean': 3910.104, 'p95': 4584.8, 'max': 40419.2}
+  Consumer exception: None
+
+UpdateSubresource API time is not completed upload time. GPU copy completion waits an event query after upload and backbuffer copy. Verification adds staging readback and full byte comparison. Present(0) return is not scanout. End-to-end uses Linux capture and reply clocks; no cross-clock subtraction.
+100% CPU is one logical core. Tree sampling can miss detached Wine servers and excludes compositor; summed RSS double-counts sharing.
+Nothing uploaded. Share summary.txt and results.json after review.

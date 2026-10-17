@@ -1,0 +1,172 @@
+{
+  "environment": {
+    "distribution": {
+      "version_id": "24.04",
+      "id": "ubuntu"
+    },
+    "architecture": "x86_64",
+    "kernel_version": "6.6.87.2",
+    "session_hint": "x11",
+    "host_environment": "wsl2",
+    "virtualization_detection": "heuristic; absence of markers is not proof of bare metal",
+    "drm_gpu_devices": [],
+    "nvidia_models_and_driver_versions": [],
+    "logical_cpu_count": 32,
+    "rendering_overrides": {
+      "GSK_RENDERER": "cairo",
+      "LIBGL_ALWAYS_SOFTWARE": "1",
+      "WEBKIT_SKIA_ENABLE_CPU_RENDERING": "1",
+      "WEBKIT_GST_DISABLE_GL_SINK": "1"
+    }
+  },
+  "wine_version": "wine-9.0 (Ubuntu 9.0~repack-4build3)",
+  "passes": {
+    "verify": {
+      "status": "ok",
+      "mode": "verify",
+      "dxvk_version": "v2.7.1",
+      "consumer": {
+        "kind": "consumer_start",
+        "adapter": "llvmpipe (LLVM 20.1.2, 256 bits)",
+        "feature_level": 45056,
+        "width": 1920,
+        "height": 1080
+      },
+      "consumer_acceleration": "software Vulkan device observed",
+      "native_runtime": {
+        "gtk": "4.14.5",
+        "webkit": "2.52.6",
+        "renderer": "GskCairoRenderer",
+        "display": "GdkX11Display"
+      },
+      "errors": [],
+      "native_and_wine_exit_codes": [
+        0,
+        0
+      ],
+      "measurement_complete": true,
+      "native_capture_window_seconds": 4.000162,
+      "complete_delivery_window_seconds": 4.000162,
+      "native_frames": 239,
+      "delivered_frames": 239,
+      "gpu_audited_frames": 239,
+      "native_invalid_frames": 0,
+      "source_mismatches": 0,
+      "gpu_mismatches": 0,
+      "integrity_passed": true,
+      "every_frame_verified_after_d3d11_upload": true,
+      "source_verified_unique_fps": 38.99842056396715,
+      "complete_path_verified_unique_fps": 38.99842056396715,
+      "unique_frames": 156,
+      "repeated_frames": 83,
+      "skipped_source_frames": null,
+      "counter_resets_or_reordering": 1,
+      "counter_ambiguous": false,
+      "unique_source_frames_per_second": [
+        60,
+        59,
+        60,
+        60
+      ],
+      "backpressure_capture_drops": 0,
+      "unique_delivered_frames_per_second": [
+        60,
+        59,
+        60,
+        60
+      ],
+      "sustained_verified_1080p60": false,
+      "native_extraction_us": {
+        "mean": 1179.598,
+        "p95": 1362,
+        "max": 9996
+      },
+      "native_download_us": {
+        "mean": 449.435,
+        "p95": 536,
+        "max": 9264
+      },
+      "consumer_timings_us": {
+        "source_check_us": {
+          "mean": 15.118,
+          "p95": 22.6,
+          "max": 356.6
+        },
+        "update_api_us": {
+          "mean": 501.287,
+          "p95": 692.9,
+          "max": 7224.7
+        },
+        "gpu_copy_completion_us": {
+          "mean": 1281.634,
+          "p95": 1561.0,
+          "max": 5915.7
+        },
+        "gpu_readback_validation_us": {
+          "mean": 1218.349,
+          "p95": 1454.3,
+          "max": 1758.2
+        },
+        "present_api_us": {
+          "mean": 96.967,
+          "p95": 62.2,
+          "max": 11594.1
+        },
+        "consumer_total_us": {
+          "mean": 3113.354,
+          "p95": 3477.0,
+          "max": 22012.6
+        }
+      },
+      "capture_start_to_present_ack_us": {
+        "mean": 5557.435,
+        "p95": 6070.575,
+        "max": 27506.724
+      },
+      "observations": [
+        {
+          "kind": "graphics",
+          "gl_renderer": "llvmpipe (LLVM 20.1.2, 256 bits)",
+          "gl_vendor": "Mesa",
+          "gl_version": "OpenGL ES 3.2 Mesa 25.2.8-0ubuntu0.24.04.4",
+          "egl_dmabuf_import": true,
+          "egl_dmabuf_export": false
+        },
+        {
+          "kind": "dmabuf_capabilities",
+          "format_modifier_pairs": 104
+        },
+        {
+          "kind": "geometry",
+          "browser_width": 1920,
+          "browser_height": 1080,
+          "window_width": 960,
+          "window_height": 540
+        },
+        {
+          "kind": "render_context",
+          "gl_renderer": "not observable"
+        }
+      ],
+      "browser_dmabuf_frames": 0,
+      "output_texture_types": [
+        "GdkMemoryTexture"
+      ],
+      "benchmark_tree_cpu_percent": 270.42,
+      "benchmark_tree_peak_summed_rss_mib": 939.32,
+      "diagnostic_categories": [],
+      "dxvk_initialization_problem": false,
+      "consumer_exception": null,
+      "exception_module": null,
+      "d3d11_error": null
+    }
+  },
+  "scope": "Standalone native GTK -> BGRA file mapping -> Wine/D3D11/DXVK. No game/CLR/plugin, DMA-BUF export, desktop scanout, or zero-copy claim.",
+  "timing_notes": "UpdateSubresource API time is not completed upload time. GPU copy completion waits an event query after upload and backbuffer copy. Verification adds staging readback and full byte comparison. Present(0) return is not scanout. End-to-end uses Linux capture and reply clocks; no cross-clock subtraction.",
+  "resource_notes": "100% CPU is one logical core. Tree sampling can miss detached Wine servers and excludes compositor; summed RSS double-counts sharing.",
+  "files": {
+    "fixture_sha256": "6b21f599ac02aebc6092026c10c1a1f93a4db6cb411871235f475de27187fcfb",
+    "consumer_sha256": "e12d47b98be372f6c64afae19b950f9f3020887f2b06221dd02431e5fd5d0a9f"
+  },
+  "errors": []
+}

@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CrystalRenderer\CrystalRenderer.csproj" />
+    <ProjectReference Include="..\CrystalRenderer\CrystalRenderer\CrystalRenderer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

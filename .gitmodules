@@ -1,0 +1,3 @@
+[submodule "CrystalRenderer"]
+	path = CrystalRenderer
+	url = https://github.com/Wrepsk/crystal-renderer.git

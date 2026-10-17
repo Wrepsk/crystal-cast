@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v5
@@ -35,8 +37,8 @@ jobs:
           cache-dependency-path: |
             CrystalCast/packages.lock.json
             CrystalCast.Tests/packages.lock.json
-            CrystalRenderer/packages.lock.json
-            CrystalRenderer.Tests/packages.lock.json
+            CrystalRenderer/CrystalRenderer/packages.lock.json
+            CrystalRenderer/CrystalRenderer.Tests/packages.lock.json
 
       - name: Install Dalamud development files
         shell: pwsh

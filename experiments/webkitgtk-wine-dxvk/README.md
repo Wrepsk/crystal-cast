@@ -1,5 +1,28 @@
 # Native GTK to Wine/DXVK frame test
 
+## Precompiled release: start here
+
+Download and extract the tar.gz or ZIP from the separate
+[Wine/DXVK test prerelease](https://github.com/Wrepsk/crystal-cast/releases/tag/webkitgtk-wine-dxvk-v0.1.0),
+open a terminal inside its folder, and run:
+
+```sh
+sh run-wine-dxvk.sh
+```
+
+Send `wine-dxvk-results/summary.txt` and `wine-dxvk-results/results.json`.
+The single download includes the programs, video and unmodified DXVK 2.7.1 x64
+DLLs with their license. It uses your existing Wine and system browser/media
+libraries. No compiling, second benchmark download, Wine/DXVK installation,
+Winetricks or game is required. If Wine is not found, pass
+`--wine "/full/path/to/wine64"`. For a report without opening windows or creating
+a Wine prefix, run `sh run-wine-dxvk.sh --check --output dependency-check`.
+See **READ-ME.txt** for tester instructions, requirements and the optional overlay
+check. Only the native helper was built by GitHub Actions; this release's Windows
+consumer was compiled and tested in the Ubuntu 24.04 developer container.
+
+The remaining sections document the integration and developer/add-on usage.
+
 Small standalone integration experiment. The published native benchmark and
 CrystalCast plugin are unchanged. No game, Dalamud, .NET, browser runtime bundle,
 DMA-BUF export implementation or GPU-sharing backend is involved.
@@ -98,8 +121,20 @@ the existing prototype's `benchmark.py` and `run_benchmark.py` from its sibling
 directory. A small shareable add-on can instead include those unchanged files
 under `native/`, alongside `run.py`, this README, the license, consumer source and
 `build/wine-frame-consumer.exe`. It reuses the original native package's executable
-and video; it contains no browser libraries, Wine or DXVK. This is a manual test
-add-on, not another browser packaging or release workflow.
+and video and expects an external DXVK directory. The self-contained release
+instead includes the unchanged native package and the two tested upstream DXVK
+DLLs, with the license and source URL. Neither form contains browser libraries
+or Wine. No additional browser packaging or release workflow is involved.
+
+`build_release.py` assembles that release from the reviewed native 0.1.0 tarball,
+DXVK 2.7.1 tarball and exact license, checking pinned input hashes. It performs no
+downloads or compilation. After `make` and the tests:
+
+```sh
+python3 -m unittest -v test_harness.py test_launch.py
+python3 build_release.py --native-archive /path/to/native-benchmark.tar.gz \
+  --dxvk-archive /path/to/dxvk-2.7.1.tar.gz --dxvk-license /path/to/DXVK-LICENSE
+```
 
 ## Interpret the results
 

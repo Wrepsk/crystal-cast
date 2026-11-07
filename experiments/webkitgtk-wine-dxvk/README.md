@@ -173,6 +173,13 @@ Reference semantics:
 [D3D11 event queries](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_query),
 [DXVK](https://github.com/doitsujin/dxvk).
 
+## Recorded results
+
+A native Fedora 43 / AMD Radeon 780M desktop report passed the full verification
+pass at sustained 1080p60 (720/720 frames byte-verified after D3D11 upload, about
+5.5 ms mean capture-to-Present, about 1.3 CPU cores). See
+`results/2026-11-07-fedora-radeon-780m/` and `MEASUREMENTS.md`.
+
 ## Local software-only test
 
 See `results/2026-10-17/` for compact captured reports and `MEASUREMENTS.md` for

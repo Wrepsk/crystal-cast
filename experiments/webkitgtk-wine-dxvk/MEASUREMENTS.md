@@ -1,9 +1,72 @@
-# Measured 2026-10-17: standalone Wine/DXVK bridge
+# Standalone Wine/DXVK bridge measurements
 
 The existing native WebKitGTK probe and published native benchmark were not
 changed. This adds an unmanaged Windows consumer and Linux coordinator only.
 
-## Successful local configuration
+## Received 2026-11-07: native Fedora desktop, AMD Radeon 780M
+
+First hardware report, from a volunteer running the precompiled
+`webkitgtk-wine-dxvk-v0.1.0` package with its launcher defaults (`upload` and
+`verify` passes, 3-second warmup, 12 seconds each). Reports are in
+[`results/2026-11-07-fedora-radeon-780m/`](results/2026-11-07-fedora-radeon-780m/).
+The report's consumer SHA-256 `e12d47b9…5d0a9f` and fixture SHA-256 match the
+recorded release inputs. The optional overlay pass was not run.
+
+Fedora 43 Workstation, Wayland session, kernel 7.2.9, x86_64, 16 logical CPUs, no
+VM markers detected. AMD Phoenix iGPU (`amdgpu`, 0x1002:0x1900); GL renderer
+radeonsi with Mesa 25.3.6, EGL DMA-BUF import and export available (533
+format/modifier pairs). Native GTK 4.20.4 with `GskVulkanRenderer` on
+`GdkWaylandDisplay`, distro WebKitGTK 2.52.5. Wine 11.0 (Staging), bundled DXVK
+2.7.1; DXVK reported `AMD Radeon 780M Graphics (RADV PHOENIX)`, feature level
+11_0. No rendering overrides were reported.
+
+**Every browser frame was a `GdkDmabufTexture`** (718 and 720 frames), so
+WebKit's GPU compositor transport was active, unlike the WSL2 runs, which only
+produced Cairo/memory textures. GSK output was then downloaded to BGRA; this
+route still does not export DMA-BUF handles to Wine.
+
+| Fedora / Radeon 780M | Upload + sparse GPU audits | Full GPU verification |
+|---|---:|---:|
+| Delivered / native frames | 718 / 718 | 720 / 720 |
+| GPU-audited frames | 12 | 720 (every byte) |
+| Source-verified unique frames/s | 59.83 | 59.99 |
+| Complete-path independently verified frames/s | Not established | 59.99 |
+| Sustained verified 1080p60 | No (pass cannot qualify) | **Yes** |
+| Skipped source / backpressure drops | 2 / 2 | 0 / 0 |
+| Native extraction mean / p95 | 3.58 / 3.78 ms | 3.19 / 3.45 ms |
+| of which GSK download mean / p95 | 2.49 / 2.81 ms | 2.32 / 2.65 ms |
+| UpdateSubresource CPU call mean / p95 | 0.36 / 0.42 ms | 0.34 / 0.41 ms |
+| Backbuffer copy + GPU completion wait mean / p95 | 0.67 / 0.74 ms | 0.67 / 0.72 ms |
+| Additional GPU readback + byte validation mean / p95 | 0.88 / 2.24 ms, sparse | 0.74 / 0.85 ms, every frame |
+| Capture start to Present acknowledgement mean / p95 | 5.26 / 5.37 ms | 5.48 / 5.80 ms |
+| Capture start to Present acknowledgement max | 73.6 ms | 40.6 ms |
+| Observed total tree CPU, logical cores | 1.38 | 1.29 |
+| Peak summed tree RSS | 678 MiB | 671 MiB |
+
+The full verification pass met the sustained 1080p60 tolerance: 60 unique frames
+in every source bucket and 60 in every arrival bucket except one at 59. The upload
+pass's only losses were in its first second (58 frames: 2 skipped source frames
+matched by 2 backpressure drops); every later second delivered 60. There were no
+repeats, counter resets/reordering, source or GPU mismatches, errors, consumer
+exceptions or DXVK initialization problems, and both processes exited 0.
+
+Compared with the software run below, the hardware run used about a third of
+the CPU (1.3 vs 3.7–4.0 cores) and halved Windows-side upload/copy times. Native
+extraction is slower (about 3.2–3.6 ms vs 1.3 ms) because GSK's Vulkan output
+must be read back from the GPU; that readback is the largest single cost, yet
+the whole capture-to-Present path stays well inside one 16.67 ms frame period
+on average and at p95. Isolated maxima of 40–74 ms exceeded a frame period and
+have not been attributed; first-use driver/D3D11 work is included in timing.
+
+This establishes the copy-based browser -> BGRA -> Wine/D3D11 route on one
+integrated AMD GPU. It does not establish hardware video decode (not observed),
+other vendors (NVIDIA in particular), Proton/Steam launch, the HTML overlay pass,
+long sessions, audio, CrystalCast's managed consumer, sharing the game's device,
+or in-game frame cost.
+
+## Measured 2026-10-17: WSL2 software-only run
+
+### Successful local configuration
 
 Ubuntu 24.04.5 container on WSL2, x86_64; Wine 9.0 (Ubuntu build), DXVK 2.7.1
 unmodified upstream x64 DLLs, Mesa 25.2.8 software Vulkan device reported as
@@ -46,7 +109,7 @@ The separate four-second HTML-over-video pass also verifies every byte after
 upload; its report is recorded alongside the baseline. A four-second correctness
 test cannot establish sustained 1080p60 under the >=10-second rule.
 
-## Reproduction controls used only in the local developer test
+### Reproduction controls used only in the local developer test
 
 The container has the existing distro WebKitGTK development environment plus
 MinGW, Wine64, Mesa Vulkan drivers and Vulkan tools. A native Linux-filesystem
@@ -74,7 +137,7 @@ test. The native producer remains a mapped/drawable GTK widget. The backbuffer
 allocation and validation remain 1920x1080 even though the desktop windows are
 smaller.
 
-## Failures retained as limitations
+### Failures retained as limitations
 
 With Xvfb's default RandR extension, both tested DXVK 2.4.1 and 2.7.1 configurations
 raised `0xc0000094` (integer divide by zero) during `Present` in `dxgi.dll`. Wine 9
@@ -90,10 +153,10 @@ this session. No work was done to enable WSL GPU acceleration.
 
 ## What remains
 
-Native desktop Wine/DXVK measurements on the Fedora tester's hardware are the next
-check. The Fedora native-only report already observed browser DMA-BUF textures;
-this experiment has not yet tested that GPU-backed browser -> BGRA -> Wine upload
-combination. It also does not exercise a managed CLR host, CrystalCast's actual
-device/frame consumer, the game, audio or long sessions. No DMA-BUF handle import,
-GPU cross-process synchronization, zero-copy route, Proton host-launch integration
-or game performance is established here.
+The Fedora hardware report above confirmed the GPU-backed browser -> BGRA -> Wine
+upload combination on one AMD iGPU. Still open: the overlay pass and more
+hardware (especially NVIDIA and discrete AMD), hardware decode evidence, the
+startup latency spikes, a managed CLR host, CrystalCast's actual device/frame
+consumer, the game, audio and long sessions. No DMA-BUF handle import, GPU
+cross-process synchronization, zero-copy route, Proton host-launch integration or
+game performance is established here.

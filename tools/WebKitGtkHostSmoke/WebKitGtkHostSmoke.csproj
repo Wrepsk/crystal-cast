@@ -17,5 +17,6 @@
     <Compile Include="..\..\CrystalCast\Video\WebKitGtkHostSession.cs" Link="Shared\WebKitGtkHostSession.cs" />
     <Compile Include="..\..\CrystalCast\Video\VideoFrame.cs" Link="Shared\VideoFrame.cs" />
     <Compile Include="..\..\CrystalCast\Video\WebKitGtkFailureDiagnosis.cs" Link="Shared\WebKitGtkFailureDiagnosis.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebKitGtkStallDiagnosis.cs" Link="Shared\WebKitGtkStallDiagnosis.cs" />
   </ItemGroup>
 </Project>

@@ -38,6 +38,9 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     private long captureEnabledSinceUnixMs;
     private volatile string hostStatus = "stopped";
     private volatile string graphicsStatus = string.Empty;
+    private volatile string windowMode = "unknown";
+    private volatile string windowStatus = string.Empty;
+    private volatile WebKitGtkHostHealth? latestHealth;
     private long lastFrameUnixMs;
     private long captureWindowStartUnixMs;
     private int captureWindowFrames;
@@ -108,7 +111,9 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
                 : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
             var runtime = session?.RuntimeDescription ?? "not started";
             var graphics = graphicsStatus.Length == 0 ? string.Empty : $"; {graphicsStatus}";
-            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastExtractMilliseconds:0.#} ms extract; {frameAge}; {hostStatus}; {runtime}{graphics}; {playerState.PlayerStatus}";
+            var window = windowStatus.Length == 0 ? string.Empty : $"; window: {windowStatus}";
+            var health = latestHealth is { } current ? $"; {current.Summary}" : string.Empty;
+            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastExtractMilliseconds:0.#} ms extract; {frameAge}; {hostStatus}; {runtime}{graphics}{window}; {playerState.PlayerStatus}{health}";
         }
     }
 
@@ -288,6 +293,7 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         {
             stallReported = false;
             hostStatus = "native WebKitGTK browser running";
+            log.Information("CrystalCast {Provider} screen: browser frames are arriving again.", descriptor.DisplayName);
         }
 
         Interlocked.Exchange(ref latestFrame, frame)?.Dispose();
@@ -338,6 +344,15 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     }
 
     void IWebKitGtkHostListener.OnControlsVisibilityChanged(bool visible) => controlsVisible = visible;
+
+    void IWebKitGtkHostListener.OnHostWindow(string mode, string detail)
+    {
+        windowMode = mode;
+        windowStatus = $"{mode}, {detail}";
+        log.Information("CrystalCast {Provider} screen: browser window {Mode}: {Detail}", descriptor.DisplayName, mode, detail);
+    }
+
+    void IWebKitGtkHostListener.OnHostHealth(WebKitGtkHostHealth health) => latestHealth = health;
 
     private bool EnsureSession()
     {
@@ -434,7 +449,8 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
 
     private void CheckForStalledFrames()
     {
-        if (!captureEnabled || failed || !pageLoaded || stallReported)
+        if (!captureEnabled || failed || !pageLoaded || stallReported
+            || playerState.Telemetry.State != ScreenPlaybackState.Playing)
             return;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -443,10 +459,16 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
             return;
 
         stallReported = true;
-        hostStatus = "no new browser frames for 5 seconds; keep the CrystalCast browser window open and not minimized (a paused or static video also sends no frames)";
-        log.Information(
-            "CrystalCast {Provider} screen: native WebKitGTK browser sent no frames for 5 seconds while playing.",
-            descriptor.DisplayName);
+        var health = latestHealth;
+        var reason = WebKitGtkStallDiagnosis.Explain(health, windowMode);
+        hostStatus = $"no new browser frames for 5 seconds while playing: {reason}";
+        log.Warning(
+            "CrystalCast {Provider} screen: no browser frames for 5 seconds while playing: {Reason}. Window: {Window}. Helper report: {Health}. Runtime: {Runtime}",
+            descriptor.DisplayName,
+            reason,
+            windowStatus.Length == 0 ? "not reported" : windowStatus,
+            health?.Summary ?? "none",
+            session?.RuntimeDescription ?? "not started");
     }
 
     private static bool IsMuted(bool audioEnabled, float volume) => !audioEnabled || volume <= 0.001f;

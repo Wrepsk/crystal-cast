@@ -38,10 +38,12 @@ expected to work yet.
    **Native Linux WebKitGTK (experimental)**.
 3. Create or select a YouTube screen and press play.
 
-A small window titled **"CrystalCast browser (keep this window open)"** appears on
-your Linux desktop. That is the browser. **Keep it open and do not minimize it.**
-It can sit behind the game. **Show browser controls** opens it larger so you can
-use the player's own menus (quality, captions); close that window to return.
+The browser runs in a hidden window: it has no taskbar entry, never takes focus,
+and stays behind your other windows, so you should not notice it. If you do see a
+"CrystalCast browser" window, please say so in your report, and do not minimize
+or close it (that pauses the video). **Show browser controls** brings it to the
+front so you can use the player's own menus (quality, captions); close that window
+to return.
 
 Sound plays through your Linux desktop directly; the CrystalCast volume slider
 still controls it.
@@ -51,8 +53,8 @@ still controls it.
 Please send:
 
 - Does the video appear on the in-game screen? Is it smooth?
-- Does it keep updating when the game window covers the small browser window,
-  and when the game is fullscreen?
+- Does it keep playing smoothly in windowed and in fullscreen mode? Did you ever
+  see a "CrystalCast browser" window or taskbar entry?
 - Your distribution, desktop (GNOME, KDE, …), and whether you use Wayland or X11.
 - How you launch the game (XIVLauncher.Core native package, Flatpak, Steam, …).
 - **Settings → Diagnostics → Copy full diagnostics**, pasted into your message.
@@ -61,7 +63,8 @@ Please send:
 
 If the native browser does not work, the game keeps running: the screen shows a
 black placeholder and the **Source status** line says why in plain words, for
-example which package to install. The Dalamud log (`/xllog`, lines starting with
+example which package to install. If playback freezes, it says why too (for
+example a minimized or paused browser window), with numbers that help us. The Dalamud log (`/xllog`, lines starting with
 "CrystalCast") has the browser's own output. When the browser fails, its log is
 also kept in your Wine prefix under `drive_c/users/<you>/AppData/Local/Temp/CrystalCast/` (for
 XIVLauncher.Core the prefix is usually `~/.xlcore/wineprefix`). Please attach it.

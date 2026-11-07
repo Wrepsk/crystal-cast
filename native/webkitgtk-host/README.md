@@ -65,10 +65,20 @@ the game down. The screen then shows its fallback texture and the reason.
   cannot make the helper grow or spin.
 - **Game thread safety.** Calls from the render and UI threads only queue small
   messages and never throw; capture on/off is sent only when it changes.
-- **Focus.** Opening a screen maps the browser window without activating it, so
-  a fullscreen game keeps focus. Only **Show browser controls** raises it.
-- **Stalls.** If no frame arrives for five seconds while playing, the status says
-  so once (often a minimized window) and the Dalamud log records it.
+- **Hidden window.** GTK only draws a page in a shown window, so the helper keeps
+  one but hides it like WebView2's: it prefers X11 (XWayland on Wayland desktops,
+  which Wine already uses for the game) and marks the window borderless, below
+  all others, without a taskbar or pager entry, and not accepting focus. Only
+  **Show browser controls** turns it into a normal, raised window. Without X11 it
+  falls back to a visible Wayland window and reports that. Set
+  `CRYSTALCAST_GDK_BACKEND=wayland` before launching the game to force Wayland.
+- **Health reports.** Every two seconds the helper sends redraw and frame counts
+  and whether its window is shown, minimized or suspended by the desktop. Frames
+  are only captured after WebKit draws something new, so a paused page sends
+  none.
+- **Stalls.** If a playing video sends no frame for five seconds, the status and
+  the Dalamud log say why from that report (minimized, suspended by the desktop,
+  not shown, WebKit not drawing, or frame slots full), with the counters.
 
 ## Build
 
@@ -88,6 +98,11 @@ exists, so normal Windows builds and releases are unaffected.
 ## Tested so far
 
 Ubuntu 24.04 container, Xvfb software rendering, WebKitGTK 2.52.6, Wine 9.0.
+Window checks with Openbox: the helper window was borderless, below other
+windows, without taskbar/pager entries and not focusable; the focused window kept
+focus; frames continued at about 58 fps with a full-screen window on top, and
+minimizing it was reported as minimized/suspended with zero frames. Not yet
+checked: GNOME, KDE and other compositors, and the Wayland fallback.
 Failure cases checked under Wine: WebKitGTK removed (reported in 4 s with
 package names), no display, and the helper killed mid-stream (reported as
 signal 9); no helper process remained afterwards in any case.

@@ -81,6 +81,7 @@ var report = new
     failure_details = listener.FailureDetails,
     statuses = listener.Statuses.ToArray(),
     graphics = listener.Graphics,
+    health = listener.LastHealth,
     ready = listener.Ready,
     pong = listener.Pong,
     frames = listener.Frames,
@@ -130,6 +131,9 @@ internal sealed class SmokeListener : IWebKitGtkHostListener
     public void OnHostGraphics(string browserTexture, string outputTexture) => Graphics = $"{browserTexture} -> {outputTexture}";
     public void OnPageLoading() => Statuses.Enqueue("page loading");
     public void OnControlsVisibilityChanged(bool visible) => Statuses.Enqueue($"controls {visible}");
+    public void OnHostWindow(string mode, string detail) => Statuses.Enqueue($"window {mode}: {detail}");
+    public void OnHostHealth(WebKitGtkHostHealth health) => LastHealth = health.Summary;
+    public string LastHealth { get; private set; } = string.Empty;
 
     public void OnHostFrame(VideoFrame frame, double extractMilliseconds)
     {

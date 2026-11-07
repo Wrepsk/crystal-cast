@@ -24,6 +24,10 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#ifdef GDK_WINDOWING_X11
+#include <gdk/x11/gdkx.h>
+#include <X11/Xatom.h>
+#endif
 
 enum { PROTOCOL = 1, SLOTS = 3, MAX_MESSAGE = 1024 * 1024, MIN_W = 320, MAX_W = 3840, MIN_H = 180, MAX_H = 2160 };
 enum { CAPTURE_W = 480, CAPTURE_H = 270, CONTROLS_W = 1280, CONTROLS_H = 720 };
@@ -57,11 +61,16 @@ static size_t frame_bytes;
 static char *mapping_path, *page_url, *page_origin_pattern, *page_html;
 static uint64_t sequence, leases[SLOTS], busy_drops;
 static gboolean capture_enabled, page_ready, controls_visible, graphics_reported, mapping_unlinked;
+/* Set when WebKit drew something not yet captured; static or hidden pages send nothing. */
+static gboolean content_dirty;
 static guint pending_capture;
 static gint64 last_capture_us;
 static int exit_code;
 static gint64 crash_times[3];
 static unsigned crash_count;
+static uint64_t invalidations, last_health_invalidations, last_health_frames, last_health_busy;
+static gboolean using_x11;
+static char *last_window_problem;
 
 static void quit(int code)
 {
@@ -160,7 +169,7 @@ static gboolean capture(gpointer unused)
 {
     (void) unused;
     pending_capture = 0;
-    if (!capture_enabled || !mapping || !page_ready) return G_SOURCE_REMOVE;
+    if (!capture_enabled || !mapping || !page_ready || !content_dirty) return G_SOURCE_REMOVE;
     gint64 begin = g_get_monotonic_time();
     gint64 interval = G_USEC_PER_SEC / (fps_limit > 0 ? fps_limit : 60);
     /* Small slack so a 60 Hz source is not rounded down to every second frame. */
@@ -197,6 +206,7 @@ static gboolean capture(gpointer unused)
     gsk_render_node_unref(node);
     gint64 end = g_get_monotonic_time();
     last_capture_us = begin;
+    content_dirty = FALSE;
     leases[slot] = ++sequence;
     GString *m = g_string_new(NULL);
     g_string_printf(m, "{\"type\":\"frame\",\"seq\":%" G_GUINT64_FORMAT ",\"slot\":%d,\"extract_us\":%" G_GINT64_FORMAT
@@ -208,14 +218,99 @@ static gboolean capture(gpointer unused)
 static void invalidated(GdkPaintable *p, gpointer unused)
 {
     (void) p; (void) unused;
+    ++invalidations;
+    content_dirty = TRUE;
     /* GtkWidgetPaintable publishes its new image in a high-priority idle. */
     schedule_capture(0);
+}
+
+#ifdef GDK_WINDOWING_X11
+/* EWMH: ask the window manager to add or remove _NET_WM_STATE flags on a mapped window. */
+static void x11_change_state(GdkSurface *surface, gboolean add, const char *first, const char *second)
+{
+    Display *display = gdk_x11_display_get_xdisplay(gdk_surface_get_display(surface));
+    XEvent event = { 0 };
+    event.xclient.type = ClientMessage;
+    event.xclient.window = gdk_x11_surface_get_xid(surface);
+    event.xclient.message_type = XInternAtom(display, "_NET_WM_STATE", False);
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = add ? 1 : 0;
+    event.xclient.data.l[1] = (long) XInternAtom(display, first, False);
+    event.xclient.data.l[2] = second ? (long) XInternAtom(display, second, False) : 0;
+    event.xclient.data.l[3] = 1; /* normal application */
+    XSendEvent(display, DefaultRootWindow(display), False, SubstructureRedirectMask | SubstructureNotifyMask, &event);
+    XFlush(display);
+}
+
+/* GTK 4 has no "accept focus" setting; the ICCCM input hint tells the window manager. */
+static void x11_set_accepts_focus(GdkSurface *surface, gboolean accepts)
+{
+    Display *display = gdk_x11_display_get_xdisplay(gdk_surface_get_display(surface));
+    Window xid = gdk_x11_surface_get_xid(surface);
+    XWMHints *hints = XGetWMHints(display, xid);
+    if (!hints) hints = XAllocWMHints();
+    if (!hints) return;
+    hints->flags |= InputHint;
+    hints->input = accepts ? True : False;
+    XSetWMHints(display, xid, hints);
+    XFree(hints);
+    XFlush(display);
+}
+#endif
+
+static void send_window_report(const char *mode, const char *detail)
+{
+    fprintf(stderr, "crystalcast-webkit-host: window %s: %s\n", mode, detail);
+    GString *m = g_string_new("{\"type\":\"window\",\"mode\":");
+    append_json_string(m, mode);
+    g_string_append(m, ",\"detail\":");
+    append_json_string(m, detail);
+    g_string_append_c(m, '}');
+    send_message(m);
+}
+
+/* Called before the window is shown: hints the window manager reads at map time. */
+static void prepare_window(gboolean visible)
+{
+    gtk_window_set_decorated(GTK_WINDOW(window), visible);
+#ifdef GDK_WINDOWING_X11
+    if (using_x11) {
+        gtk_widget_realize(window);
+        GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(window));
+        gdk_x11_surface_set_skip_taskbar_hint(surface, !visible);
+        gdk_x11_surface_set_skip_pager_hint(surface, !visible);
+        /* A zero user time asks the window manager not to focus the new window. */
+        if (!visible) gdk_x11_surface_set_user_time(surface, 0);
+    }
+#endif
+}
+
+/* Called once the window is mapped: state changes must go through the window manager. */
+static void window_mapped(GtkWidget *widget, gpointer unused)
+{
+    (void) widget; (void) unused;
+#ifdef GDK_WINDOWING_X11
+    if (using_x11) {
+        GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(window));
+        x11_set_accepts_focus(surface, controls_visible);
+        x11_change_state(surface, !controls_visible, "_NET_WM_STATE_BELOW", NULL);
+        if (controls_visible) x11_change_state(surface, TRUE, "_NET_WM_STATE_ABOVE", NULL);
+        else x11_change_state(surface, FALSE, "_NET_WM_STATE_ABOVE", NULL);
+        send_window_report("x11", controls_visible
+            ? "browser controls shown as a normal window"
+            : "hidden below other windows, no taskbar entry, no focus");
+        return;
+    }
+#endif
+    send_window_report("wayland", controls_visible
+        ? "browser controls shown as a normal window"
+        : "visible window (X11 is not available, so it cannot be kept below other windows)");
 }
 
 static void set_controls_visible(gboolean visible)
 {
     controls_visible = visible;
-    /* GTK 4 only applies a new default size when the window is shown again. */
+    /* GTK 4 only applies a new default size and the map-time hints when shown again. */
     if (gtk_widget_get_mapped(window)) gtk_widget_set_visible(window, FALSE);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
         visible ? GTK_POLICY_AUTOMATIC : GTK_POLICY_EXTERNAL, visible ? GTK_POLICY_AUTOMATIC : GTK_POLICY_EXTERNAL);
@@ -223,13 +318,54 @@ static void set_controls_visible(gboolean visible)
         visible ? MIN(width, CONTROLS_W) : MIN(width, CAPTURE_W), visible ? MIN(height, CONTROLS_H) : MIN(height, CAPTURE_H));
     gtk_window_set_title(GTK_WINDOW(window), visible
         ? "CrystalCast browser controls (close this window to return to the game)"
-        : "CrystalCast browser (keep this window open)");
+        : "CrystalCast browser");
+    prepare_window(visible);
     /* Presenting activates the window. Only do that when the user asked for controls,
      * so opening a screen does not take focus from (or minimize) a fullscreen game. */
     if (visible) gtk_window_present(GTK_WINDOW(window));
     else gtk_widget_set_visible(window, TRUE);
     GString *m = g_string_new(visible ? "{\"type\":\"controls\",\"visible\":true}" : "{\"type\":\"controls\",\"visible\":false}");
     send_message(m);
+}
+
+/* Every two seconds: what the window and WebKit are doing, so the plugin can explain stalls. */
+static gboolean health_tick(gpointer unused)
+{
+    (void) unused;
+    gboolean mapped = gtk_widget_get_mapped(window), minimized = FALSE, suspended = FALSE;
+    GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(window));
+    if (surface && GDK_IS_TOPLEVEL(surface)) {
+        GdkToplevelState state = gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+        minimized = (state & GDK_TOPLEVEL_STATE_MINIMIZED) != 0;
+#if GTK_CHECK_VERSION(4, 12, 0)
+        suspended = (state & GDK_TOPLEVEL_STATE_SUSPENDED) != 0;
+#endif
+    }
+    uint64_t new_invalidations = invalidations - last_health_invalidations;
+    uint64_t new_frames = sequence - last_health_frames;
+    uint64_t new_busy = busy_drops - last_health_busy;
+    last_health_invalidations = invalidations;
+    last_health_frames = sequence;
+    last_health_busy = busy_drops;
+
+    const char *problem = !mapped ? "window not shown" : minimized ? "window minimized"
+        : suspended ? "desktop suspended the window" : NULL;
+    if (g_strcmp0(problem, last_window_problem) != 0) {
+        fprintf(stderr, "crystalcast-webkit-host: %s\n", problem ? problem : "window drawing normally again");
+        g_free(last_window_problem);
+        last_window_problem = g_strdup(problem);
+    }
+    if (capture_enabled && page_ready && new_invalidations == 0)
+        fprintf(stderr, "crystalcast-webkit-host: no redraws from WebKit in the last 2 s (mapped=%d minimized=%d suspended=%d)\n",
+            mapped, minimized, suspended);
+
+    GString *m = g_string_new(NULL);
+    g_string_printf(m, "{\"type\":\"health\",\"invalidations\":%" G_GUINT64_FORMAT ",\"frames\":%" G_GUINT64_FORMAT
+        ",\"busy\":%" G_GUINT64_FORMAT ",\"mapped\":%s,\"minimized\":%s,\"suspended\":%s,\"capture\":%s,\"page\":%s}",
+        new_invalidations, new_frames, new_busy, mapped ? "true" : "false", minimized ? "true" : "false",
+        suspended ? "true" : "false", capture_enabled ? "true" : "false", page_ready ? "true" : "false");
+    send_message(m);
+    return G_SOURCE_CONTINUE;
 }
 
 static gboolean close_requested(GtkWindow *w, gpointer unused)
@@ -292,6 +428,7 @@ static void load_changed(WebKitWebView *web_view, WebKitLoadEvent event, gpointe
     (void) web_view; (void) unused;
     if (event == WEBKIT_LOAD_FINISHED) {
         page_ready = TRUE;
+        content_dirty = TRUE;
         send_status("status", "player page loaded");
         schedule_capture(0);
     }
@@ -431,7 +568,7 @@ static void handle_message(const char *json)
         if (mapping_path && !mapping_unlinked) { unlink(mapping_path); mapping_unlinked = TRUE; }
     } else if (!strcmp(type, "capture")) {
         capture_enabled = bool_property(root, "enabled");
-        if (capture_enabled) schedule_capture(0);
+        if (capture_enabled) { content_dirty = TRUE; schedule_capture(0); }
     } else if (!strcmp(type, "muted")) {
         webkit_web_view_set_is_muted(WEBKIT_WEB_VIEW(view), bool_property(root, "value"));
     } else if (!strcmp(type, "fps")) {
@@ -549,6 +686,11 @@ int main(int argc, char **argv)
     send_message(hello);
     g_free(token);
 
+    /* X11 (XWayland on Wayland desktops, which Wine already uses for the game) lets the
+     * window stay below others without focus or a taskbar entry. Wayland is the fallback.
+     * CRYSTALCAST_GDK_BACKEND overrides the choice for troubleshooting. */
+    const char *backend = g_getenv("CRYSTALCAST_GDK_BACKEND");
+    g_setenv("GDK_BACKEND", backend && *backend ? backend : "x11,wayland", TRUE);
     if (!gtk_init_check()) {
         fatal("GTK could not open the Linux desktop display (is DISPLAY or WAYLAND_DISPLAY available to Wine?)");
         return 4;
@@ -558,8 +700,14 @@ int main(int argc, char **argv)
     loop = g_main_loop_new(NULL, FALSE);
     inbox = g_byte_array_new();
 
+#ifdef GDK_WINDOWING_X11
+    using_x11 = GDK_IS_X11_DISPLAY(gdk_display_get_default());
+#endif
+    /* Child processes (WebKit) should not inherit the forced GTK backend. */
+    g_unsetenv("GDK_BACKEND");
     window = gtk_window_new();
     g_signal_connect(window, "close-request", G_CALLBACK(close_requested), NULL);
+    g_signal_connect(window, "map", G_CALLBACK(window_mapped), NULL);
     WebKitNetworkSession *session = webkit_network_session_new_ephemeral();
     g_signal_connect(session, "download-started", G_CALLBACK(download_started), NULL);
     WebKitWebsitePolicies *policies = webkit_website_policies_new_with_policies("autoplay", WEBKIT_AUTOPLAY_ALLOW, NULL);
@@ -611,6 +759,7 @@ int main(int argc, char **argv)
     send_message(ready);
 
     g_unix_fd_add(sock, G_IO_IN | G_IO_HUP | G_IO_ERR, socket_readable, NULL);
+    g_timeout_add_seconds(2, health_tick, NULL);
     if (!exit_code) g_main_loop_run(loop);
 
     if (pending_capture) g_source_remove(pending_capture);

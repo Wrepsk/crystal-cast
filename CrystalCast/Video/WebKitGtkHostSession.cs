@@ -18,6 +18,8 @@ internal interface IWebKitGtkHostListener
     void OnPageLoading();
     void OnPageMessage(string json);
     void OnControlsVisibilityChanged(bool visible);
+    void OnHostWindow(string mode, string detail);
+    void OnHostHealth(WebKitGtkHostHealth health);
 }
 
 internal sealed record WebKitGtkHostOptions(
@@ -259,6 +261,20 @@ internal sealed class WebKitGtkHostSession : IDisposable
                         break;
                     case "graphics":
                         listener.OnHostGraphics(Bounded(GetString(root, "source")), Bounded(GetString(root, "output")));
+                        break;
+                    case "window":
+                        listener.OnHostWindow(Bounded(GetString(root, "mode")), Bounded(GetString(root, "detail")));
+                        break;
+                    case "health":
+                        listener.OnHostHealth(new WebKitGtkHostHealth(
+                            GetInt64(root, "invalidations"),
+                            GetInt64(root, "frames"),
+                            GetInt64(root, "busy"),
+                            GetBool(root, "mapped"),
+                            GetBool(root, "minimized"),
+                            GetBool(root, "suspended"),
+                            GetBool(root, "capture"),
+                            GetBool(root, "page")));
                         break;
                     case "controls":
                         listener.OnControlsVisibilityChanged(root.TryGetProperty("visible", out var visible) && visible.ValueKind == JsonValueKind.True);
@@ -541,6 +557,12 @@ internal sealed class WebKitGtkHostSession : IDisposable
         element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? string.Empty
             : string.Empty;
+
+    private static long GetInt64(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) && property.TryGetInt64(out var value) ? value : 0;
+
+    private static bool GetBool(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.True;
 
     private static string Bounded(string value) => value.Length <= 300 ? value : value[..300];
 }

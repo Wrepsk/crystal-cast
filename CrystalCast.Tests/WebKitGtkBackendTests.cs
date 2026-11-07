@@ -209,3 +209,59 @@ public sealed class WebKitGtkExitCodeDiagnosisTests
         Assert.Contains(expected, reason, StringComparison.Ordinal);
     }
 }
+
+public sealed class WebKitGtkStallDiagnosisTests
+{
+    private static WebKitGtkHostHealth Health(
+        long invalidations = 0,
+        long frames = 0,
+        long busy = 0,
+        bool mapped = true,
+        bool minimized = false,
+        bool suspended = false,
+        bool page = true) => new(invalidations, frames, busy, mapped, minimized, suspended, true, page);
+
+    [Theory]
+    [InlineData(false, false, false, "not shown")]
+    [InlineData(true, true, false, "minimized")]
+    [InlineData(true, false, true, "paused the browser window")]
+    public void WindowStateExplainsStall(bool mapped, bool minimized, bool suspended, string expected)
+    {
+        var reason = WebKitGtkStallDiagnosis.Explain(Health(mapped: mapped, minimized: minimized, suspended: suspended), "x11");
+
+        Assert.Contains(expected, reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NoRedrawsPointsAtCoveredWindowOrDecoding()
+    {
+        var reason = WebKitGtkStallDiagnosis.Explain(Health(invalidations: 0), "x11");
+
+        Assert.Contains("WebKit is not drawing new frames", reason, StringComparison.Ordinal);
+        Assert.Contains("x11", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullSlotsMeanThePluginIsNotTakingFrames()
+    {
+        var reason = WebKitGtkStallDiagnosis.Explain(Health(invalidations: 100, frames: 0, busy: 50), "x11");
+
+        Assert.Contains("frame slots are full", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingReportIsStated()
+    {
+        Assert.Contains("not reported", WebKitGtkStallDiagnosis.Explain(null, "unknown"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HealthSummaryListsCounters()
+    {
+        var summary = Health(invalidations: 120, frames: 118, busy: 2).Summary;
+
+        Assert.Contains("120 redraws", summary, StringComparison.Ordinal);
+        Assert.Contains("118 frames", summary, StringComparison.Ordinal);
+        Assert.Contains("minimized no", summary, StringComparison.Ordinal);
+    }
+}

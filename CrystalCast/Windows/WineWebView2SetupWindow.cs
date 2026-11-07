@@ -26,7 +26,8 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
         return WineWebView2SetupPolicy.ShouldShow(
             WineEnvironment.IsWine,
             configuration.WineWebView2SetupDismissed,
-            runtimeAvailable);
+            runtimeAvailable,
+            configuration.YouTubeBrowserEngine == BrowserMediaEngine.WebKitGtk);
     }
 
     internal static string GetInstallCommand()
@@ -50,6 +51,7 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.0f, 0.0f, 0.0f, 0.0f));
         if (ImGui.BeginChild("CrystalCastWineSetupContent", new Vector2(0.0f, -footerHeight), false, ImGuiWindowFlags.None))
         {
+            DrawNativeBrowserCard();
             DrawPreparationCard();
             DrawCommandCard();
             DrawStatusCallout();
@@ -102,6 +104,31 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
             ImGui.TextUnformatted("Install WebView2 in your FFXIV prefix");
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8.0f);
             ImGui.TextDisabled("One dependency is required before CrystalCast can render browser sources under Wine.");
+        }
+        ImGui.EndChild();
+        ImGui.PopStyleColor(2);
+        ImGui.PopStyleVar(2);
+        ImGui.Spacing();
+    }
+
+    private void DrawNativeBrowserCard()
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8.0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.10f, 0.12f, 0.64f));
+        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.38f));
+        if (ImGui.BeginChild("CrystalCastWineNativeBrowserCard", new Vector2(0.0f, 150.0f), true, ImGuiWindowFlags.None))
+        {
+            ImGui.TextColored(CrystalCastUiTheme.AccentText, "Alternative: use your Linux browser (experimental)");
+            ImGui.Separator();
+            ImGui.TextWrapped("YouTube, Twitch, Dailymotion and Vimeo can play in your Linux system's WebKitGTK 6.0 instead of WebView2. No winetricks needed; install WebKitGTK 6.0 with your package manager (libwebkitgtk-6.0-4 on Ubuntu/Debian, webkitgtk6.0 on Fedora, webkitgtk-6.0 on Arch). Generic Web screens still need WebView2.");
+            ImGui.TextDisabled(WebKitGtkAvailability.Describe());
+            if (ImGui.Button("Use the native Linux browser"))
+            {
+                plugin.Configuration.YouTubeBrowserEngine = BrowserMediaEngine.WebKitGtk;
+                plugin.Configuration.Save();
+                IsOpen = false;
+            }
         }
         ImGui.EndChild();
         ImGui.PopStyleColor(2);
@@ -186,7 +213,7 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
             "Compatibility",
             "How Wine capture works",
             "WebView2 must be installed in the same Wine prefix as the game; another prefix will not be visible to CrystalCast.",
-            "Wine always uses WebView2 JPEG capture. Windows Graphics Capture is disabled in this environment.",
+            "With WebView2, Wine uses JPEG capture. Windows Graphics Capture is disabled in this environment.",
             "Wine support is experimental and still needs broader testing on real Linux installations.");
     }
 

@@ -282,7 +282,9 @@ public sealed class ConfigWindow : Window, IDisposable
                 : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
         if (webKitGtkSelected)
         {
-            ImGui.TextWrapped($"Experimental. Requires WebKitGTK 6.0 on the Linux system; {WebKitGtkAvailability.Describe()}. Keep the small \"CrystalCast browser\" window open; it can sit behind the game.");
+            ImGui.TextWrapped($"Experimental. Requires WebKitGTK 6.0 on the Linux system; {WebKitGtkAvailability.Describe()}.");
+            ImGui.TextWrapped("The browser runs in a hidden \"CrystalCast browser\" window behind your other windows. Do not minimize or close it from the taskbar or a window list; that pauses the video. Show browser controls brings it to the front.");
+            ImGui.TextWrapped("If a screen stays black or freezes, its status under Diagnostics explains why.");
         }
 
         if (WineEnvironment.IsWine)

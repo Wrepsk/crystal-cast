@@ -25,9 +25,13 @@ internal static class BrowserPlatformPolicy
 
 internal static class WineWebView2SetupPolicy
 {
-    public static bool ShouldShow(bool isWine, bool dismissed, bool runtimeAvailable)
+    /// <summary>
+    /// The native WebKitGTK backend does not need WebView2 for provider players, so the
+    /// automatic setup prompt stays closed when it is selected.
+    /// </summary>
+    public static bool ShouldShow(bool isWine, bool dismissed, bool runtimeAvailable, bool nativeBrowserSelected = false)
     {
-        return isWine && !dismissed && !runtimeAvailable;
+        return isWine && !dismissed && !runtimeAvailable && !nativeBrowserSelected;
     }
 }
 

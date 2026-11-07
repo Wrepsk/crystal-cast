@@ -124,6 +124,12 @@ public sealed class BrowserSecurityPolicyTests
         Assert.Equal(expected, WineWebView2SetupPolicy.ShouldShow(isWine, dismissed, runtimeAvailable));
     }
 
+    [Fact]
+    public void WineSetupStaysClosedWhenTheNativeLinuxBrowserIsSelected()
+    {
+        Assert.False(WineWebView2SetupPolicy.ShouldShow(isWine: true, dismissed: false, runtimeAvailable: false, nativeBrowserSelected: true));
+    }
+
     [Theory]
     [InlineData("Autoplay", true)]
     [InlineData("Camera", false)]

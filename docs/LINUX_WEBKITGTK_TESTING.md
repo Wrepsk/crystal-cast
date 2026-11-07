@@ -59,9 +59,11 @@ Please send:
   Look at the **Source status** line for each screen; it shows the frame rate,
   the browser state, and any error.
 
-If the screen stays black, the status line usually says why, for example a
-missing library. When the browser fails to start, a log is kept in your Wine
-prefix under `drive_c/users/<you>/AppData/Local/Temp/CrystalCast/` (for
+If the native browser does not work, the game keeps running: the screen shows a
+black placeholder and the **Source status** line says why in plain words, for
+example which package to install. The Dalamud log (`/xllog`, lines starting with
+"CrystalCast") has the browser's own output. When the browser fails, its log is
+also kept in your Wine prefix under `drive_c/users/<you>/AppData/Local/Temp/CrystalCast/` (for
 XIVLauncher.Core the prefix is usually `~/.xlcore/wineprefix`). Please attach it.
 
 ## Known limits

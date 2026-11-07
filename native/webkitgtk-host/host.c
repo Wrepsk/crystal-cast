@@ -60,6 +60,8 @@ static gboolean capture_enabled, page_ready, controls_visible, graphics_reported
 static guint pending_capture;
 static gint64 last_capture_us;
 static int exit_code;
+static gint64 crash_times[3];
+static unsigned crash_count;
 
 static void quit(int code)
 {
@@ -222,7 +224,10 @@ static void set_controls_visible(gboolean visible)
     gtk_window_set_title(GTK_WINDOW(window), visible
         ? "CrystalCast browser controls (close this window to return to the game)"
         : "CrystalCast browser (keep this window open)");
-    gtk_window_present(GTK_WINDOW(window));
+    /* Presenting activates the window. Only do that when the user asked for controls,
+     * so opening a screen does not take focus from (or minimize) a fullscreen game. */
+    if (visible) gtk_window_present(GTK_WINDOW(window));
+    else gtk_widget_set_visible(window, TRUE);
     GString *m = g_string_new(visible ? "{\"type\":\"controls\",\"visible\":true}" : "{\"type\":\"controls\",\"visible\":false}");
     send_message(m);
 }
@@ -295,6 +300,7 @@ static void load_changed(WebKitWebView *web_view, WebKitLoadEvent event, gpointe
 static gboolean load_failed(WebKitWebView *web_view, WebKitLoadEvent event, char *uri, GError *error, gpointer unused)
 {
     (void) web_view; (void) event; (void) uri; (void) unused;
+    fprintf(stderr, "crystalcast-webkit-host: page load failed: %s\n", error ? error->message : "unknown error");
     send_status("status", error ? error->message : "page load failed");
     return FALSE;
 }
@@ -327,7 +333,22 @@ static void download_started(WebKitNetworkSession *session, WebKitDownload *down
 static gboolean web_process_terminated(WebKitWebView *web_view, WebKitWebProcessTerminationReason reason, gpointer unused)
 {
     (void) web_view; (void) unused;
-    send_status("status", reason == WEBKIT_WEB_PROCESS_CRASHED ? "browser web process crashed; reloading" : "browser web process ended; reloading");
+    const char *what = reason == WEBKIT_WEB_PROCESS_CRASHED ? "crashed"
+        : reason == WEBKIT_WEB_PROCESS_EXCEEDED_MEMORY_LIMIT ? "exceeded its memory limit" : "ended";
+    fprintf(stderr, "crystalcast-webkit-host: browser web process %s\n", what);
+    /* Reload after an occasional crash, but stop a crash loop instead of spinning. */
+    gint64 now = g_get_monotonic_time();
+    crash_times[crash_count++ % G_N_ELEMENTS(crash_times)] = now;
+    if (crash_count >= G_N_ELEMENTS(crash_times) &&
+        now - crash_times[crash_count % G_N_ELEMENTS(crash_times)] < 60 * G_USEC_PER_SEC) {
+        char *message = g_strdup_printf("the browser web process %s three times within a minute; giving up", what);
+        fatal(message);
+        g_free(message);
+        return TRUE;
+    }
+    char *message = g_strdup_printf("browser web process %s; reloading the player", what);
+    send_status("status", message);
+    g_free(message);
     g_idle_add(reload_player, NULL);
     return TRUE;
 }
@@ -465,6 +486,10 @@ static int connect_plugin(void)
     if (connect(fd, (struct sockaddr *) &address, sizeof address) != 0) { close(fd); return -1; }
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    /* If the game stops reading (hung or paused in a debugger), give up instead of
+     * blocking the browser forever; the plugin reports the lost connection. */
+    struct timeval timeout = { .tv_sec = 5 };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
     return fd;
 }
 
@@ -569,6 +594,11 @@ int main(int argc, char **argv)
     g_signal_connect(paintable, "invalidate-contents", G_CALLBACK(invalidated), NULL);
     set_controls_visible(FALSE);
 
+    fprintf(stderr, "crystalcast-webkit-host: GTK %u.%u.%u, WebKitGTK %u.%u.%u, %s on %s, %dx%d at up to %d fps\n",
+        gtk_get_major_version(), gtk_get_minor_version(), gtk_get_micro_version(),
+        webkit_get_major_version(), webkit_get_minor_version(), webkit_get_micro_version(),
+        G_OBJECT_TYPE_NAME(gtk_native_get_renderer(GTK_NATIVE(window))), G_OBJECT_TYPE_NAME(gdk_display_get_default()),
+        width, height, fps_limit);
     GString *ready = g_string_new(NULL);
     g_string_printf(ready, "{\"type\":\"ready\",\"width\":%d,\"height\":%d,\"stride\":%d,\"slots\":%d,\"renderer\":",
         width, height, width * 4, SLOTS);
@@ -592,5 +622,6 @@ int main(int argc, char **argv)
     g_object_unref(json_context);
     g_byte_array_unref(inbox);
     g_main_loop_unref(loop);
+    fprintf(stderr, "crystalcast-webkit-host: exiting (code %d, %" G_GUINT64_FORMAT " frames)\n", exit_code, sequence);
     return exit_code;
 }

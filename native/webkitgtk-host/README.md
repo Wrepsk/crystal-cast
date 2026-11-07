@@ -43,6 +43,33 @@ downloads and permission requests denied, and the top-level document may not
 navigate away from the player (it is reloaded instead). The WebKit sandbox stays
 enabled.
 
+## Failure handling
+
+The helper is a separate Linux process, so a crash in WebKit or GTK cannot take
+the game down. The screen then shows its fallback texture and the reason.
+
+- **Clear reasons.** `launch.sh` writes the helper's output and a final
+  `CRYSTALCAST_HOST_EXIT <code>` line to a log. The plugin turns that into a
+  short status (WebKitGTK or GTK missing with package names, glibc too old,
+  sandbox blocked, no display, killed or crashed, Flatpak sandbox) and writes
+  the last 40 log lines to the Dalamud log (`/xllog`). Failed logs are kept in
+  `%TEMP%\CrystalCast` inside the Wine prefix; successful ones are deleted.
+- **Fast failure.** A helper that exits during startup is detected from that
+  exit line within about half a second instead of waiting 30 seconds.
+- **No restart loops.** A failed source stays failed until the screen's
+  settings change; the renderer does not relaunch it. Inside the helper, a web
+  process that crashes three times within a minute stops the helper.
+- **No orphans.** The helper exits when the plugin connection closes (screen
+  removed, plugin unloaded, game closed or crashed). Sends time out after five
+  seconds, and frames stop once three slots are unacknowledged, so a hung game
+  cannot make the helper grow or spin.
+- **Game thread safety.** Calls from the render and UI threads only queue small
+  messages and never throw; capture on/off is sent only when it changes.
+- **Focus.** Opening a screen maps the browser window without activating it, so
+  a fullscreen game keeps focus. Only **Show browser controls** raises it.
+- **Stalls.** If no frame arrives for five seconds while playing, the status says
+  so once (often a minimized window) and the Dalamud log records it.
+
 ## Build
 
 On Ubuntu 24.04 (the binary then runs on glibc 2.39+ distributions):
@@ -60,7 +87,10 @@ exists, so normal Windows builds and releases are unaffected.
 
 ## Tested so far
 
-Ubuntu 24.04 container, Xvfb software rendering, WebKitGTK 2.52.6, Wine 9.0:
+Ubuntu 24.04 container, Xvfb software rendering, WebKitGTK 2.52.6, Wine 9.0.
+Failure cases checked under Wine: WebKitGTK removed (reported in 4 s with
+package names), no display, and the helper killed mid-stream (reported as
+signal 9); no helper process remained afterwards in any case.
 `tools/WebKitGtkHostSmoke` (the plugin's own session code, self-contained .NET 8
 under Wine) started the helper through Wine, authenticated, exchanged page
 messages both ways with origin `https://crystalcast.local`, and received

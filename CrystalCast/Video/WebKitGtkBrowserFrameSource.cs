@@ -8,6 +8,7 @@ namespace CrystalCast.Video;
 internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost, IWebKitGtkHostListener
 {
     private const int MaximumPendingPlayerMessages = 64;
+    private const long StalledFrameMilliseconds = 5000;
 
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -31,6 +32,10 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     private volatile bool captureEnabled;
     private volatile bool controlsVisible;
     private volatile bool failed;
+    private volatile bool pageLoaded;
+    private bool sessionCaptureEnabled;
+    private bool stallReported;
+    private long captureEnabledSinceUnixMs;
     private volatile string hostStatus = "stopped";
     private volatile string graphicsStatus = string.Empty;
     private long lastFrameUnixMs;
@@ -113,8 +118,7 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         if (!EnsureSession())
             return;
 
-        captureEnabled = true;
-        session?.SetCaptureEnabled(true);
+        SetCaptureEnabled(true);
         if (!wasCaptureEnabled && playbackIntent.IsPlayRequested)
             PostPlayerMessage(BrowserPageMessaging.Play(GetNonce()));
     }
@@ -122,16 +126,17 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     public void Stop()
     {
         var wasCaptureEnabled = captureEnabled;
-        captureEnabled = false;
-        session?.SetCaptureEnabled(false);
-        if (wasCaptureEnabled)
-            PostPlayerMessage(BrowserPageMessaging.Pause(GetNonce()));
+        SetCaptureEnabled(false);
+        if (!wasCaptureEnabled)
+            return;
 
+        PostPlayerMessage(BrowserPageMessaging.Pause(GetNonce()));
         playerState.SetState(ScreenPlaybackState.Paused, playbackRate);
     }
 
     public bool TryGetLatestFrame(out VideoFrame frame)
     {
+        CheckForStalledFrames();
         var current = Volatile.Read(ref latestFrame);
         if (current != null)
             return current.TryAcquire(out frame);
@@ -174,16 +179,14 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         if (!EnsureSession())
             return;
 
-        captureEnabled = true;
-        session?.SetCaptureEnabled(true);
+        SetCaptureEnabled(true);
         PostPlayerMessage(BrowserPageMessaging.Play(GetNonce()));
     }
 
     public void Pause()
     {
         playbackIntent.RequestPause();
-        captureEnabled = false;
-        session?.SetCaptureEnabled(false);
+        SetCaptureEnabled(false);
         PostPlayerMessage(BrowserPageMessaging.Pause(GetNonce()));
         playerState.SetState(ScreenPlaybackState.Paused, playbackRate);
     }
@@ -198,8 +201,7 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         if (!EnsureSession())
             return;
 
-        captureEnabled = true;
-        session?.SetCaptureEnabled(true);
+        SetCaptureEnabled(true);
         PostPlayerMessage(BrowserPageMessaging.Restart(GetNonce()));
     }
 
@@ -247,14 +249,27 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
             TryDeleteLog();
     }
 
-    void IWebKitGtkHostListener.OnHostStatus(string status) => hostStatus = status;
+    void IWebKitGtkHostListener.OnHostStatus(string status)
+    {
+        hostStatus = status;
+        if (status == "player page loaded")
+            pageLoaded = true;
+    }
 
-    void IWebKitGtkHostListener.OnHostFailed(string reason)
+    void IWebKitGtkHostListener.OnHostLog(string message) =>
+        log.Information("CrystalCast {Provider} screen: {Message}", descriptor.DisplayName, message);
+
+    void IWebKitGtkHostListener.OnHostFailed(string reason, string details)
     {
         failed = true;
         captureEnabled = false;
         hostStatus = $"native WebKitGTK browser unavailable: {reason}";
-        log.Warning("CrystalCast native WebKitGTK browser failed: {Reason}", reason);
+        log.Warning(
+            "CrystalCast native WebKitGTK browser failed for a {Provider} screen: {Reason}{NewLine}{Details}",
+            descriptor.DisplayName,
+            reason,
+            Environment.NewLine,
+            details);
     }
 
     void IWebKitGtkHostListener.OnHostGraphics(string browserTexture, string outputTexture) =>
@@ -269,6 +284,12 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         }
 
         lastExtractMilliseconds = extractMilliseconds;
+        if (stallReported)
+        {
+            stallReported = false;
+            hostStatus = "native WebKitGTK browser running";
+        }
+
         Interlocked.Exchange(ref latestFrame, frame)?.Dispose();
         if (disposed && Interlocked.CompareExchange(ref latestFrame, null, frame) == frame)
         {
@@ -332,19 +353,46 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
         if (session != null)
             return true;
 
-        if (!WebKitGtkAvailability.TryGetHelper(out var helper, out var launcher, out var unavailable))
+        string helper;
+        string launcher;
+        string unavailable;
+        bool available;
+        try
+        {
+            available = WebKitGtkAvailability.TryGetHelper(out helper, out launcher, out unavailable);
+        }
+        catch (Exception ex)
+        {
+            (helper, launcher, available) = (string.Empty, string.Empty, false);
+            unavailable = $"could not check the Linux host ({ex.GetType().Name}: {ex.Message})";
+        }
+
+        if (!available)
         {
             failed = true;
             hostStatus = $"native WebKitGTK browser unavailable: {unavailable}";
+            log.Warning("CrystalCast native WebKitGTK browser unavailable: {Reason}", unavailable);
             return false;
         }
 
-        logPath = WebKitGtkAvailability.CreateLogPath();
+        try
+        {
+            logPath = WebKitGtkAvailability.CreateLogPath();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failed = true;
+            hostStatus = $"native WebKitGTK browser unavailable: cannot create its log folder ({ex.Message})";
+            log.Warning(ex, "CrystalCast native WebKitGTK browser could not create its log folder.");
+            return false;
+        }
+
         session = new WebKitGtkHostSession(
             new WebKitGtkHostOptions(helper, launcher, logPath, Width, Height, FramesPerSecond),
             this);
         session.SetMuted(IsMuted(audioEnabled, volume));
         session.LoadPage(playerPage.Url, playerPage.Html);
+        sessionCaptureEnabled = false;
         session.Start();
         hostStatus = "starting native WebKitGTK browser";
         return true;
@@ -367,6 +415,39 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     }
 
     private string GetNonce() => playerPage?.Nonce ?? string.Empty;
+
+    /// <summary>The renderer calls Start/Stop every frame; only tell the helper about changes.</summary>
+    private void SetCaptureEnabled(bool enabled)
+    {
+        captureEnabled = enabled;
+        if (session == null || sessionCaptureEnabled == enabled)
+            return;
+
+        sessionCaptureEnabled = enabled;
+        session.SetCaptureEnabled(enabled);
+        if (enabled)
+        {
+            Volatile.Write(ref captureEnabledSinceUnixMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            stallReported = false;
+        }
+    }
+
+    private void CheckForStalledFrames()
+    {
+        if (!captureEnabled || failed || !pageLoaded || stallReported)
+            return;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var lastActivity = Math.Max(Volatile.Read(ref lastFrameUnixMs), Volatile.Read(ref captureEnabledSinceUnixMs));
+        if (lastActivity == 0 || now - lastActivity < StalledFrameMilliseconds)
+            return;
+
+        stallReported = true;
+        hostStatus = "no new browser frames for 5 seconds; keep the CrystalCast browser window open and not minimized (a paused or static video also sends no frames)";
+        log.Information(
+            "CrystalCast {Provider} screen: native WebKitGTK browser sent no frames for 5 seconds while playing.",
+            descriptor.DisplayName);
+    }
 
     private static bool IsMuted(bool audioEnabled, float volume) => !audioEnabled || volume <= 0.001f;
 

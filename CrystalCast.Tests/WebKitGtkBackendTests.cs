@@ -137,3 +137,75 @@ public sealed class WebKitGtkBackendTests
         Assert.True(Encoding.UTF8.GetByteCount(page.Html) < 1024 * 1024);
     }
 }
+
+public sealed class WebKitGtkFailureDiagnosisTests
+{
+    [Fact]
+    public void MissingWebKitGtkNamesTheDistributionPackages()
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(
+            "/home/u/crystalcast-webkit-host: error while loading shared libraries: libwebkitgtk-6.0.so.4: cannot open shared object file: No such file or directory",
+            logWritten: true,
+            insideFlatpak: false);
+
+        Assert.Contains("WebKitGTK 6.0 is not installed", reason, StringComparison.Ordinal);
+        Assert.Contains("webkitgtk6.0 (Fedora)", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OtherMissingLibraryIsNamed()
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(
+            "helper: error while loading shared libraries: libfoo.so.1: cannot open shared object file",
+            logWritten: true,
+            insideFlatpak: false);
+
+        Assert.Contains("libfoo.so.1", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OldGlibcIsExplained()
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(
+            "helper: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by helper)",
+            logWritten: true,
+            insideFlatpak: false);
+
+        Assert.Contains("too old", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingLogMeansWineCouldNotStartLinuxPrograms()
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(null, logWritten: false, insideFlatpak: true);
+
+        Assert.Contains("Wine could not start the Linux helper", reason, StringComparison.Ordinal);
+        Assert.Contains("Flatpak", reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("bwrap: setting up uid map: Permission denied", "sandbox")]
+    [InlineData("crystalcast-webkit-host: GTK could not open the Linux desktop display (is DISPLAY or WAYLAND_DISPLAY available to Wine?)", "display")]
+    [InlineData("sh: 1: /x/crystalcast-webkit-host: Exec format error", "x86-64")]
+    [InlineData("something unexpected", "Dalamud log")]
+    public void CommonFailuresAreExplained(string log, string expected)
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(log, logWritten: true, insideFlatpak: false);
+
+        Assert.Contains(expected, reason, StringComparison.Ordinal);
+    }
+}
+
+public sealed class WebKitGtkExitCodeDiagnosisTests
+{
+    [Theory]
+    [InlineData("CRYSTALCAST_HOST_EXIT 137", "killed")]
+    [InlineData("CRYSTALCAST_HOST_EXIT 139", "segmentation fault")]
+    [InlineData("crystalcast-webkit-host: exiting\nCRYSTALCAST_HOST_EXIT 1", "exited with code 1")]
+    public void HelperExitCodesAreExplained(string log, string expected)
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(log, logWritten: true, insideFlatpak: false);
+
+        Assert.Contains(expected, reason, StringComparison.Ordinal);
+    }
+}

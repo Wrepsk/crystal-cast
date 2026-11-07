@@ -8,6 +8,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 - Experimental native Linux browser under Wine: **Settings > Browser > Native Linux WebKitGTK (experimental)** plays YouTube, Twitch, Dailymotion and Vimeo screens in the system's WebKitGTK 6.0 and shares finished frames with the game, without WebView2 or JPEG capture. The browser window stays hidden behind other windows; failures and playback stalls are explained in each screen's status and the Dalamud log. Generic Web still uses WebView2.
 
+### Fixed
+
+- Wine detection now also works on Proton and Wine builds that hide Wine's own functions from Windows programs, so those players get Wine behavior (JPEG WebView2 capture, the native Linux browser option) instead of Windows-only capture paths. Detection never throws, and the diagnostics report shows how Wine was detected.
+
 - Multi-screen browser sources for YouTube, Twitch, Dailymotion, Vimeo, and Generic Web.
 - State-only IPC creation, updates, source locking, snapshots, sequencing, and change notifications.
 - WebView2 window capture with JPEG fallback, browser controls, adaptive capture cadence, and resource budgets.

@@ -505,8 +505,8 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
 
 internal static class WebKitGtkAvailability
 {
-    public const string HelperFileName = "crystalcast-webkit-host";
-    public const string LauncherFileName = "crystalcast-webkit-host.sh";
+    public const string HelperFileName = WebKitGtkHostSession.HelperFileName;
+    public const string LauncherFileName = WebKitGtkHostSession.LauncherFileName;
 
     public static string NativeDirectory
     {

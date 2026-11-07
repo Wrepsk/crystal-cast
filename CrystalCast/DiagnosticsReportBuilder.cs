@@ -36,7 +36,9 @@ internal static class DiagnosticsReportBuilder
         Append(report, ".NET", RuntimeInformation.FrameworkDescription);
         Append(report, "OS", RuntimeInformation.OSDescription);
         Append(report, "Architecture", $"process {RuntimeInformation.ProcessArchitecture}; OS {RuntimeInformation.OSArchitecture}");
-        Append(report, "Wine", YesNo(WineEnvironment.IsWine));
+        Append(report, "Wine", WineEnvironment.IsWine ? $"yes ({WineEnvironment.Description})" : "no");
+        if (WineEnvironment.IsWine)
+            Append(report, "Linux host", $"{WineHostInterop.HostSystemName}; Z: drive {(WineHostInterop.HasRootDrive ? "available" : "not available")}");
         Append(report, "WebView2", webView2Available ? webView2Version : $"unavailable; {webView2Error}");
 
         report.AppendLine();

@@ -15,23 +15,59 @@ internal static class WineHostInterop
 
     private static readonly Lazy<string?> HostSystem = new(QueryHostSystem);
 
-    public static bool IsLinuxHost => string.Equals(HostSystem.Value, "Linux", StringComparison.Ordinal);
+    public static bool IsLinuxHost => HostSystem.Value?.StartsWith("Linux", StringComparison.Ordinal) == true;
 
     public static string HostSystemName => HostSystem.Value ?? "unknown";
 
+    /// <summary>True when Wine's Z: drive shows the Linux root folder.</summary>
+    public static bool HasRootDrive => SafeExists(@"Z:\bin\sh") || SafeExists(@"Z:\usr\bin\sh");
+
     public static string? ToUnixPath(string windowsPath)
     {
-        if (!TryGetKernel32Export("wine_get_unix_file_name", out var export))
-            return null;
+        try
+        {
+            if (TryGetKernel32Export("wine_get_unix_file_name", out var export))
+                return CallToUnix(export, windowsPath);
+        }
+        catch
+        {
+            // Fall back to the Z: drive below.
+        }
 
-        return CallToUnix(export, windowsPath);
+        return RootDrivePathToUnix(windowsPath);
     }
 
     public static string? ToWindowsPath(string unixPath)
     {
-        if (!TryGetKernel32Export("wine_get_dos_file_name", out var export))
-            return null;
+        try
+        {
+            if (TryGetKernel32Export("wine_get_dos_file_name", out var export))
+                return CallToWindows(export, unixPath);
+        }
+        catch
+        {
+            // Fall back to the Z: drive below.
+        }
 
+        return unixPath.StartsWith('/') && HasRootDrive ? "Z:" + unixPath.Replace('/', '\\') : null;
+    }
+
+    /// <summary>"Z:\home\me\x" -> "/home/me/x" when Z: is the Linux root folder.</summary>
+    internal static string? RootDrivePathToUnix(string windowsPath)
+    {
+        if (windowsPath.Length < 3
+            || char.ToUpperInvariant(windowsPath[0]) != 'Z'
+            || windowsPath[1] != ':'
+            || windowsPath[2] != '\\')
+        {
+            return null;
+        }
+
+        return windowsPath[2..].Replace('\\', '/');
+    }
+
+    private static string? CallToWindows(nint export, string unixPath)
+    {
         var utf8 = Marshal.StringToCoTaskMemUTF8(unixPath);
         try
         {
@@ -170,35 +206,68 @@ internal static class WineHostInterop
 
     private static string? QueryHostSystem()
     {
-        if (!OperatingSystem.IsWindows() || !NativeLibrary.TryLoad("ntdll.dll", out var module))
+        if (!OperatingSystem.IsWindows())
             return null;
 
         try
         {
-            if (!NativeLibrary.TryGetExport(module, "wine_get_host_version", out var export))
-                return null;
-
-            unsafe
+            var ntdll = GetModuleHandleW("ntdll.dll");
+            var export = ntdll == 0 || IgnoreWineExports ? 0 : GetProcAddress(ntdll, "wine_get_host_version");
+            if (export != 0)
             {
-                nint sysname = 0;
-                nint release = 0;
-                ((delegate* unmanaged<nint*, nint*, void>)export)(&sysname, &release);
-                return sysname == 0 ? null : Marshal.PtrToStringUTF8(sysname);
+                unsafe
+                {
+                    nint sysname = 0;
+                    nint release = 0;
+                    ((delegate* unmanaged<nint*, nint*, void>)export)(&sysname, &release);
+                    if (sysname != 0)
+                        return Marshal.PtrToStringUTF8(sysname);
+                }
             }
         }
-        finally
+        catch
         {
-            NativeLibrary.Free(module);
+            // Hidden or unusable export: infer below.
         }
+
+        // Proton can hide Wine's exports. Linux has /proc; macOS (CrossOver) does not.
+        return SafeExists(@"Z:\proc\self\status") || SafeExists(@"Z:\proc\version")
+            ? "Linux (inferred from Wine's Z: drive)"
+            : null;
     }
+
+    /// <summary>Troubleshooting and tests: behave as if Wine hid its exports (some Proton builds).</summary>
+    internal static bool IgnoreWineExports =>
+        Environment.GetEnvironmentVariable("CRYSTALCAST_IGNORE_WINE_EXPORTS") == "1";
 
     private static bool TryGetKernel32Export(string name, out nint export)
     {
         export = 0;
-        return OperatingSystem.IsWindows()
-            && NativeLibrary.TryLoad("kernel32.dll", out var module)
-            && NativeLibrary.TryGetExport(module, name, out export);
+        if (!OperatingSystem.IsWindows() || IgnoreWineExports)
+            return false;
+
+        var kernel32 = GetModuleHandleW("kernel32.dll");
+        export = kernel32 == 0 ? 0 : GetProcAddress(kernel32, name);
+        return export != 0;
     }
+
+    private static bool SafeExists(string path)
+    {
+        try
+        {
+            return File.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint GetModuleHandleW(string moduleName);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, BestFitMapping = false)]
+    private static extern nint GetProcAddress(nint module, string procName);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct StartupInfo

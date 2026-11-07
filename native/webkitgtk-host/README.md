@@ -80,6 +80,22 @@ the game down. The screen then shows its fallback texture and the reason.
   the Dalamud log say why from that report (minimized, suspended by the desktop,
   not shown, WebKit not drawing, or frame slots full), with the counters.
 
+## Wine and Proton detection
+
+Some Proton and Wine builds hide Wine's own exports (`wine_get_version`,
+`wine_get_unix_file_name`, ...) from Windows programs. CrystalCast therefore also
+treats the `HKCU\Software\Wine` registry key as Wine, infers a Linux host from
+`Z:\proc`, and converts paths through the `Z:` drive (Wine's view of `/`). If the
+plugin folder is not on `Z:` (for example Windows XIVLauncher under Steam/Proton),
+the helper and launcher are copied into a new private folder under
+`$XDG_RUNTIME_DIR` (or `/tmp`) for that screen and deleted afterwards. Diagnostics
+show how Wine was detected. `CRYSTALCAST_IGNORE_WINE_EXPORTS=1` forces these
+fallbacks for testing.
+
+Proton normally runs games inside Steam's Linux Runtime container, which does
+not contain the system's WebKitGTK; the helper then fails with a missing-library
+error, and the status says that the container is the cause.
+
 ## Build
 
 On Ubuntu 24.04 (the binary then runs on glibc 2.39+ distributions):

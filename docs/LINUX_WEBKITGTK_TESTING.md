@@ -74,6 +74,8 @@ XIVLauncher.Core the prefix is usually `~/.xlcore/wineprefix`). Please attach it
 - Only YouTube, Twitch, Dailymotion and Vimeo use the native browser. Generic Web
   screens still use WebView2.
 - Signing in and cookies are not kept between sessions.
-- The Flatpak version of XIVLauncher may not be able to start the browser,
-  because the Flatpak sandbox does not include WebKitGTK. Reports either way help.
+- The Flatpak version of XIVLauncher, and launching through Steam with Proton,
+  may not be able to start the browser, because those sandboxes do not include
+  your system's WebKitGTK. The status line says so when this is the cause.
+  Reports either way help.
 - To go back, set **Browser backend** to **Auto**.

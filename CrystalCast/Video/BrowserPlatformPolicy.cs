@@ -35,24 +35,94 @@ internal static class WineWebView2SetupPolicy
     }
 }
 
+internal sealed record WineDetection(bool IsWine, bool ExportsVisible, string Description);
+
+/// <summary>
+/// Detects Wine and Proton. Some Proton and Wine builds hide Wine's own exports
+/// (wine_get_version and friends) from Windows programs, so the Wine registry key that
+/// every prefix has is checked too. Detection never throws.
+/// </summary>
 internal static class WineEnvironment
 {
-    private static readonly Lazy<bool> Detection = new(Detect);
+    private static readonly Lazy<WineDetection> Detection = new(Detect);
 
-    public static bool IsWine => Detection.Value;
+    public static bool IsWine => Detection.Value.IsWine;
 
-    private static bool Detect()
+    /// <summary>False when Wine hides its helper exports; path conversion then uses Z: instead.</summary>
+    public static bool ExportsVisible => Detection.Value.ExportsVisible;
+
+    public static string Description => Detection.Value.Description;
+
+    internal static WineDetection Evaluate(bool exportsVisible, bool registryKeyFound, bool protonEnvironment)
     {
-        if (!OperatingSystem.IsWindows() || !NativeLibrary.TryLoad("ntdll.dll", out var module))
+        var isWine = exportsVisible || registryKeyFound;
+        var kind = protonEnvironment ? "Proton" : "Wine";
+        var description = !isWine
+            ? "not detected"
+            : exportsVisible
+                ? $"{kind}; Wine functions visible"
+                : $"{kind}; detected from the Wine registry key, Wine functions are hidden from Windows programs";
+        return new WineDetection(isWine, exportsVisible, description);
+    }
+
+    private static WineDetection Detect()
+    {
+        if (!OperatingSystem.IsWindows())
+            return Evaluate(false, false, false);
+
+        return Evaluate(HasWineExport(), HasWineRegistryKey(), HasProtonEnvironment());
+    }
+
+    private static bool HasWineExport()
+    {
+        try
+        {
+            // GetModuleHandle does not change ntdll's reference count; nothing is loaded or freed.
+            var ntdll = GetModuleHandleW("ntdll.dll");
+            return ntdll != 0 && GetProcAddress(ntdll, "wine_get_version") != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasWineRegistryKey()
+    {
+        if (!OperatingSystem.IsWindows())
             return false;
 
         try
         {
-            return NativeLibrary.TryGetExport(module, "wine_get_version", out _);
+            using var user = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Wine");
+            if (user != null)
+                return true;
+
+            using var machine = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"Software\Wine");
+            return machine != null;
         }
-        finally
+        catch
         {
-            NativeLibrary.Free(module);
+            return false;
         }
     }
+
+    private static bool HasProtonEnvironment()
+    {
+        try
+        {
+            return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("STEAM_COMPAT_DATA_PATH"))
+                || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("STEAM_COMPAT_CLIENT_INSTALL_PATH"));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint GetModuleHandleW(string moduleName);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, BestFitMapping = false)]
+    private static extern nint GetProcAddress(nint module, string procName);
 }

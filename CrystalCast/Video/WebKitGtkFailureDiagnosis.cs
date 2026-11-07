@@ -9,11 +9,13 @@ internal static class WebKitGtkFailureDiagnosis
     private const string InstallWebKitGtk =
         "Install WebKitGTK 6.0: libwebkitgtk-6.0-4 (Ubuntu/Debian), webkitgtk6.0 (Fedora) or webkitgtk-6.0 (Arch).";
 
-    public static string Explain(string? logText, bool logWritten, bool insideFlatpak)
+    public static string Explain(string? logText, bool logWritten, bool insideFlatpak, bool insideSteamRuntime = false)
     {
-        var flatpak = insideFlatpak
-            ? " The game runs inside a Flatpak sandbox, which usually has no WebKitGTK; the native browser may not work there."
-            : string.Empty;
+        var flatpak = insideSteamRuntime
+            ? " The game runs inside Steam's Linux Runtime container (Proton), which does not include WebKitGTK from your system, so the native browser cannot start there yet. A launcher that runs Wine directly (such as XIVLauncher.Core's own Wine) works, or use WebView2."
+            : insideFlatpak
+                ? " The game runs inside a Flatpak sandbox, which usually has no WebKitGTK; the native browser may not work there."
+                : string.Empty;
 
         if (!logWritten)
         {

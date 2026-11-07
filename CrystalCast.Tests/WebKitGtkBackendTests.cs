@@ -265,3 +265,50 @@ public sealed class WebKitGtkStallDiagnosisTests
         Assert.Contains("minimized no", summary, StringComparison.Ordinal);
     }
 }
+
+public sealed class WineDetectionTests
+{
+    [Theory]
+    [InlineData(true, true, false, true, true)]
+    [InlineData(false, true, true, true, false)]   // Proton with hidden Wine exports
+    [InlineData(true, false, false, true, true)]
+    [InlineData(false, false, false, false, false)] // Windows
+    public void WineIsDetectedFromExportsOrRegistry(bool exports, bool registry, bool proton, bool expectedWine, bool expectedExports)
+    {
+        var detection = WineEnvironment.Evaluate(exports, registry, proton);
+
+        Assert.Equal(expectedWine, detection.IsWine);
+        Assert.Equal(expectedExports, detection.ExportsVisible);
+    }
+
+    [Fact]
+    public void HiddenExportsAreDescribed()
+    {
+        var detection = WineEnvironment.Evaluate(exportsVisible: false, registryKeyFound: true, protonEnvironment: true);
+
+        Assert.Contains("Proton", detection.Description, StringComparison.Ordinal);
+        Assert.Contains("hidden", detection.Description, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(@"Z:\home\me\.xlcore\installedPlugins\CrystalCast\native\linux-x64\crystalcast-webkit-host", "/home/me/.xlcore/installedPlugins/CrystalCast/native/linux-x64/crystalcast-webkit-host")]
+    [InlineData(@"z:\tmp\x", "/tmp/x")]
+    [InlineData(@"C:\users\steamuser\AppData\x", null)]
+    [InlineData(@"Z:", null)]
+    public void RootDrivePathsConvertWithoutWineFunctions(string windowsPath, string? expected)
+    {
+        Assert.Equal(expected, WineHostInterop.RootDrivePathToUnix(windowsPath));
+    }
+
+    [Fact]
+    public void SteamRuntimeContainerIsExplained()
+    {
+        var reason = WebKitGtkFailureDiagnosis.Explain(
+            "helper: error while loading shared libraries: libwebkitgtk-6.0.so.4: cannot open shared object file",
+            logWritten: true,
+            insideFlatpak: false,
+            insideSteamRuntime: true);
+
+        Assert.Contains("Steam's Linux Runtime", reason, StringComparison.Ordinal);
+    }
+}

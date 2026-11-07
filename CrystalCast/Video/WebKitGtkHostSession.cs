@@ -37,6 +37,8 @@ internal sealed record WebKitGtkHostOptions(
 internal sealed class WebKitGtkHostSession : IDisposable
 {
     public const int Protocol = 1;
+    public const string HelperFileName = "crystalcast-webkit-host";
+    public const string LauncherFileName = "crystalcast-webkit-host.sh";
     private const int Slots = 3;
     private const int MaximumMessageBytes = 1024 * 1024;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
@@ -50,11 +52,15 @@ internal sealed class WebKitGtkHostSession : IDisposable
     private NetworkStream? stream;
     private TcpClient? client;
     private int disposed;
+    private volatile bool failed;
+    private string logPath;
+    private string? stagingDirectory;
 
     public WebKitGtkHostSession(WebKitGtkHostOptions options, IWebKitGtkHostListener listener)
     {
         this.options = options;
         this.listener = listener;
+        logPath = options.LogPath;
     }
 
     public string RuntimeDescription { get; private set; } = "not connected";
@@ -116,6 +122,19 @@ internal sealed class WebKitGtkHostSession : IDisposable
             stream = null;
             client = null;
         }
+
+        // Keep a staged copy after a failure so its log can be read; Linux lets a running
+        // program's file be deleted, so a clean shutdown removes it right away.
+        if (!failed && stagingDirectory != null)
+        {
+            try
+            {
+                Directory.Delete(stagingDirectory, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     internal static byte[] Frame(object message)
@@ -172,7 +191,7 @@ internal sealed class WebKitGtkHostSession : IDisposable
             var port = ((IPEndPoint)listenerSocket.LocalEndpoint).Port;
             TryDeleteStaleLog();
             StartHelper(port);
-            listener.OnHostLog($"started native WebKitGTK helper {options.HelperPath}; log {options.LogPath}");
+            listener.OnHostLog($"started native WebKitGTK helper {options.HelperPath}; log {logPath}");
             listener.OnHostStatus("starting native WebKitGTK browser");
 
             TcpClient accepted;
@@ -313,12 +332,7 @@ internal sealed class WebKitGtkHostSession : IDisposable
 
     private void StartHelper(int port)
     {
-        var helper = WineHostInterop.ToUnixPath(options.HelperPath)
-            ?? throw new WebKitGtkHostException($"Wine cannot map {options.HelperPath} to a Linux path");
-        var launcher = WineHostInterop.ToUnixPath(options.LauncherPath)
-            ?? throw new WebKitGtkHostException($"Wine cannot map {options.LauncherPath} to a Linux path");
-        var log = WineHostInterop.ToUnixPath(options.LogPath)
-            ?? throw new WebKitGtkHostException($"Wine cannot map {options.LogPath} to a Linux path");
+        var (helper, launcher, log) = ResolveUnixPaths();
         var fps = (int)Math.Round(Math.Clamp(options.FramesPerSecond, 1.0f, 120.0f));
         WineHostInterop.StartUnixProcess(
             "/bin/sh",
@@ -329,6 +343,40 @@ internal sealed class WebKitGtkHostSession : IDisposable
                 ["CRYSTALCAST_HOST_TOKEN"] = token,
                 ["CRYSTALCAST_HOST_LOG"] = log,
             });
+    }
+
+    /// <summary>
+    /// Linux paths for the helper, its launcher and its log. When Wine hides its path
+    /// functions (some Proton builds) and the plugin is not on the Z: drive, the two files
+    /// are copied into a new private folder under XDG_RUNTIME_DIR (or /tmp) instead.
+    /// </summary>
+    private (string Helper, string Launcher, string Log) ResolveUnixPaths()
+    {
+        var helper = WineHostInterop.ToUnixPath(options.HelperPath);
+        var launcher = WineHostInterop.ToUnixPath(options.LauncherPath);
+        var log = WineHostInterop.ToUnixPath(logPath);
+        if (helper != null && launcher != null && log != null)
+            return (helper, launcher, log);
+
+        var runtimeDirectory = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        var baseDirectory = !string.IsNullOrEmpty(runtimeDirectory) && runtimeDirectory.StartsWith('/') && !runtimeDirectory.Contains('"')
+            ? runtimeDirectory.TrimEnd('/')
+            : "/tmp";
+        var unixDirectory = $"{baseDirectory}/crystalcast-webkit-{Guid.NewGuid():N}";
+        var windowsDirectory = WineHostInterop.ToWindowsPath(unixDirectory)
+            ?? throw new WebKitGtkHostException(
+                "Wine hides its path functions and has no Z: drive for the Linux root folder, so the Linux helper cannot be started");
+
+        Directory.CreateDirectory(windowsDirectory);
+        stagingDirectory = windowsDirectory;
+        File.Copy(options.HelperPath, Path.Combine(windowsDirectory, HelperFileName));
+        File.Copy(options.LauncherPath, Path.Combine(windowsDirectory, LauncherFileName));
+        logPath = Path.Combine(windowsDirectory, "host.log");
+        listener.OnHostLog($"Wine path functions are hidden; started the helper from a copy in {unixDirectory}");
+        return (
+            $"{unixDirectory}/{HelperFileName}",
+            $"{unixDirectory}/{LauncherFileName}",
+            $"{unixDirectory}/host.log");
     }
 
     private void ValidateHello(JsonElement hello)
@@ -452,6 +500,7 @@ internal sealed class WebKitGtkHostSession : IDisposable
 
     private void ReportFailure(Exception ex)
     {
+        failed = true;
         string reason;
         var details = string.Empty;
         if (ex is WebKitGtkHostException hostException)
@@ -462,11 +511,11 @@ internal sealed class WebKitGtkHostSession : IDisposable
 
             var (logText, logWritten) = ReadLog();
             reason = hostException.HelperEnded
-                ? $"{ex.Message}. {WebKitGtkFailureDiagnosis.Explain(logText, logWritten, IsInsideFlatpak())}"
+                ? $"{ex.Message}. {WebKitGtkFailureDiagnosis.Explain(logText, logWritten, IsInsideFlatpak(), IsInsideSteamRuntime())}"
                 : ex.Message;
             details = logWritten
-                ? $"Helper log {options.LogPath} (last lines):{Environment.NewLine}{logText}"
-                : $"No helper log was written at {options.LogPath}.";
+                ? $"Helper log {logPath} (last lines):{Environment.NewLine}{logText}"
+                : $"No helper log was written at {logPath}.";
         }
         else
         {
@@ -488,10 +537,10 @@ internal sealed class WebKitGtkHostSession : IDisposable
     {
         try
         {
-            if (!File.Exists(options.LogPath))
+            if (!File.Exists(logPath))
                 return (string.Empty, false);
 
-            using var file = new FileStream(options.LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var file = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             const int MaximumBytes = 64 * 1024;
             if (file.Length > MaximumBytes)
                 file.Seek(-MaximumBytes, SeekOrigin.End);
@@ -514,10 +563,10 @@ internal sealed class WebKitGtkHostSession : IDisposable
     {
         try
         {
-            if (!File.Exists(options.LogPath))
+            if (!File.Exists(logPath))
                 return false;
 
-            using var file = new FileStream(options.LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var file = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (file.Length > 4096)
                 file.Seek(-4096, SeekOrigin.End);
             using var reader = new StreamReader(file, Encoding.UTF8);
@@ -533,10 +582,25 @@ internal sealed class WebKitGtkHostSession : IDisposable
     {
         try
         {
-            File.Delete(options.LogPath);
+            File.Delete(logPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+        }
+    }
+
+    /// <summary>Proton runs games inside Steam's Linux Runtime (pressure-vessel) container.</summary>
+    private static bool IsInsideSteamRuntime()
+    {
+        try
+        {
+            var marker = WineHostInterop.ToWindowsPath("/run/host/os-release");
+            return (marker != null && File.Exists(marker))
+                || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PRESSURE_VESSEL_RUNTIME"));
+        }
+        catch
+        {
+            return false;
         }
     }
 

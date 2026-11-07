@@ -17,10 +17,10 @@ public sealed class ConfigWindow : Window, IDisposable
     ];
 
     private static readonly string[] BrowserEngineNames =
-        ["Auto", "WebView2 JPEG capture", "WebView2 window capture"];
+        ["Auto", "WebView2 JPEG capture", "WebView2 window capture", "Native Linux WebKitGTK (experimental)"];
 
     private static readonly BrowserMediaEngine[] BrowserEngines =
-        [BrowserMediaEngine.Auto, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture];
+        [BrowserMediaEngine.Auto, BrowserMediaEngine.WebView2Capture, BrowserMediaEngine.WebView2WindowCapture, BrowserMediaEngine.WebKitGtk];
 
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
@@ -250,13 +250,16 @@ public sealed class ConfigWindow : Window, IDisposable
         var changed = false;
         var current = FindBrowserEngineIndex(config.YouTubeBrowserEngine);
 
-        CrystalCastUiTheme.DrawSectionHeader("Browser backend", "Choose how WebView2 pages are captured into screen textures.");
+        CrystalCastUiTheme.DrawSectionHeader("Browser backend", "Choose which browser renders pages and how they are captured into screen textures.");
         ImGui.TextDisabled("Browser backend");
         ImGui.SetNextItemWidth(-1.0f);
         if (ImGui.BeginCombo("##CrystalCastBrowserBackend", BrowserEngineNames[current]))
         {
             for (var i = 0; i < BrowserEngineNames.Length; i++)
             {
+                if (BrowserEngines[i] == BrowserMediaEngine.WebKitGtk && !WineEnvironment.IsWine)
+                    continue;
+
                 var selected = i == current;
                 if (ImGui.Selectable(BrowserEngineNames[i], selected))
                 {
@@ -271,9 +274,16 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled(WineEnvironment.IsWine
-            ? "Wine detected: WebView2 JPEG capture is forced for every browser option."
-            : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
+        var webKitGtkSelected = WineEnvironment.IsWine && config.YouTubeBrowserEngine == BrowserMediaEngine.WebKitGtk;
+        ImGui.TextDisabled(webKitGtkSelected
+            ? "YouTube, Twitch, Dailymotion and Vimeo play in a native Linux browser window. Generic Web still uses WebView2 JPEG capture."
+            : WineEnvironment.IsWine
+                ? "Wine detected: WebView2 JPEG capture is used unless the native Linux WebKitGTK backend is selected."
+                : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
+        if (webKitGtkSelected)
+        {
+            ImGui.TextWrapped($"Experimental. Requires WebKitGTK 6.0 on the Linux system; {WebKitGtkAvailability.Describe()}. Keep the small \"CrystalCast browser\" window open; it can sit behind the game.");
+        }
 
         if (WineEnvironment.IsWine)
         {

@@ -294,7 +294,7 @@ public sealed class WorldScreenManager : IDisposable
                     : instance.TextureWidth > 0 ? "CPU frame upload" : "CPU frame upload pending";
             var gpuSampleStatus = captureMode == WebView2CaptureMode.WindowGraphicsCapture
                 ? instance?.GpuSampleStatus ?? "game texture sample pending"
-                : "not applicable to JPEG capture";
+                : "not applicable to CPU frame capture";
 
             return new WorldScreenDiagnosticSnapshot(
                 index + 1,

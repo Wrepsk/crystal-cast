@@ -201,7 +201,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         }
         catch (Exception ex)
         {
-            log.Warning(ex, "Failed to create CrystalCast WebView2 browser source.");
+            log.Warning(ex, "Failed to create CrystalCast browser source.");
             activeSource = CreateUnavailableSource(ex);
             return;
         }
@@ -213,6 +213,23 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
     private IVideoFrameSource CreateSource()
     {
+        if (UsesWebKitGtk)
+        {
+            return new WebKitGtkBrowserFrameSource(
+                descriptor,
+                input,
+                width,
+                height,
+                captureFps,
+                autoplay,
+                currentLoop,
+                currentPlaylistAutoplayNext,
+                currentAudioEnabled,
+                currentVolume,
+                currentPlaybackRate,
+                log);
+        }
+
         var captureMode = BrowserPlatformPolicy.ResolveCaptureMode(enginePreference, WineEnvironment.IsWine);
         return new WebView2BrowserFrameSource(
             descriptor,
@@ -243,8 +260,14 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         }
     }
 
+    private bool UsesWebKitGtk =>
+        BrowserPlatformPolicy.UsesWebKitGtk(enginePreference, WineEnvironment.IsWine, descriptor.ProviderKind);
+
     private string DescribeCaptureMode()
     {
+        if (UsesWebKitGtk)
+            return "native WebKitGTK, experimental";
+
         return BrowserPlatformPolicy.ResolveCaptureMode(enginePreference, WineEnvironment.IsWine) == WebView2CaptureMode.PreviewJpeg
             ? WineEnvironment.IsWine ? "WebView2 JPEG capture, Wine compatibility" : "WebView2 JPEG capture"
             : "WebView2 window capture";
@@ -256,7 +279,9 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             Width,
             Height,
             FramesPerSecond,
-            $"WebView2 browser source unavailable: {ex.GetBaseException().Message}");
+            UsesWebKitGtk
+                ? $"native WebKitGTK browser source unavailable: {ex.GetBaseException().Message}"
+                : $"WebView2 browser source unavailable: {ex.GetBaseException().Message}");
     }
 
     private sealed class UnavailableFrameSource(int width, int height, float framesPerSecond, string status) : IVideoFrameSource

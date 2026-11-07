@@ -68,3 +68,31 @@ jobs:
           path: CrystalCast/bin/x64/Release/CrystalCast/latest.zip
           if-no-files-found: error
           retention-days: 7
+
+  webkitgtk-host:
+    # Experimental Linux/Wine browser helper; packaged only into Linux test builds.
+    name: Native WebKitGTK helper (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libwebkitgtk-6.0-dev libgtk-4-dev
+
+      - name: Build helper with warnings as errors
+        run: make -C native/webkitgtk-host
+
+      - name: Check launcher script syntax
+        run: sh -n native/webkitgtk-host/launch.sh
+
+      - name: Upload helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystalcast-webkit-host-${{ github.sha }}
+          path: native/webkitgtk-host/build/crystalcast-webkit-host
+          if-no-files-found: error
+          retention-days: 7

@@ -9,3 +9,6 @@ bin/
 /NativeLinuxBrowser/artifacts/
 /NativeLinuxBrowser/build/
 __pycache__/
+
+# Experimental Linux test packages.
+/artifacts/

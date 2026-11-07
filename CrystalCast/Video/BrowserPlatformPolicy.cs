@@ -11,6 +11,16 @@ internal static class BrowserPlatformPolicy
             ? WebView2CaptureMode.PreviewJpeg
             : WebView2CaptureMode.WindowGraphicsCapture;
     }
+
+    /// <summary>
+    /// The native WebKitGTK backend renders provider player pages only. Generic Web keeps WebView2.
+    /// </summary>
+    public static bool UsesWebKitGtk(BrowserMediaEngine engine, bool isWine, BrowserSourceProviderKind provider)
+    {
+        return isWine
+            && BrowserMediaEnginePolicy.Normalize(engine) == BrowserMediaEngine.WebKitGtk
+            && provider != BrowserSourceProviderKind.GenericWeb;
+    }
 }
 
 internal static class WineWebView2SetupPolicy

@@ -51,7 +51,10 @@ internal static class DiagnosticsReportBuilder
             ? DescribeOutputMode(effectiveOutput) : "not selected");
         Append(report, "Scene composite fallback", renderer.SceneCompositeFallbackReason ?? "none");
         Append(report, "Configured browser backend", configuration.YouTubeBrowserEngine);
-        Append(report, "Resolved capture mode", DescribeCaptureMode(resolvedCaptureMode));
+        Append(report, "Resolved capture mode", BrowserPlatformPolicy.UsesWebKitGtk(configuration.YouTubeBrowserEngine, WineEnvironment.IsWine, BrowserSourceProviderKind.YouTube)
+            ? "native WebKitGTK for provider players; " + DescribeCaptureMode(resolvedCaptureMode) + " for Generic Web"
+            : DescribeCaptureMode(resolvedCaptureMode));
+        Append(report, "Native WebKitGTK", WineEnvironment.IsWine ? WebKitGtkAvailability.Describe() : "not applicable outside Wine");
         Append(report, "GPU texture sampling", configuration.EnableGpuDiagnostics ? "enabled" : "disabled");
         Append(report, "Renderer", renderer.Status);
         Append(report, "Draw", renderer.LastDrawStatus);

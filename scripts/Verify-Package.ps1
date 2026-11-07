@@ -1,6 +1,8 @@
 param(
     [string]$PackagePath = "CrystalCast/bin/x64/Release/CrystalCast/latest.zip",
-    [string]$ExpectedVersion = ""
+    [string]$ExpectedVersion = "",
+    # Experimental Linux test builds also carry the native WebKitGTK helper.
+    [switch]$IncludesWebKitGtkHost
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +30,12 @@ try {
         "SixLabors.ImageSharp.dll",
         "WebView2Loader.dll"
     )
+    if ($IncludesWebKitGtkHost) {
+        $expectedFiles += @(
+            "native\linux-x64\crystalcast-webkit-host",
+            "native\linux-x64\crystalcast-webkit-host.sh"
+        )
+    }
 
     $actualFiles = @($archive.Entries | ForEach-Object FullName | Sort-Object)
     $unexpected = @($actualFiles | Where-Object { $_ -notin $expectedFiles })

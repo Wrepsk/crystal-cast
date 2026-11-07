@@ -60,6 +60,24 @@
     </Content>
   </ItemGroup>
 
+  <!-- Experimental Linux/Wine browser helper. The executable is built on Linux
+       (native/webkitgtk-host) and is only packaged when it has been built. -->
+  <PropertyGroup>
+    <WebKitGtkHostBinary>..\native\webkitgtk-host\build\crystalcast-webkit-host</WebKitGtkHostBinary>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(WebKitGtkHostBinary)')">
+    <Content Include="$(WebKitGtkHostBinary)">
+      <Link>native\linux-x64\crystalcast-webkit-host</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="..\native\webkitgtk-host\launch.sh">
+      <Link>native\linux-x64\crystalcast-webkit-host.sh</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
   <Target Name="RemoveEmbeddedCsWinRTPlatformMarker" AfterTargets="CsWinRTIncludeProjection" BeforeTargets="CoreCompile">
     <ItemGroup>
       <Compile Remove="$(CsWinRTGeneratedFilesDir)Module.cs" />

@@ -16,6 +16,14 @@ $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath 
 
 try {
     $expectedFiles = @(
+        "Assets\Fonts\GeistMono-Regular.ttf",
+        "Assets\Fonts\HankenGrotesk-Medium.ttf",
+        "Assets\Fonts\HankenGrotesk-Regular.ttf",
+        "Assets\Fonts\HankenGrotesk-SemiBold.ttf",
+        "Assets\Fonts\Marcellus-Regular.ttf",
+        "Assets\Fonts\OFL-GeistMono.txt",
+        "Assets\Fonts\OFL-HankenGrotesk.txt",
+        "Assets\Fonts\OFL-Marcellus.txt",
         "CrystalCast.deps.json",
         "CrystalCast.dll",
         "CrystalCast.json",
@@ -27,7 +35,6 @@ try {
         "SharpDX.dll",
         "SharpDX.DXGI.dll",
         "SharpDX.Mathematics.dll",
-        "SixLabors.ImageSharp.dll",
         "WebView2Loader.dll"
     )
     if ($IncludesWebKitGtkHost) {

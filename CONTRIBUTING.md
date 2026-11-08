@@ -45,7 +45,7 @@ Push the renderer commit before the CrystalCast commit so other developers and C
 - Update `CHANGELOG.md` for user-visible changes.
 - If dependencies change, run `dotnet restore CrystalCast.sln --force-evaluate` and commit the updated lock files.
 
-CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers and warnings-as-errors. CrystalRenderer owns graphics and FFXIV output integration; keep browser/provider, audio, configuration, and IPC types out of its public API. Existing ImageSharp audit failures are documented in `docs/DEPENDENCY_AUDIT.md` and are not suppressed by this migration.
+CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers and warnings-as-errors. CrystalRenderer owns graphics and FFXIV output integration; keep browser/provider, audio, configuration, and IPC types out of its public API. NuGet audit failures are not suppressed; see `docs/DEPENDENCY_AUDIT.md` for how the ImageSharp findings were resolved.
 
 ## Release process
 

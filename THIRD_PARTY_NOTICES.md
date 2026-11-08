@@ -10,9 +10,9 @@ Pictomancy is distributed under `AGPL-3.0-or-later`. CrystalRenderer remains und
 
 ## Packaged runtime libraries
 
-The release archive includes the runtime assemblies selected by the locked dependency graph, including Microsoft WebView2, ImageSharp, KamiToolKit, and SharpDX components. Package versions and integrity hashes are recorded in the project lock files, including `CrystalCast/packages.lock.json` and `CrystalRenderer/CrystalRenderer/packages.lock.json`; their respective upstream licenses apply.
+The release archive includes the runtime assemblies selected by the locked dependency graph, including Microsoft WebView2, KamiToolKit, and SharpDX components. Package versions and integrity hashes are recorded in the project lock files, including `CrystalCast/packages.lock.json` and `CrystalRenderer/CrystalRenderer/packages.lock.json`; their respective upstream licenses apply.
 
-ImageSharp remains at its existing version during the renderer migration. Its direct/transitive uses, current audit findings, and separate upgrade/removal follow-up are documented in `docs/DEPENDENCY_AUDIT.md`.
+ImageSharp is no longer used; JPEG capture decodes with the Windows Imaging Component, and KamiToolKit 2.x has no ImageSharp dependency. See `docs/DEPENDENCY_AUDIT.md`.
 
 ## Bundled UI fonts
 

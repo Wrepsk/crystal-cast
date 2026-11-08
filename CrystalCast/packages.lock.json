@@ -36,12 +36,6 @@
           "System.Runtime.WindowsRuntime.UI.Xaml": "4.6.0"
         }
       },
-      "SixLabors.ImageSharp": {
-        "type": "Direct",
-        "requested": "[3.1.12, )",
-        "resolved": "3.1.12",
-        "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
-      },
       "System.Runtime.WindowsRuntime": {
         "type": "Direct",
         "requested": "[4.6.0, )",
@@ -63,11 +57,8 @@
       },
       "KamiToolKit": {
         "type": "Transitive",
-        "resolved": "1.1.2",
-        "contentHash": "pyydp+XFd+E00uEXXd44GGNCCH2uAK1ndwjLVHKVrHg059g65ry+92a5UdDISWZRJMhK+LcDpDUPSijnFavCvQ==",
-        "dependencies": {
-          "SixLabors.ImageSharp": "3.1.12"
-        }
+        "resolved": "2.2.66",
+        "contentHash": "THZbwwuHPMr4p6gB+pbSv6nm0iBMnFcAex7XVC2D4YS8nIQ6UrXfZjq1gdldh6SJax7764isbsC1I7Y0IRKTlQ=="
       },
       "Microsoft.NETCore.Platforms": {
         "type": "Transitive",
@@ -130,7 +121,7 @@
       "crystalrenderer": {
         "type": "Project",
         "dependencies": {
-          "KamiToolKit": "[1.1.2, )",
+          "KamiToolKit": "[2.2.66, )",
           "SharpDX.D3DCompiler": "[4.2.0, )",
           "SharpDX.Direct3D11": "[4.2.0, )",
           "SharpDX.Mathematics": "[4.2.0, )"

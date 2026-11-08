@@ -54,7 +54,6 @@
     <PackageReference Include="System.Runtime.WindowsRuntime" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="System.Runtime.WindowsRuntime.UI.Xaml" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" ExcludeAssets="build;buildTransitive;compile;runtime" GeneratePathProperty="true" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>

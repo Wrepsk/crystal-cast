@@ -10,6 +10,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Fixed
 
+- Restores pass NuGet's security audit again: ImageSharp is removed. WebView2 JPEG capture now decodes with the Windows Imaging Component (also provided by Wine), and CrystalRenderer moves to KamiToolKit 2.2.66, which has no ImageSharp dependency. The package no longer ships `SixLabors.ImageSharp.dll`.
 - Wine detection now also works on Proton and Wine builds that hide Wine's own functions from Windows programs, so those players get Wine behavior (JPEG WebView2 capture, the native Linux browser option) instead of Windows-only capture paths. Detection never throws, and the diagnostics report shows how Wine was detected.
 
 - Multi-screen browser sources for YouTube, Twitch, Dailymotion, Vimeo, and Generic Web.

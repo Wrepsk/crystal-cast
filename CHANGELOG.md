@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.8.2 - 2026-11-08
+
 ### Added
 
 - Experimental native Linux browser under Wine: **Settings > Browser > Native Linux WebKitGTK (experimental)** plays YouTube, Twitch, Dailymotion and Vimeo screens in the system's WebKitGTK 6.0 and shares finished frames with the game, without WebView2 or JPEG capture. The browser window stays hidden behind other windows; failures and playback stalls are explained in each screen's status and the Dalamud log. Generic Web still uses WebView2.

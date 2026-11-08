@@ -108,8 +108,9 @@ make
 Or from Windows with Docker: `scripts/Build-LinuxTestPackage.ps1 -BuildHelper`.
 That builds the helper, the Release plugin, verifies the zip contents and writes
 `artifacts/linux-test/CrystalCast-<version>-linux-webkitgtk-test.zip`. The
-plugin project only packages the helper when `build/crystalcast-webkit-host`
-exists, so normal Windows builds and releases are unaffected.
+plugin project packages the helper whenever `build/crystalcast-webkit-host`
+exists. CI and the tag-triggered release workflow build it in an Ubuntu 24.04 job
+and package it into the Windows build; their package check requires it.
 
 ## Tested so far
 

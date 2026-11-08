@@ -11,15 +11,20 @@ namespace CrystalCast.Rendering;
 
 public sealed class SharedVideoTexture : IDisposable
 {
+    /// <summary>
+    /// Capture rotates several shared textures; each is opened once and reused. Older sizes are
+    /// dropped on resize, and the cap bounds handles kept for a capture session that restarts.
+    /// </summary>
+    private const int MaximumOpenedSharedTextures = 8;
+
+    private readonly Dictionary<IntPtr, OpenedSharedTexture> openedSharedTextures = new();
     private D3D11Device? device;
     private DeviceContext? context;
-    private Texture2D? sharedTexture;
-    private KeyedMutex? sharedTextureMutex;
     private ShaderResourceView? shaderResourceView;
     private Texture2D? texture;
     private Texture2D? diagnosticStagingTexture;
-    private IntPtr openedHandle;
     private long openedSequence = -1;
+    private long openOrder;
     private long lastDiagnosticTicks;
 
     public nint NativeHandle => shaderResourceView?.NativePointer ?? 0;
@@ -55,65 +60,22 @@ public sealed class SharedVideoTexture : IDisposable
         var sw = Stopwatch.StartNew();
         EnsureDevice();
 
-        if (shaderResourceView == null
-            || texture == null
-            || sharedTexture == null
-            || openedHandle != frame.SharedHandle
-            || Width != frame.Width
-            || Height != frame.Height)
-        {
-            Texture2D? nextSharedTexture = null;
-            KeyedMutex? nextMutex = null;
-            Texture2D? nextTexture = null;
-            ShaderResourceView? nextShaderResourceView = null;
-            try
-            {
-                nextSharedTexture = device!.OpenSharedResource<Texture2D>(frame.SharedHandle);
-                nextMutex = nextSharedTexture.QueryInterface<KeyedMutex>();
-                var description = nextSharedTexture.Description;
-                nextTexture = new Texture2D(device, new Texture2DDescription
-                {
-                    Width = description.Width,
-                    Height = description.Height,
-                    MipLevels = 1,
-                    ArraySize = 1,
-                    Format = description.Format,
-                    SampleDescription = new SampleDescription(1, 0),
-                    Usage = ResourceUsage.Default,
-                    BindFlags = BindFlags.ShaderResource,
-                    CpuAccessFlags = CpuAccessFlags.None,
-                    OptionFlags = ResourceOptionFlags.None,
-                });
-                nextShaderResourceView = new ShaderResourceView(device, nextTexture);
-            }
-            catch
-            {
-                nextShaderResourceView?.Dispose();
-                nextTexture?.Dispose();
-                nextMutex?.Dispose();
-                nextSharedTexture?.Dispose();
-                throw;
-            }
+        var shared = GetOrOpenSharedTexture(frame.SharedHandle);
+        var description = shared.Texture.Description;
+        if (shaderResourceView == null || texture == null || Width != description.Width || Height != description.Height)
+            RecreateDisplayTexture(description);
 
-            DisposeTexture();
-            sharedTexture = nextSharedTexture;
-            sharedTextureMutex = nextMutex;
-            texture = nextTexture;
-            shaderResourceView = nextShaderResourceView;
-            openedHandle = frame.SharedHandle;
-            Width = nextSharedTexture.Description.Width;
-            Height = nextSharedTexture.Description.Height;
-        }
-
-        if (context == null || sharedTexture == null || sharedTextureMutex == null || texture == null)
+        if (context == null || texture == null)
             return false;
 
-        if (!KeyedMutexSynchronization.TryAcquire(sharedTextureMutex, 1, 5))
+        // Never stall the game's render thread: if capture is writing this texture right now,
+        // keep showing the previous frame and try again next game frame.
+        if (!KeyedMutexSynchronization.TryAcquire(shared.Mutex, 1, 0))
             return false;
 
         try
         {
-            context.CopyResource(sharedTexture, texture);
+            context.CopyResource(shared.Texture, texture);
             if (GraphicsDiagnostics.Enabled)
             {
                 UpdateDiagnosticStatus();
@@ -128,7 +90,7 @@ public sealed class SharedVideoTexture : IDisposable
         }
         finally
         {
-            sharedTextureMutex.Release(0);
+            shared.Mutex.Release(0);
         }
 
         sw.Stop();
@@ -136,6 +98,87 @@ public sealed class SharedVideoTexture : IDisposable
         UploadCount++;
         LastUploadMilliseconds = sw.Elapsed.TotalMilliseconds;
         return true;
+    }
+
+    private OpenedSharedTexture GetOrOpenSharedTexture(IntPtr handle)
+    {
+        if (openedSharedTextures.TryGetValue(handle, out var existing))
+        {
+            existing.LastUsed = ++openOrder;
+            return existing;
+        }
+
+        Texture2D? sharedTexture = null;
+        KeyedMutex? mutex = null;
+        try
+        {
+            sharedTexture = device!.OpenSharedResource<Texture2D>(handle);
+            mutex = sharedTexture.QueryInterface<KeyedMutex>();
+        }
+        catch
+        {
+            mutex?.Dispose();
+            sharedTexture?.Dispose();
+            throw;
+        }
+
+        var opened = new OpenedSharedTexture(sharedTexture, mutex) { LastUsed = ++openOrder };
+        var size = sharedTexture.Description;
+        // Textures of another size belong to a capture size that is gone.
+        foreach (var (otherHandle, other) in openedSharedTextures.ToArray())
+        {
+            var otherSize = other.Texture.Description;
+            if (otherSize.Width != size.Width || otherSize.Height != size.Height)
+            {
+                other.Dispose();
+                openedSharedTextures.Remove(otherHandle);
+            }
+        }
+
+        while (openedSharedTextures.Count >= MaximumOpenedSharedTextures)
+        {
+            var oldest = openedSharedTextures.MinBy(entry => entry.Value.LastUsed);
+            oldest.Value.Dispose();
+            openedSharedTextures.Remove(oldest.Key);
+        }
+
+        openedSharedTextures[handle] = opened;
+        return opened;
+    }
+
+    private void RecreateDisplayTexture(Texture2DDescription sharedDescription)
+    {
+        Texture2D? nextTexture = null;
+        ShaderResourceView? nextShaderResourceView = null;
+        try
+        {
+            nextTexture = new Texture2D(device, new Texture2DDescription
+            {
+                Width = sharedDescription.Width,
+                Height = sharedDescription.Height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = sharedDescription.Format,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CpuAccessFlags = CpuAccessFlags.None,
+                OptionFlags = ResourceOptionFlags.None,
+            });
+            nextShaderResourceView = new ShaderResourceView(device, nextTexture);
+        }
+        catch
+        {
+            nextShaderResourceView?.Dispose();
+            nextTexture?.Dispose();
+            throw;
+        }
+
+        DisposeDisplayTexture();
+        texture = nextTexture;
+        shaderResourceView = nextShaderResourceView;
+        Width = sharedDescription.Width;
+        Height = sharedDescription.Height;
     }
 
     public void Dispose()
@@ -237,24 +280,46 @@ public sealed class SharedVideoTexture : IDisposable
         previous?.Dispose();
     }
 
-    private void DisposeTexture()
+    private void DisposeDisplayTexture()
     {
         shaderResourceView?.Dispose();
         shaderResourceView = null;
         texture?.Dispose();
         texture = null;
-        sharedTextureMutex?.Dispose();
-        sharedTextureMutex = null;
-        sharedTexture?.Dispose();
-        sharedTexture = null;
         diagnosticStagingTexture?.Dispose();
         diagnosticStagingTexture = null;
-        openedHandle = IntPtr.Zero;
         Width = 0;
         Height = 0;
-        openedSequence = -1;
         lastDiagnosticTicks = 0;
         DiagnosticStatus = "game texture sample pending";
+    }
+
+    private void DisposeTexture()
+    {
+        DisposeDisplayTexture();
+        foreach (var opened in openedSharedTextures.Values)
+            opened.Dispose();
+        openedSharedTextures.Clear();
+        openedSequence = -1;
+    }
+
+    private sealed class OpenedSharedTexture : IDisposable
+    {
+        public OpenedSharedTexture(Texture2D texture, KeyedMutex mutex)
+        {
+            Texture = texture;
+            Mutex = mutex;
+        }
+
+        public Texture2D Texture { get; }
+        public KeyedMutex Mutex { get; }
+        public long LastUsed { get; set; }
+
+        public void Dispose()
+        {
+            Mutex.Dispose();
+            Texture.Dispose();
+        }
     }
 
     private void ResetDevice()

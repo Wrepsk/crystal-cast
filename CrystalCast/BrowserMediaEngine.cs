@@ -5,6 +5,8 @@ public enum BrowserMediaEngine
     Auto = 0,
     WebView2Capture = 2,
     WebView2WindowCapture = 3,
+    /// <summary>Experimental native Linux WebKitGTK browser; only used under Wine.</summary>
+    WebKitGtk = 4,
 }
 
 internal static class BrowserMediaEnginePolicy
@@ -14,6 +16,7 @@ internal static class BrowserMediaEnginePolicy
         return engine is BrowserMediaEngine.Auto
             or BrowserMediaEngine.WebView2Capture
             or BrowserMediaEngine.WebView2WindowCapture
+            or BrowserMediaEngine.WebKitGtk
             ? engine
             : BrowserMediaEngine.Auto;
     }

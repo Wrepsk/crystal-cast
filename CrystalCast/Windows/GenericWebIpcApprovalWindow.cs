@@ -2,11 +2,16 @@ using System.Numerics;
 using CrystalCast.Sync;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using static CrystalCast.Windows.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
 internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
 {
+    private const float LabelWidth = 140.0f;
+    private const float LabelGap = 16.0f;
+
     private readonly GenericWebIpcApprovalService approvals;
     private long displayedRequestId;
     private bool rememberDomainChoice;
@@ -17,7 +22,7 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
             ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize)
     {
         this.approvals = approvals;
-        Size = new Vector2(620.0f, 430.0f);
+        Size = new Vector2(620.0f, 470.0f);
         SizeCondition = ImGuiCond.Always;
         IsOpen = false;
         ShowCloseButton = false;
@@ -48,6 +53,16 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
         IsOpen = false;
     }
 
+    public override void PreDraw()
+    {
+        PushWindowStyle(S(28.0f, 24.0f));
+    }
+
+    public override void PostDraw()
+    {
+        PopWindowStyle();
+    }
+
     public override void Draw()
     {
         if (!approvals.TryGetCurrent(out var request))
@@ -56,49 +71,49 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
             return;
         }
 
-        var accent = CrystalCastUiTheme.Accent;
-        DrawHeader(accent, request.IsRedirect);
-        ImGui.Spacing();
+        Ui.Hero(
+            "Security check",
+            request.IsRedirect ? "This IPC screen wants to open another website" : "An IPC screen wants to open a website",
+            "Generic Web pages can run scripts, track browser activity, and contact other services. CrystalCast has not loaded this destination yet.");
 
-        DrawDetail("SCREEN", string.IsNullOrWhiteSpace(request.ScreenName) ? "Unnamed IPC screen" : request.ScreenName);
-        DrawDetail(
-            "REPORTED SOURCE",
-            string.IsNullOrWhiteSpace(request.ReportedOwnerId) ? "Unknown IPC caller" : request.ReportedOwnerId);
-        DrawDetail("DESTINATION", request.Origin);
+        DrawDetail("Screen", string.IsNullOrWhiteSpace(request.ScreenName) ? "Unnamed IPC screen" : request.ScreenName);
+        DrawDetail("Reported source", string.IsNullOrWhiteSpace(request.ReportedOwnerId) ? "Unknown IPC caller" : request.ReportedOwnerId);
+        DrawDetail("Destination", request.Origin);
 
-        ImGui.Spacing();
-        ImGui.TextColored(CrystalCastUiTheme.AccentText, "FULL ADDRESS");
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 7.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.08f, 0.08f, 0.10f, 0.82f));
-        if (ImGui.BeginChild("CrystalCastIpcWebAddress", new Vector2(0.0f, 64.0f), true, ImGuiWindowFlags.None))
-        {
-            ImGui.PushTextWrapPos();
-            ImGui.TextUnformatted(request.Url);
-            ImGui.PopTextWrapPos();
-        }
-        ImGui.EndChild();
-        ImGui.PopStyleColor();
-        ImGui.PopStyleVar();
+        Ui.RowLabel("Full address", LabelWidth, LabelGap);
+        var pos = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+        float textHeight;
+        using (Ui.Font(f => f.MonoDetail))
+            textHeight = ImGui.CalcTextSize(request.Url, false, width - S(20.0f)).Y;
+        var boxSize = new Vector2(width, Math.Max(Ui.FrameHeight, textHeight + S(14.0f)));
+        var dl = ImGui.GetWindowDrawList();
+        dl.AddRectFilled(pos, pos + boxSize, U32(Inset), S(4.0f));
+        dl.AddRect(pos, pos + boxSize, U32(Hairline), S(4.0f), ImDrawFlags.None, 1.0f);
+        ImGui.SetCursorScreenPos(pos + S(10.0f, 7.0f));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + width - S(20.0f));
+        Ui.Text(request.Url, CrystalCastUiTheme.Text, f => f.MonoDetail);
+        ImGui.PopTextWrapPos();
+        ImGui.SetCursorScreenPos(pos);
+        ImGui.Dummy(boxSize);
 
-        ImGui.Spacing();
-        ImGui.Checkbox("Remember my choice for this domain for this session", ref rememberDomainChoice);
-        ImGui.TextDisabled("Applies to this exact scheme, host, and port. It is cleared when CrystalCast reloads.");
+        Ui.VerticalSpace(16.0f);
+        Ui.SwitchLabeled("##RememberDomain", "Remember my choice for this domain for this session", ref rememberDomainChoice);
+        Ui.Meta("Applies to this exact scheme, host, and port. It is cleared when CrystalCast reloads.");
 
-        var footerY = ImGui.GetWindowHeight() - ImGui.GetFrameHeightWithSpacing() - 18.0f;
+        var footerY = ImGui.GetWindowHeight() - ImGui.GetStyle().WindowPadding.Y - Ui.FrameHeight;
         ImGui.SetCursorPosY(Math.Max(ImGui.GetCursorPosY(), footerY));
         var rejectLabel = rememberDomainChoice ? "Block domain" : "Reject";
-        if (ImGui.Button(rejectLabel, new Vector2(130.0f, 0.0f)))
+        if (Ui.Button(rejectLabel))
         {
             approvals.Reject(request.RequestId, blockOriginForSession: rememberDomainChoice);
             IsOpen = false;
             return;
         }
 
-        ImGui.SameLine();
         var playLabel = rememberDomainChoice ? "Play and trust domain" : "Play once";
-        var playWidth = 180.0f;
-        ImGui.SetCursorPosX(ImGui.GetWindowWidth() - playWidth - ImGui.GetStyle().WindowPadding.X);
-        if (ImGui.Button(playLabel, new Vector2(playWidth, 0.0f)))
+        ImGui.SameLine(Math.Max(0.0f, ImGui.GetContentRegionMax().X - Ui.ButtonWidth(playLabel)));
+        if (Ui.Button(playLabel, ButtonKind.Primary))
         {
             approvals.Approve(request.RequestId, trustForSession: rememberDomainChoice);
             IsOpen = false;
@@ -109,32 +124,9 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
     {
     }
 
-    private static void DrawHeader(Vector4 accent, bool isRedirect)
-    {
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 10.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, CrystalCastUiTheme.WithAlpha(accent, 0.12f));
-        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(accent, 0.42f));
-        if (ImGui.BeginChild("CrystalCastIpcWebApprovalHeader", new Vector2(0.0f, 102.0f), true, ImGuiWindowFlags.None))
-        {
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, "SECURITY CHECK");
-            ImGui.TextUnformatted(isRedirect
-                ? "This IPC screen wants to open another website"
-                : "An IPC screen wants to open a website");
-            ImGui.Spacing();
-            ImGui.PushTextWrapPos();
-            ImGui.TextDisabled("Generic Web pages can run scripts, track browser activity, and contact other services. CrystalCast has not loaded this destination yet.");
-            ImGui.PopTextWrapPos();
-        }
-        ImGui.EndChild();
-        ImGui.PopStyleColor(2);
-        ImGui.PopStyleVar(2);
-    }
-
     private static void DrawDetail(string label, string value)
     {
-        ImGui.TextColored(CrystalCastUiTheme.AccentText, label);
-        ImGui.SameLine(165.0f);
-        ImGui.TextUnformatted(value);
+        Ui.RowLabel(label, LabelWidth, LabelGap);
+        Ui.RowText(value, CrystalCastUiTheme.Text, f => f.Body, wrap: true);
     }
 }

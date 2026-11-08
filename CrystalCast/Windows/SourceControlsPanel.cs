@@ -13,6 +13,8 @@ internal sealed class SourceControlsPanel
 
     public bool Draw(BrowserScreenProfile activeScreen) => browserPanel.Draw(activeScreen);
 
+    public string DescribeSource(BrowserScreenProfile screen, bool playing) => browserPanel.DescribeSource(screen, playing);
+
     public void ClearScreen(string screenId)
     {
         browserPanel.ClearScreen(screenId);

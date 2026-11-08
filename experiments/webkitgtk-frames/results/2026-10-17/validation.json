@@ -1,0 +1,98 @@
+{
+  "passed": 14,
+  "checks": [
+    {
+      "run": "gl-texture",
+      "frames": 516,
+      "pixel_updates": 17
+    },
+    {
+      "run": "gl-shm",
+      "frames": 323,
+      "pixel_updates": 322,
+      "consumer_verified": 323
+    },
+    {
+      "run": "ngl-shm",
+      "frames": 391,
+      "pixel_updates": 390,
+      "consumer_verified": 391
+    },
+    {
+      "run": "cairo-shm",
+      "frames": 981,
+      "pixel_updates": 980,
+      "consumer_verified": 981
+    },
+    {
+      "run": "cairo-poll60",
+      "frames": 981,
+      "pixel_updates": 980,
+      "consumer_verified": 981
+    },
+    {
+      "run": "cairo-pause",
+      "frames": 471,
+      "pixel_updates": 469,
+      "consumer_verified": 471,
+      "pause_interval_frames": 0,
+      "resume_distinct_frames": 307
+    },
+    {
+      "run": "cairo-hidden",
+      "frames": 151,
+      "pixel_updates": 150,
+      "consumer_verified": 151,
+      "frames_after_hiding": 0
+    },
+    {
+      "run": "cairo-slow",
+      "frames": 82,
+      "pixel_updates": 81,
+      "consumer_verified": 82,
+      "backpressure_drops": 295
+    },
+    {
+      "run": "d3d12-mixed-preview",
+      "frames": 73,
+      "pixel_updates": 7
+    },
+    {
+      "run": "d3d12-mixed-shm",
+      "frames": 194,
+      "pixel_updates": 193,
+      "consumer_verified": 194
+    },
+    {
+      "run": "d3d12-mixed-texture",
+      "frames": 193,
+      "pixel_updates": 9
+    },
+    {
+      "run": "final-d3d12-shm",
+      "frames": 171,
+      "pixel_updates": 170,
+      "consumer_verified": 171
+    },
+    {
+      "run": "final-cairo-shm",
+      "frames": 861,
+      "pixel_updates": 860,
+      "consumer_verified": 861
+    },
+    {
+      "run": "final-overlay",
+      "frames": 255,
+      "pixel_updates": 254,
+      "consumer_verified": 255,
+      "html_overlay_verified": true
+    }
+  ],
+  "source_sha256": {
+    "probe.c": "4e7a4737135b6dce2c5455d314eff02707942ca6a77196f98c752e9aacbb6492",
+    "Makefile": "60d52bb17a9adf42f7c8d937b7b93e1bb7314eefd5db994a8d7894626a6b99cc",
+    "benchmark.py": "fe07c68df62dbfed06689b14f922c81aa8d5b60ac7db8576da766101490f2244",
+    "run_matrix.py": "3fe47b0f361bccad60235ee308b1c2cc066321fa8cc4e0941c2bedb4fa2bf81f",
+    "verify_results.py": "8be47a90234e8948f3ebeafc302fc0cf468014ae51719587d1aefe4cb9b908c0"
+  }
+}

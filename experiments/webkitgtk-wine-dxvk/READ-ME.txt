@@ -1,0 +1,87 @@
+CrystalCast Wine/DXVK frame test 0.1.0 (experimental)
+
+QUICK START
+
+1. Download the tar.gz (recommended) or ZIP from this release and extract it.
+2. Open a terminal inside the extracted CrystalCast-WineDXVK-FrameTest folder.
+3. Run as your ordinary desktop user:
+
+   sh run-wine-dxvk.sh
+
+4. Keep both test windows visible and unminimized until the test finishes.
+5. Send these two files from the new wine-dxvk-results folder:
+
+   summary.txt
+   results.json
+
+No repository checkout, compiling, development headers, FFXIV, Dalamud,
+CrystalCast installation, WebView2 or Winetricks are needed. Nothing is uploaded.
+The two performance passes take roughly 35-60 seconds. First-time setup of the
+separate test Wine prefix may take up to 90 seconds longer.
+
+REQUIREMENTS
+
+This test DOES require an existing x86_64 Linux Wine runner, a graphical desktop,
+working Vulkan support, and system WebKitGTK/GTK/GStreamer libraries. It includes
+the precompiled programs, local H.264 video, and unmodified x64 DXVK 2.7.1 DLLs.
+It includes no Wine installation or browser engine. No system packages are
+automatically installed and no root privileges are requested. Do not use sudo.
+
+Initial ABI target: Ubuntu 24.04; glibc 2.39+, GTK 4.14+, WebKitGTK API 6.0,
+Python 3.10+, GStreamer with MP4/H.264 decoding. Fedora and Arch use their system
+runtime packages. Missing libraries or codecs are availability problems, not
+performance failures. Native hardware Wine/DXVK results are still being collected.
+
+If Wine is not found automatically, select an existing runner, quoting its path:
+
+   sh run-wine-dxvk.sh --wine "/full/path/to/wine64"
+
+Use the wine or wine64 executable, not a game shortcut or Steam's proton script.
+Proton-only / container host-launch integration and SteamOS are unverified.
+Wine's standard Z: mapping of Unix files must be enabled. The test uses a new
+marked prefix under ~/.cache/crystalcast-frame-harness by default. Existing game
+prefixes are refused; no DXVK DLLs are installed into them. Keep the test prefix
+on a Linux filesystem, not NTFS. The matching dedicated wineserver is stopped on
+completion when available. Your existing game Wine prefixes are not used.
+
+CHECK WITHOUT RUNNING THE TEST
+
+   sh run-wine-dxvk.sh --check --output dependency-check
+
+This writes summary.txt and results.json even when Wine, browser libraries,
+codecs or a desktop session are missing. Python itself must be present to write
+reports; otherwise the launcher prints a clear terminal explanation. An exit
+status of 2 means a prerequisite is unavailable; send the report anyway.
+The check does not prove Vulkan/DXVK initialization or actual video playback.
+
+REPEATING OR ADDING AN OVERLAY CHECK
+
+Every output folder must be empty. For another normal run:
+
+   sh run-wine-dxvk.sh --output second-results
+
+For a short additional HTML-over-video correctness check:
+
+   sh run-wine-dxvk.sh --mode verify --overlay --seconds 4 --warmup 1 --output overlay-results
+
+INTERPRETING RESULTS
+
+The upload pass checks every source frame and performs sparse GPU readback
+audits. Its source-verified FPS is not fully verified GPU frame delivery.
+The verify pass reads every D3D11 backbuffer back and compares every byte with
+the leased source frame before acknowledging it. This additional readback is
+diagnostic overhead and is timed separately. Only verify can establish the
+stated near-60fps tolerance for the complete tested path.
+
+Present return time is not physical display scanout. Software Vulkan is labeled
+explicitly. A successful standalone unmanaged Wine/DXVK test does not prove
+CrystalCast's managed host, actual game device, audio, long sessions or in-game
+performance. This is not zero-copy: BGRA download, D3D11 upload and backbuffer
+copy are included; verification adds another readback.
+
+Reports retain hardware/runtime/timing information, not raw browser/Wine logs,
+usernames, home paths, IP addresses or machine IDs. Review them before sharing.
+Full technical instructions and limitations are in README.md and MEASUREMENTS.md.
+CrystalCast source and AGPL license are included. Bundled DXVK is unmodified
+upstream software under its own license in dxvk/LICENSE.txt; source:
+https://github.com/doitsujin/dxvk/releases/tag/v2.7.1

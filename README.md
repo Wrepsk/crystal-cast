@@ -8,7 +8,7 @@ CrystalCast does not download or extract streaming media. Browser sources load t
 
 ## Build
 
-The repository pins its .NET SDK in `global.json`. A current Dalamud development installation is also required. The existing ImageSharp audit issue can block an audited restore; see [dependency audit findings](docs/DEPENDENCY_AUDIT.md).
+The repository pins its .NET SDK in `global.json`. A current Dalamud development installation is also required.
 
 1. Restore locked dependencies and build the solution:
 
@@ -67,6 +67,8 @@ Microsoft does not officially support WebView2 on Linux or Wine. CrystalCast det
 Use a recent Winetricks release and install WebView2 into the exact Wine prefix that runs FFXIV. Check the generated prefix path before running the command and back up important prefixes first. This path is intentionally manual: CrystalCast does not download installers or modify a Wine prefix itself. Wine support remains experimental and is not yet tested on a real Linux installation.
 
 To try scene compositing under Wine, open **Settings > Rendering**, select **Scene composite**, and enable **Try experimental scene composite under Wine**. This uses the existing D3D11 renderer through the game's Wine graphics stack; it has not yet been validated in a Linux game session. Browser capture still uses WebView2 JPEG.
+
+Linux users can instead render YouTube, Twitch, Dailymotion and Vimeo screens in the system's native WebKitGTK 6.0 browser (experimental): install WebKitGTK 6.0 with the distribution's package manager and select **Native Linux WebKitGTK (experimental)** under **Settings > Browser**. WebView2 is then not required for those providers. A native helper started through Wine renders the same player page and shares finished frames with the plugin, avoiding WebView2 and JPEG capture. Generic Web still uses WebView2. See the [tester guide](docs/LINUX_WEBKITGTK_TESTING.md) and [helper design](native/webkitgtk-host/README.md).
 
 Missing or stalled scene hooks fall back to native overlay (or ImGui if the native overlay is unavailable). A non-device-loss scene callback exception also disables the experimental path while graphics resources recover, preventing repeated failure/reinitialization loops. Switch output layers and back, or turn the experimental option off and on, to retry after a callback failure. Copy diagnostics to check the effective layer, fallback reason, hook activity, and scheduled/flushed frame counts. See the [Linux trial checklist](docs/RENDERING_VALIDATION.md#experimental-wine-scene-composite-trial).
 
@@ -136,4 +138,4 @@ Configurations created before browser-only version 2 are migrated automatically.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release instructions, [CHANGELOG.md](CHANGELOG.md) for notable changes, [SECURITY.md](SECURITY.md) for vulnerability reporting and security boundaries, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency provenance.
 
-CrystalRenderer lives beside CrystalCast as a separate library and test project. Its source is included directly in this repository. See [renderer architecture](CrystalRenderer/README.md) and [existing ImageSharp audit findings](docs/DEPENDENCY_AUDIT.md). Tagged numeric versions trigger a Release build, tests, manifest/package verification, and GitHub Release publication.
+CrystalRenderer is maintained in [its own repository](https://github.com/Wrepsk/crystal-renderer) and pinned here as the `CrystalRenderer` Git submodule, including its test project. Clone with `git clone --recurse-submodules`, or run `git submodule update --init --recursive` in an existing checkout before building. See [renderer architecture](CrystalRenderer/README.md) and [dependency audit notes](docs/DEPENDENCY_AUDIT.md). Tagged numeric versions trigger a Release build, tests, manifest/package verification, and GitHub Release publication.

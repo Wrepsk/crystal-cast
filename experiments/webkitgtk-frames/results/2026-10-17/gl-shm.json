@@ -1,0 +1,150 @@
+{
+  "options": {
+    "mode": "shm",
+    "seconds": 20,
+    "warmup": 5,
+    "audit_every": 60,
+    "consumer_delay_ms": 0,
+    "hide_after": 0,
+    "exercise_pause": false,
+    "overlay": false,
+    "software_webkit": false,
+    "poll_hz": 0,
+    "png": false,
+    "output": "/work/experiments/webkitgtk-frames/artifacts/matrix/gl-shm"
+  },
+  "environment": [
+    {
+      "kind": "start",
+      "time_us": 918800663,
+      "warmup": 5,
+      "seconds": 20,
+      "gtk": "4.14.5",
+      "webkit": "2.52.6",
+      "renderer": "GskGLRenderer",
+      "display": "GdkX11Display"
+    }
+  ],
+  "exit_code": 0,
+  "frames": 323,
+  "fps_fixed_window": 16.15,
+  "frame_interval_ms": {
+    "mean": 62.173,
+    "p95": 82.82,
+    "max": 117.32
+  },
+  "extraction_us": {
+    "snapshot_us": {
+      "mean": 29.155,
+      "p95": 39,
+      "max": 88
+    },
+    "render_us": {
+      "mean": 12626.158,
+      "p95": 19760,
+      "max": 36259
+    },
+    "download_us": {
+      "mean": 28013.43,
+      "p95": 37305,
+      "max": 50715
+    },
+    "release_us": {
+      "mean": 24.39,
+      "p95": 32,
+      "max": 123
+    },
+    "total_us": {
+      "mean": 40759.183,
+      "p95": 53710,
+      "max": 76564
+    }
+  },
+  "unaudited_total_us": null,
+  "output_textures": {
+    "GdkGLTexture": 323
+  },
+  "source_textures": {
+    "composite": 323
+  },
+  "direct_frames": 0,
+  "marker_audits": 323,
+  "marker_changes": 322,
+  "distinct_markers": 311,
+  "adjacent_marker_repeats": 0,
+  "marker_step_distribution": {
+    "mean": 3.724,
+    "p95": 5,
+    "max": 7
+  },
+  "changed_frame_fps": 16.04138717746163,
+  "consumer_frames": 323,
+  "consumer_errors": [],
+  "consumer_copy_us": {
+    "mean": 1194.61,
+    "p95": 2188.86,
+    "max": 19383.253
+  },
+  "consumer_age_us": {
+    "mean": 42041.714,
+    "p95": 54795.001,
+    "max": 90357.59
+  },
+  "channel_bars_ok": true,
+  "channel_bar_failures": 0,
+  "consumer_marker_mismatches": 0,
+  "tree_cpu_percent": 391.07,
+  "tree_rss_peak_mib": 827.03,
+  "media_first": {
+    "kind": "media",
+    "time_us": 919355416,
+    "data": {
+      "event": "playing",
+      "time": 0.000510712,
+      "width": 1920,
+      "height": 1080,
+      "paused": false,
+      "ready": 4,
+      "decoded": 1,
+      "dropped": 0,
+      "callbacks": 0,
+      "lastMediaTime": 0,
+      "error": null
+    }
+  },
+  "media_last": {
+    "kind": "media",
+    "time_us": 943762963,
+    "data": {
+      "event": "interval",
+      "time": 22.052795239,
+      "width": 1920,
+      "height": 1080,
+      "paused": false,
+      "ready": 4,
+      "decoded": 1323,
+      "dropped": 0,
+      "callbacks": 1462,
+      "lastMediaTime": 22.066666,
+      "error": null
+    }
+  },
+  "end": [
+    {
+      "kind": "end",
+      "time_us": 943873740,
+      "frames": 323,
+      "invalidations": 497,
+      "drops": 0,
+      "empty": 0
+    }
+  ],
+  "measured_window_seconds": 20.073077,
+  "fps_measured_window": 16.091205150062443,
+  "raw_sha256": {
+    "summary.json": "8142ae7386138265bf065acf1c1117c269f85fcffae2c9b3f08979d2aa15cde1",
+    "events.jsonl": "8c8d90a853942dfdfaf5436118ac3a4282f10a53ebdc225489b5efc989431245",
+    "consumer.jsonl": "946a2c3a8b60a4b3ee4e4111f6e43049bb6cf881cbcc9120d48746d0ce2c5c78",
+    "stderr.log": "83ba932a65d49c3314f5731cce5fedcdec78ff4e106ac297173ac275f254ec63"
+  }
+}

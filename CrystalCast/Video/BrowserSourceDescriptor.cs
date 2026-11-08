@@ -60,6 +60,13 @@ internal interface IBrowserFrameSourceRuntime
     void UpdateCaptureFps(float fps);
 }
 
+/// <summary>A browser source that measures how many frames per second it actually delivers.</summary>
+internal interface ICaptureRateSource
+{
+    /// <summary>Frames captured per second over the last measurement window; 0 until measured.</summary>
+    float MeasuredCaptureFps { get; }
+}
+
 internal interface IBrowserControlsHost
 {
     bool BrowserControlsAvailable { get; }

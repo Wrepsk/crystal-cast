@@ -1,5 +1,3 @@
-using Dalamud.Bindings.ImGui;
-
 namespace CrystalCast.Windows;
 
 internal sealed class PlacementUndoService
@@ -22,15 +20,16 @@ internal sealed class PlacementUndoService
             appliedKey = string.Empty;
     }
 
-    public bool DrawUndoButton(string undoKey, ScreenPlacementSettings placement)
+    public bool DrawUndoButton(string undoKey, ScreenPlacementSettings placement, bool locked = false)
     {
         var history = GetHistory(undoKey);
-        var canUndo = history.Snapshots.Count > 0;
-        if (!canUndo)
-            ImGui.BeginDisabled();
+        var canUndo = history.Snapshots.Count > 0 && !locked;
 
         var changed = false;
-        if (ImGui.Button("Undo placement") && canUndo)
+        if (CrystalCastUiWidgets.Button(
+                "Undo##PlacementUndo",
+                disabled: !canUndo,
+                tooltip: history.Snapshots.Count > 0 ? $"Undo the last placement edit ({history.Snapshots.Count} saved)" : "No placement edits to undo"))
         {
             var snapshot = history.Snapshots[^1];
             placement.CopyFrom(snapshot);
@@ -39,9 +38,6 @@ internal sealed class PlacementUndoService
             appliedKey = undoKey;
             changed = true;
         }
-
-        if (!canUndo)
-            ImGui.EndDisabled();
 
         return changed;
     }

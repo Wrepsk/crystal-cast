@@ -1,0 +1,54 @@
+Measured 2026-10-17 (Europe/Istanbul).
+Host CPU: AMD Ryzen 9 9955HX 16-Core Processor.
+Linux: WSL2 kernel 6.6.87.2-microsoft-standard-WSL2.
+Development container: Ubuntu 24.04; ordinary user UID 1000.
+WebKitGTK API: 6.0; engine 2.52.6-0ubuntu0.24.04.1 (distro binary).
+GTK: 4.14.5+ds-0ubuntu0.10 (distro binary).
+Mesa: 25.2.8-0ubuntu0.24.04.4.
+GStreamer libav package: 1.24.1-1build1.
+Epoxy: 1.5.10.
+Fixture: H.264, yuv420p, 1920x1080, 60/1 fps, 2700 frames, 45 seconds, no audio.
+Fixture generator: benchmark.py; FFmpeg testsrc2 with ten encoded barcode bits and RGB bars.
+Warmup: 5 seconds. Normal performance window: approximately 20 seconds.
+GPU-context diagnostic: D3D12 (AMD Radeon(TM) 610M), GLES 3.1, via WSLg Wayland.
+No /dev/dri render node; /dev/dxg exposed to GTK's parent process.
+Parent D3D12 EGL: dma_buf_import=0, dma_buf_export=0.
+Software Mesa context: llvmpipe (LLVM 20.1.2, 256 bits).
+WebKit sandbox remained enabled in every run.
+Native GPU/DMA-BUF browser rendering and hardware video decoding were NOT measured.
+
+Software matrix environment:
+  GDK_BACKEND=x11; Xvfb -screen 0 1920x1080x24
+  GSK_RENDERER=gl, ngl or cairo as recorded per run
+  GTK_A11Y=none; LIBGL_ALWAYS_SOFTWARE=1; LP_NUM_THREADS=4
+  WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
+  WEBKIT_GST_DISABLE_GL_SINK=1
+  WEBKIT_DMABUF_RENDERER_FORCE_SHM=1
+  WEBKIT_DISABLE_COMPOSITING_MODE unset
+
+Mixed GPU runs use those WebKit CPU/SHM and thread selections, with:
+  GDK_BACKEND=wayland; GSK_RENDERER=gl
+  WAYLAND_DISPLAY=/mnt/wslg/runtime-dir/wayland-0
+  XDG_RUNTIME_DIR=/tmp/gtk-runtime (UID 1000, mode 0700)
+  LD_LIBRARY_PATH=/usr/lib/wsl/lib
+  MESA_LOADER_DRIVER_OVERRIDE=d3d12; GALLIUM_DRIVER=d3d12 (parent at startup)
+  LIBGL_ALWAYS_SOFTWARE unset at startup
+  --software-web-process (switches children to llvmpipe after GSK realizes)
+  Capture log confirms GSK current GL renderer=D3D12 (AMD Radeon(TM) 610M).
+
+Podman development container name: crystalcast-gtk-probe.
+Created with host networking, --security-opt seccomp=unconfined, --device /dev/dxg;
+mounted /usr/lib/wsl read-only, /mnt/wslg, and this source checkout at /work.
+The container-only seccomp adjustment allows the nested browser sandbox.
+There are no engine patches, sandbox-disable flags, downloaded browser runtimes,
+new release assets, plugin changes, or Wine prefix changes.
+
+Summaries are copied from ignored artifacts with raw-file SHA-256 values.
+fps_measured_window uses actual monotonic start/end minus warmup; fps_fixed_window
+is retained as the nominal requested-window rate. Early stop timers were started
+after synchronous WebKit launch, so these can differ. Final repeated Cairo and
+D3D12 SHM runs use a corrected start-relative deadline. Other capture work is unchanged.
+Source hashes in validation.json identify the final harness, not an immutable
+historical source snapshot for each earlier exploratory run.
+CPU covers sampled helper descendants, excluding Python, Xvfb/WSLg, and the game.
+Short-lived/reparented processes can be missed. Summed RSS can double-count sharing.

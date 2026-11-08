@@ -6,7 +6,7 @@ using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
-internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
+internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -17,11 +17,10 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     private readonly WebView2CaptureMode captureMode;
     private readonly IPluginLog log;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
-    private readonly object telemetryLock = new();
+    private readonly BrowserPlayerState playerState;
     private BrowserThread? browserThread;
     private VideoFrame? latestFrame;
     private NativeVideoFrame? latestNativeFrame;
-    private MediaPlaybackTelemetry telemetry = new();
     private bool loop;
     private bool playlistAutoplayNext;
     private bool audioEnabled;
@@ -30,14 +29,12 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     private volatile bool captureEnabled;
     private volatile string browserStatus = "stopped";
     private volatile string nativeCaptureFailure = string.Empty;
-    private volatile string playerStatus = "player not ready";
     private long sequence;
     private long lastFrameUnixMs;
     private long captureWindowStartUnixMs;
     private int captureWindowFrames;
     private double measuredCaptureFps;
     private double lastCaptureMilliseconds;
-    private float detectedVideoFps;
     private volatile bool disposed;
 
     public WebView2BrowserFrameSource(
@@ -65,8 +62,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         this.loop = loop;
         this.playlistAutoplayNext = playlistAutoplayNext;
         this.audioEnabled = audioEnabled;
-        this.volume = QuantizeVolume(volume);
-        this.playbackRate = ClampPlaybackRate(playbackRate);
+        this.volume = BrowserPlayerState.QuantizeVolume(volume);
+        this.playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
         this.captureMode = captureMode;
         this.log = log;
 
@@ -81,7 +78,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         if (!isValidSource)
             browserStatus = descriptor.InvalidSourceMessage;
 
-        UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty);
+        playerState = new BrowserPlayerState(descriptor, source, this.playbackRate);
     }
 
     public BrowserSourceProviderKind ProviderKind => descriptor.ProviderKind;
@@ -92,7 +89,8 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     public int Height { get; }
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
-    public float DetectedVideoFps => detectedVideoFps;
+    public float DetectedVideoFps => playerState.DetectedVideoFps;
+    public float MeasuredCaptureFps => (float)Volatile.Read(ref measuredCaptureFps);
     public bool BrowserControlsAvailable => isValidSource;
     public bool BrowserControlsVisible => browserThread?.BrowserControlsVisible == true;
 
@@ -106,7 +104,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             var failureStatus = string.IsNullOrWhiteSpace(nativeCaptureFailure)
                 ? string.Empty
                 : $"; WGC failure {nativeCaptureFailure}";
-            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}{failureStatus}; {playerStatus}";
+            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}{failureStatus}; {playerState.PlayerStatus}";
         }
     }
 
@@ -128,13 +126,13 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         if (wasCaptureEnabled)
             browserThread?.Pause();
 
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
+        playerState.SetState(ScreenPlaybackState.Paused, playbackRate);
     }
 
     public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
-        volume = QuantizeVolume(volume);
-        playbackRate = ClampPlaybackRate(playbackRate);
+        volume = BrowserPlayerState.QuantizeVolume(volume);
+        playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
 
         if (this.audioEnabled == audioEnabled
             && Math.Abs(this.volume - volume) < 0.001f
@@ -166,7 +164,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         playbackIntent.RequestPause();
         captureEnabled = false;
         browserThread?.Pause();
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
+        playerState.SetState(ScreenPlaybackState.Paused, playbackRate);
     }
 
     public void SeekBy(double seconds)
@@ -208,11 +206,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
     public bool TryGetPlaybackTelemetry(out MediaPlaybackTelemetry currentTelemetry)
     {
-        lock (telemetryLock)
-        {
-            currentTelemetry = telemetry;
-        }
-
+        currentTelemetry = playerState.Telemetry;
         return isValidSource;
     }
 
@@ -224,7 +218,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         browserThread?.Dispose();
         browserThread = null;
         browserStatus = "disposed";
-        UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle());
+        playerState.SetState(ScreenPlaybackState.Stopped, playbackRate);
     }
 
     public void UpdateCaptureFps(float fps)
@@ -321,113 +315,13 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     private void UpdateFromWebMessage(JsonElement root)
     {
         if (playerPage == null
-            || !BrowserPageMessaging.HasNonce(root, playerPage.Nonce)
-            || !root.TryGetProperty("type", out var typeProperty))
+            || playerState.HandleMessage(root, playerPage.Nonce, playbackRate) != BrowserPlayerMessageResult.Ready)
             return;
 
-        var type = typeProperty.GetString();
-        switch (type)
-        {
-            case "ready":
-                playerStatus = $"player ready: {source.DisplayName}";
-                browserThread?.MarkPlayerReady();
-                browserThread?.StartWindowCaptureWhenReady();
-                if (playbackIntent.IsPlayRequested && captureEnabled)
-                    browserThread?.Play();
-                break;
-            case "status":
-                UpdateFromStatusMessage(root);
-                break;
-            case "video-fps":
-                UpdateDetectedVideoFps(root);
-                break;
-            case "error":
-                playerStatus = descriptor.DescribeError(root);
-                break;
-            case "script-error":
-                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "script error");
-                break;
-            case "debug":
-                playerStatus = BrowserSourceDescriptors.TryGetString(root, "message", "browser debug");
-                break;
-        }
-    }
-
-    private void UpdateFromStatusMessage(JsonElement root)
-    {
-        var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
-        var currentVideoId = BrowserSourceDescriptors.TryGetString(root, "videoId", source.VideoId);
-        var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
-        var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
-        var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", playbackRate);
-        var stateCode = BrowserSourceDescriptors.TryGetInt(root, "state", -1);
-        var playbackState = stateCode switch
-        {
-            1 or 3 => ScreenPlaybackState.Playing,
-            2 or 5 => ScreenPlaybackState.Paused,
-            _ => ScreenPlaybackState.Stopped,
-        };
-
-        var positionMs = BrowserMessageValidator.ToBoundedMilliseconds(positionSeconds);
-        var durationMs = BrowserMessageValidator.ToBoundedMilliseconds(durationSeconds);
-        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
-        playerStatus = descriptor.FormatPlayerStatus(title, stateCode, positionSeconds, durationSeconds, root);
-    }
-
-    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "")
-    {
-        if (!descriptor.IsValidVideoId(currentVideoId))
-            currentVideoId = source.VideoId;
-
-        lock (telemetryLock)
-        {
-            telemetry = new MediaPlaybackTelemetry
-            {
-                State = state,
-                PositionMs = positionMs,
-                DurationMs = durationMs,
-                Rate = ClampPlaybackRate(rate),
-                Title = title,
-                VideoId = currentVideoId,
-                CanonicalUrl = descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
-                HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                DetectedVideoFps = detectedVideoFps,
-            };
-        }
-    }
-
-    private string GetTelemetryTitle()
-    {
-        lock (telemetryLock)
-        {
-            return telemetry.Title;
-        }
-    }
-
-    private long GetTelemetryPositionMs()
-    {
-        lock (telemetryLock)
-        {
-            return telemetry.PositionMs;
-        }
-    }
-
-    private long GetTelemetryDurationMs()
-    {
-        lock (telemetryLock)
-        {
-            return telemetry.DurationMs;
-        }
-    }
-
-    private void UpdateDetectedVideoFps(JsonElement root)
-    {
-        var fps = (float)BrowserSourceDescriptors.TryGetDouble(root, "fps", 0.0);
-        if (fps >= 1.0f && fps <= 240.0f)
-        {
-            detectedVideoFps = fps;
-            playerStatus = $"detected video fps: {fps:0.#}";
-        }
+        browserThread?.MarkPlayerReady();
+        browserThread?.StartWindowCaptureWhenReady();
+        if (playbackIntent.IsPlayRequested && captureEnabled)
+            browserThread?.Play();
     }
 
     internal static bool TryGetWebView2Runtime(out string runtimeVersion, out string error)
@@ -449,30 +343,6 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             error = $"Microsoft Edge WebView2 Runtime unavailable: {ex.Message}";
             return false;
         }
-    }
-
-    private static float ClampPlaybackRate(float rate)
-    {
-        if (!float.IsFinite(rate))
-            return 1.0f;
-
-        return Math.Clamp(rate, 0.25f, 2.0f);
-    }
-
-    private static float ClampVolume(float volume)
-    {
-        if (!float.IsFinite(volume))
-            return 0.0f;
-
-        return Math.Clamp(volume, 0.0f, 1.0f);
-    }
-
-    private static float QuantizeVolume(float volume)
-    {
-        var clamped = ClampVolume(volume);
-        return clamped <= 0.0f
-            ? 0.0f
-            : MathF.Ceiling(clamped * 100.0f) / 100.0f;
     }
 
     private sealed class BrowserThread : IDisposable
@@ -769,16 +639,9 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 hostWindow.InteractionDismissed += OnInteractionDismissed;
                 var parentHwnd = hostWindow.Hwnd;
 
-                if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))
-                {
-                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-                }
-                else
-                {
-                    var environmentOptions = new CoreWebView2EnvironmentOptions(
-                        additionalBrowserArguments: owner.descriptor.WebView2AdditionalBrowserArguments);
-                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
-                }
+                var environmentOptions = new CoreWebView2EnvironmentOptions(
+                    additionalBrowserArguments: WebView2BrowserArguments.Combine(owner.descriptor.WebView2AdditionalBrowserArguments));
+                environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
@@ -1020,7 +883,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             var page = owner.playerPage;
             if (page == null || !BrowserNavigationPolicy.IsExpectedMessageSource(args.Source, page.Url))
             {
-                owner.playerStatus = "ignored browser message from an unexpected document";
+                owner.playerState.PlayerStatus = "ignored browser message from an unexpected document";
                 return;
             }
 
@@ -1030,7 +893,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                     out var document,
                     out var error))
             {
-                owner.playerStatus = $"invalid browser message: {error}";
+                owner.playerState.PlayerStatus = $"invalid browser message: {error}";
                 return;
             }
 

@@ -1,0 +1,9 @@
+libEGL warning: egl: failed to create dri2 screen
+Dropped Escape call with ulEscapeCode : 0x03007703
+GL renderer=D3D12 (AMD Radeon(TM) 610M) vendor=Microsoft Corporation version=OpenGL ES 3.1 Mesa 25.2.8-0ubuntu0.24.04.4
+EGL dma_buf_import=0 dma_buf_export=0
+GDK DMA-BUF format/modifier pairs=35
+Dropped Escape call with ulEscapeCode : 0x03007703
+libEGL warning: egl: failed to create dri2 screen
+libEGL warning: DRI2: failed to create screen
+Could not create surfaceless EGL display: EGL_NOT_INITIALIZED. Aborting...

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.7.0.0</Version>
+    <Version>0.8.1.0</Version>
     <Authors>Wrepsk</Authors>
     <PackageProjectUrl>https://github.com/Wrepsk/crystal-cast</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Wrepsk/crystal-cast.git</RepositoryUrl>
@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CrystalRenderer\CrystalRenderer.csproj" />
+    <ProjectReference Include="..\CrystalRenderer\CrystalRenderer\CrystalRenderer.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,13 +39,21 @@
     <EmbeddedResource Include="Assets\Browser\CommandBridge.js" LogicalName="CrystalCast.BrowserAssets.CommandBridge.js" />
   </ItemGroup>
 
+  <!-- UI fonts from the redesign (SIL OFL). Optional: the UI falls back to Dalamud's fonts when absent. -->
+  <ItemGroup>
+    <Content Include="Assets\Fonts\*.ttf;Assets\Fonts\*.txt">
+      <Link>Assets\Fonts\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.3.1" ExcludeAssets="compile;runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.17763.1000" PrivateAssets="all" />
     <PackageReference Include="System.Runtime.WindowsRuntime" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="System.Runtime.WindowsRuntime.UI.Xaml" Version="4.6.0" ExcludeAssets="all" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" ExcludeAssets="build;buildTransitive;compile;runtime" GeneratePathProperty="true" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -55,6 +63,24 @@
     </Reference>
     <Content Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll">
       <Link>WebView2Loader.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+  <!-- Experimental Linux/Wine browser helper. The executable is built on Linux
+       (native/webkitgtk-host) and is only packaged when it has been built. -->
+  <PropertyGroup>
+    <WebKitGtkHostBinary>..\native\webkitgtk-host\build\crystalcast-webkit-host</WebKitGtkHostBinary>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(WebKitGtkHostBinary)')">
+    <Content Include="$(WebKitGtkHostBinary)">
+      <Link>native\linux-x64\crystalcast-webkit-host</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="..\native\webkitgtk-host\launch.sh">
+      <Link>native\linux-x64\crystalcast-webkit-host.sh</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>

@@ -1,0 +1,63 @@
+{
+  "options": {
+    "mode": "texture",
+    "seconds": 8,
+    "warmup": 5,
+    "audit_every": 60,
+    "consumer_delay_ms": 0,
+    "hide_after": 0,
+    "exercise_pause": false,
+    "overlay": false,
+    "png": true,
+    "output": "artifacts/wslg-d3d12-gl-smoke"
+  },
+  "environment": [
+    {
+      "kind": "start",
+      "time_us": 425254557,
+      "warmup": 5,
+      "seconds": 8,
+      "gtk": "4.14.5",
+      "webkit": "2.52.6",
+      "renderer": "GskGLRenderer",
+      "display": "GdkWaylandDisplay"
+    }
+  ],
+  "exit_code": 1,
+  "frames": 0,
+  "fps_fixed_window": 0.0,
+  "frame_interval_ms": null,
+  "extraction_us": {
+    "snapshot_us": null,
+    "render_us": null,
+    "download_us": null,
+    "release_us": null,
+    "total_us": null
+  },
+  "unaudited_total_us": null,
+  "output_textures": {},
+  "source_textures": {},
+  "direct_frames": 0,
+  "marker_audits": 0,
+  "marker_changes": 0,
+  "distinct_markers": 0,
+  "consumer_frames": 0,
+  "consumer_errors": [],
+  "consumer_copy_us": null,
+  "consumer_age_us": null,
+  "channel_bars_ok": null,
+  "tree_cpu_percent": 2.81,
+  "tree_rss_peak_mib": 457.74,
+  "media_first": null,
+  "media_last": null,
+  "end": [
+    {
+      "kind": "end",
+      "time_us": 439038584,
+      "frames": 0,
+      "invalidations": 1,
+      "drops": 0,
+      "empty": 0
+    }
+  ]
+}

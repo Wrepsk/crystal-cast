@@ -6,10 +6,10 @@ CrystalCast is a Windows-targeted Dalamud plugin. Contributions should preserve 
 
 1. Install the .NET SDK selected by `global.json`.
 2. Install or update Dalamud through XIVLauncher so its development assemblies exist under the normal Dalamud development path.
-3. Clone the repository (the renderer source is included directly):
+3. Clone the repository and its pinned CrystalRenderer submodule:
 
    ```powershell
-   git clone https://github.com/Wrepsk/crystal-cast.git
+   git clone --recurse-submodules https://github.com/Wrepsk/crystal-cast.git
    cd crystal-cast
    ```
 
@@ -23,6 +23,19 @@ CrystalCast is a Windows-targeted Dalamud plugin. Contributions should preserve 
 
 Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud development plugin for manual testing.
 
+For an existing checkout, run `git submodule update --init --recursive` after pulling or switching branches. The renderer library and tests live in `CrystalRenderer/CrystalRenderer` and `CrystalRenderer/CrystalRenderer.Tests`; both remain included in `CrystalCast.sln`.
+
+Make renderer changes in [Wrepsk/crystal-renderer](https://github.com/Wrepsk/crystal-renderer), commit and push them there, then update this repository's pinned commit:
+
+```powershell
+git -C CrystalRenderer fetch origin
+git -C CrystalRenderer checkout <renderer-commit>
+git add CrystalRenderer
+git commit -m "Update CrystalRenderer"
+```
+
+Push the renderer commit before the CrystalCast commit so other developers and CI can fetch the submodule. Each consuming project pins and updates its renderer version independently.
+
 ## Pull requests
 
 - Keep changes focused and explain user-visible behavior and compatibility impact.
@@ -32,7 +45,7 @@ Add `CrystalCast/bin/x64/Debug/CrystalCast.dll` as a Dalamud development plugin 
 - Update `CHANGELOG.md` for user-visible changes.
 - If dependencies change, run `dotnet restore CrystalCast.sln --force-evaluate` and commit the updated lock files.
 
-CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers and warnings-as-errors. CrystalRenderer owns graphics and FFXIV output integration; keep browser/provider, audio, configuration, and IPC types out of its public API. Existing ImageSharp audit failures are documented in `docs/DEPENDENCY_AUDIT.md` and are not suppressed by this migration.
+CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers and warnings-as-errors. CrystalRenderer owns graphics and FFXIV output integration; keep browser/provider, audio, configuration, and IPC types out of its public API. NuGet audit failures are not suppressed; see `docs/DEPENDENCY_AUDIT.md` for how the ImageSharp findings were resolved.
 
 ## Release process
 

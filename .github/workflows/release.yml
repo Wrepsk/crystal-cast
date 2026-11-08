@@ -2,14 +2,45 @@ name: Release
 
 on:
   push:
-    tags: ['*']
+    # Standalone benchmark prereleases have their own workflow and tag prefix.
+    tags: ['[0-9]*']
 
 permissions:
   contents: write
 
 jobs:
+  webkitgtk-host:
+    # Native Linux WebKitGTK helper for the Wine browser backend. Built on Ubuntu 24.04
+    # (glibc 2.39+) and packaged into the plugin by the Windows job.
+    name: Native WebKitGTK helper (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libwebkitgtk-6.0-dev libgtk-4-dev
+
+      - name: Build helper with warnings as errors
+        run: make -C native/webkitgtk-host
+
+      - name: Check launcher script syntax
+        run: sh -n native/webkitgtk-host/launch.sh
+
+      - name: Upload helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystalcast-webkit-host-${{ github.sha }}
+          path: native/webkitgtk-host/build/crystalcast-webkit-host
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     runs-on: windows-2022
+    needs: webkitgtk-host
 
     steps:
       - name: Validate release tag
@@ -23,6 +54,15 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          submodules: recursive
+
+      - name: Download native Linux helper
+        # The plugin project packages the helper when this file exists. The Linux
+        # launcher marks it executable, so the lost file mode does not matter.
+        uses: actions/download-artifact@v4
+        with:
+          name: crystalcast-webkit-host-${{ github.sha }}
+          path: native/webkitgtk-host/build
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v5
@@ -32,8 +72,8 @@ jobs:
           cache-dependency-path: |
             CrystalCast/packages.lock.json
             CrystalCast.Tests/packages.lock.json
-            CrystalRenderer/packages.lock.json
-            CrystalRenderer.Tests/packages.lock.json
+            CrystalRenderer/CrystalRenderer/packages.lock.json
+            CrystalRenderer/CrystalRenderer.Tests/packages.lock.json
 
       - name: Install Dalamud development files
         shell: pwsh
@@ -52,7 +92,7 @@ jobs:
 
       - name: Verify package and version
         shell: pwsh
-        run: ./scripts/Verify-Package.ps1 -ExpectedVersion $env:GITHUB_REF_NAME
+        run: ./scripts/Verify-Package.ps1 -ExpectedVersion $env:GITHUB_REF_NAME -IncludesWebKitGtkHost
 
       - name: Name release asset
         shell: pwsh

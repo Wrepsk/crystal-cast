@@ -101,7 +101,7 @@ public sealed class DynamicVideoTexture : IDisposable
             referenceAdded = false;
             using var resource = nextShaderResourceView.Resource;
             nextTexture = resource.QueryInterface<Texture2D>();
-            nextDevice = nextTexture.Device;
+            nextDevice = AcquireDevice(nextTexture);
             nextContext = nextDevice.ImmediateContext;
         }
         catch
@@ -131,6 +131,26 @@ public sealed class DynamicVideoTexture : IDisposable
         Width = width;
         Height = height;
         uploadedSequence = -1;
+    }
+
+    /// <summary>
+    /// Returns a device wrapper with its own reference. SharpDX caches the wrapper from
+    /// <c>DeviceChild.Device</c> inside the child and releases it when the child is disposed,
+    /// so disposing both that wrapper and the texture released the game's device twice.
+    /// </summary>
+    internal static D3D11Device AcquireDevice(DeviceChild child)
+    {
+        var pointer = child.Device.NativePointer;
+        Marshal.AddRef(pointer);
+        try
+        {
+            return new D3D11Device(pointer);
+        }
+        catch
+        {
+            Marshal.Release(pointer);
+            throw;
+        }
     }
 
     private void DisposeTexture()

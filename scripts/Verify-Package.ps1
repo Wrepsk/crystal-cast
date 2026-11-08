@@ -1,6 +1,8 @@
 param(
     [string]$PackagePath = "CrystalCast/bin/x64/Release/CrystalCast/latest.zip",
-    [string]$ExpectedVersion = ""
+    [string]$ExpectedVersion = "",
+    # Experimental Linux test builds also carry the native WebKitGTK helper.
+    [switch]$IncludesWebKitGtkHost
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +16,14 @@ $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath 
 
 try {
     $expectedFiles = @(
+        "Assets\Fonts\GeistMono-Regular.ttf",
+        "Assets\Fonts\HankenGrotesk-Medium.ttf",
+        "Assets\Fonts\HankenGrotesk-Regular.ttf",
+        "Assets\Fonts\HankenGrotesk-SemiBold.ttf",
+        "Assets\Fonts\Marcellus-Regular.ttf",
+        "Assets\Fonts\OFL-GeistMono.txt",
+        "Assets\Fonts\OFL-HankenGrotesk.txt",
+        "Assets\Fonts\OFL-Marcellus.txt",
         "CrystalCast.deps.json",
         "CrystalCast.dll",
         "CrystalCast.json",
@@ -25,9 +35,14 @@ try {
         "SharpDX.dll",
         "SharpDX.DXGI.dll",
         "SharpDX.Mathematics.dll",
-        "SixLabors.ImageSharp.dll",
         "WebView2Loader.dll"
     )
+    if ($IncludesWebKitGtkHost) {
+        $expectedFiles += @(
+            "native\linux-x64\crystalcast-webkit-host",
+            "native\linux-x64\crystalcast-webkit-host.sh"
+        )
+    }
 
     $actualFiles = @($archive.Entries | ForEach-Object FullName | Sort-Object)
     $unexpected = @($actualFiles | Where-Object { $_ -notin $expectedFiles })

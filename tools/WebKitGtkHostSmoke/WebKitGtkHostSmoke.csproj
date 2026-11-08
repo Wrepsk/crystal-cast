@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Developer smoke test: runs the plugin's native WebKitGTK session code under Wine
+       without the game or Dalamud. Not part of CrystalCast.sln or the plugin package. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\CrystalCast\Video\WineHostInterop.cs" Link="Shared\WineHostInterop.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebKitGtkHostSession.cs" Link="Shared\WebKitGtkHostSession.cs" />
+    <Compile Include="..\..\CrystalCast\Video\VideoFrame.cs" Link="Shared\VideoFrame.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebKitGtkFailureDiagnosis.cs" Link="Shared\WebKitGtkFailureDiagnosis.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebKitGtkStallDiagnosis.cs" Link="Shared\WebKitGtkStallDiagnosis.cs" />
+  </ItemGroup>
+</Project>

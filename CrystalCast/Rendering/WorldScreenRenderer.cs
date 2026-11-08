@@ -267,6 +267,29 @@ public sealed class WorldScreenManager : IDisposable
             : "browser source not started";
     }
 
+    /// <summary>
+    /// The screen's latest video frame for UI previews. The returned view is owned by the renderer and can be
+    /// replaced on the next upload; callers that draw it this frame must hold a COM reference until it renders.
+    /// </summary>
+    public bool TryGetPreviewTexture(BrowserScreenProfile screen, out nint shaderResourceView, out int width, out int height)
+    {
+        SyncBrowserScreens();
+        if (browserScreens.TryGetValue(screen.ScreenId, out var instance))
+            return instance.TryGetPreviewTexture(out shaderResourceView, out width, out height);
+
+        (shaderResourceView, width, height) = (0, 0, 0);
+        return false;
+    }
+
+    /// <summary>Frames per second the screen's browser source is actually delivering; 0 until measured.</summary>
+    public float GetMeasuredCaptureFps(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            ? instance.MeasuredCaptureFps
+            : 0.0f;
+    }
+
     public float GetDetectedVideoFps(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
@@ -294,7 +317,7 @@ public sealed class WorldScreenManager : IDisposable
                     : instance.TextureWidth > 0 ? "CPU frame upload" : "CPU frame upload pending";
             var gpuSampleStatus = captureMode == WebView2CaptureMode.WindowGraphicsCapture
                 ? instance?.GpuSampleStatus ?? "game texture sample pending"
-                : "not applicable to JPEG capture";
+                : "not applicable to CPU frame capture";
 
             return new WorldScreenDiagnosticSnapshot(
                 index + 1,
@@ -727,6 +750,7 @@ public sealed class WorldScreenManager : IDisposable
         public float SpatialAudioAttenuation { get; private set; } = 1.0f;
         public float EffectiveAudioVolume { get; private set; }
         public float DetectedVideoFps => BrowserSourceProviderRegistry.GetDetectedVideoFps(frameSource);
+        public float MeasuredCaptureFps => frameSource is ICaptureRateSource rateSource ? rateSource.MeasuredCaptureFps : 0.0f;
 
         public bool TryPrepareFrame(out PreparedScreenTexture texture)
         {
@@ -1041,6 +1065,28 @@ public sealed class WorldScreenManager : IDisposable
                 if (hasByteFrame)
                     frame.Dispose();
             }
+        }
+
+        /// <summary>
+        /// The last uploaded video frame as a D3D11 shader resource view, without uploading anything. Placeholder
+        /// frames shown before the first real frame arrives (negative sequence numbers) are not returned.
+        /// </summary>
+        public bool TryGetPreviewTexture(out nint shaderResourceView, out int width, out int height)
+        {
+            if (sharedTexture.NativeHandle != 0 && sharedTexture.UploadedSequence >= 0)
+            {
+                (shaderResourceView, width, height) = (sharedTexture.NativeHandle, sharedTexture.Width, sharedTexture.Height);
+                return true;
+            }
+
+            if (dynamicTexture.TextureWrap is { } wrap && wrap.Handle.Handle != 0 && dynamicTexture.UploadedSequence >= 0)
+            {
+                (shaderResourceView, width, height) = ((nint)wrap.Handle.Handle, wrap.Width, wrap.Height);
+                return true;
+            }
+
+            (shaderResourceView, width, height) = (0, 0, 0);
+            return false;
         }
 
         private PreparedScreenTexture? ResolveCurrentTexture()

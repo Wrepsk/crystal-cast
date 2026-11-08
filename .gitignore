@@ -3,3 +3,12 @@
 obj/
 bin/
 *.user
+/references
+
+# Generated native-browser outputs can remain after switching branches.
+/NativeLinuxBrowser/artifacts/
+/NativeLinuxBrowser/build/
+__pycache__/
+
+# Experimental Linux test packages.
+/artifacts/

@@ -6,6 +6,15 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
+- Experimental native Linux browser under Wine: **Settings > Browser > Native Linux WebKitGTK (experimental)** plays YouTube, Twitch, Dailymotion and Vimeo screens in the system's WebKitGTK 6.0 and shares finished frames with the game, without WebView2 or JPEG capture. The browser window stays hidden behind other windows; failures and playback stalls are explained in each screen's status and the Dalamud log. Generic Web still uses WebView2.
+
+### Fixed
+
+- WebView2 window capture no longer drops frames while waiting for the game: it rotates three shared textures, so capture always has a free one and the game always reads the newest frame without stalling its render thread. WebView2 is also told not to throttle its hidden window, and on Windows 11 24H2 and newer the capture session's minimum update interval is lowered from Windows' ~16.7 ms default, which held 60 fps videos near 48 fps on high-refresh displays.
+- Switching the game between fullscreen and windowed no longer crashes it with scene compositing active: the renderer releases its back-buffer work and flushes Direct3D before the game resizes its swap chain.
+- Restores pass NuGet's security audit again: ImageSharp is removed. WebView2 JPEG capture now decodes with the Windows Imaging Component (also provided by Wine), and CrystalRenderer moves to KamiToolKit 2.2.66, which has no ImageSharp dependency. The package no longer ships `SixLabors.ImageSharp.dll`.
+- Wine detection now also works on Proton and Wine builds that hide Wine's own functions from Windows programs, so those players get Wine behavior (JPEG WebView2 capture, the native Linux browser option) instead of Windows-only capture paths. Detection never throws, and the diagnostics report shows how Wine was detected.
+
 - Multi-screen browser sources for YouTube, Twitch, Dailymotion, Vimeo, and Generic Web.
 - State-only IPC creation, updates, source locking, snapshots, sequencing, and change notifications.
 - WebView2 window capture with JPEG fallback, browser controls, adaptive capture cadence, and resource budgets.

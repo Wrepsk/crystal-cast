@@ -238,11 +238,8 @@ public sealed class ConfigWindow : Window, IDisposable
             Ui.Banner("SceneFallback", BannerKind.Warning, "Using overlay output", $"{fallback}. Switch output layers and back to retry.");
         }
 
-        ImGui.Spacing();
-        Ui.RowLabel("UI mask", LabelWidth, LabelGap);
-        AlignedText("Disabled", TextTertiary);
-
 #if DEBUG
+        ImGui.Spacing();
         var showMarker = config.ShowDebugMarker;
         Ui.RowLabel("Debug marker", LabelWidth, LabelGap);
         if (Ui.Switch("##DebugMarker", ref showMarker))

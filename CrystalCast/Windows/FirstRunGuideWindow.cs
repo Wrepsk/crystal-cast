@@ -139,7 +139,7 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
         Ui.Card(
             "Your three-step setup",
             "Open /crystalcast and pick a screen, or use Add screen.",
-            "Choose a Source and paste its link on the Source tab, then press Load.",
+            "Paste a YouTube, Twitch, Dailymotion, Vimeo or web link on the Source tab, then press Load. CrystalCast picks the right player from the link.",
             "On the Placement tab, use Place in front of player to bring it into view.");
 
         Ui.Card(

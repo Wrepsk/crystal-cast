@@ -26,20 +26,20 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
     public bool Draw(BrowserScreenProfile screen)
     {
-        var descriptor = GetDescriptor(screen);
-        var capabilities = BrowserSourceProviderRegistry.GetCapabilities(descriptor.ProviderKind);
-        var uiState = GetUiState(screen, descriptor);
+        var uiState = GetUiState(screen);
         var sourceLocked = SourceControlUi.IsSourceControlsLocked(screen);
         var changed = false;
 
-        if (descriptor.ProviderKind == BrowserSourceProviderKind.GenericWeb)
+        if (screen.ProviderKind == BrowserSourceProviderKind.GenericWeb)
         {
             Ui.Banner("GenericWebTrust", BannerKind.Warning, "Generic Web pages are not sandboxed", BrowserNavigationPolicy.GenericWebTrustWarning);
             ImGui.Spacing();
         }
 
-        changed |= DrawProviderRow(screen, sourceLocked);
-        changed |= DrawUrlControls(screen, descriptor, uiState, sourceLocked);
+        // Loading a link can switch the provider, so read the descriptor after the link row.
+        changed |= DrawLinkControls(screen, uiState, sourceLocked);
+        var descriptor = GetDescriptor(screen);
+        var capabilities = BrowserSourceProviderRegistry.GetCapabilities(descriptor.ProviderKind);
         DrawBrowserControlsRow(screen, descriptor, capabilities);
         changed |= DrawResolutionPreset(screen, descriptor, sourceLocked);
         changed |= DrawCaptureFps(screen, descriptor);
@@ -94,32 +94,14 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             : Descriptors[BrowserSourceProviderKind.YouTube];
     }
 
-    private static bool DrawProviderRow(BrowserScreenProfile screen, bool sourceLocked)
+    /// <summary>
+    /// The link row. The provider comes from the link itself: video sites are matched by their address,
+    /// and any other web address opens as a Generic Web page after the user confirms it.
+    /// </summary>
+    private static bool DrawLinkControls(BrowserScreenProfile screen, BrowserSourceUiState uiState, bool sourceLocked)
     {
         var changed = false;
-        Ui.RowLabel("Source", LabelWidth, LabelGap);
-        if (Ui.BeginDropdown("##CrystalCastScreenSource", ProviderName(screen.ProviderKind), disabled: sourceLocked))
-        {
-            foreach (var provider in BrowserSourceProviderRegistry.Options)
-            {
-                if (Ui.MenuItem($"{provider.DisplayName}##Provider{provider.Kind}", provider.Kind == screen.ProviderKind)
-                    && provider.Kind != screen.ProviderKind)
-                {
-                    screen.ProviderKind = provider.Kind;
-                    screen.PlaybackPaused = false;
-                    changed = true;
-                }
-            }
-
-            Ui.EndDropdown();
-        }
-
-        return changed;
-    }
-
-    private static bool DrawUrlControls(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor, BrowserSourceUiState uiState, bool sourceLocked)
-    {
-        var changed = false;
+        var descriptor = GetDescriptor(screen);
         var url = descriptor.GetUrl(screen);
         if (!string.Equals(uiState.UrlDraftSource, url, StringComparison.Ordinal))
         {
@@ -129,39 +111,48 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
         var committedSourceValid = descriptor.SourceDescriptor.TryParse(url, out var committedSource);
         var draft = uiState.UrlDraft;
-        var draftSourceValid = descriptor.SourceDescriptor.TryParse(draft, out var draftSource);
-        var draftInvalid = !draftSourceValid && !string.IsNullOrWhiteSpace(draft);
 
-        Ui.RowLabel(descriptor.InputLabel, LabelWidth, LabelGap);
+        Ui.RowLabel("Link", LabelWidth, LabelGap);
         var loadWidth = Ui.ButtonWidth("Load");
         var spacing = S(8.0f);
         var fieldWidth = ImGui.GetContentRegionAvail().X - loadWidth - Ui.FrameHeight - (spacing * 2.0f);
+        var draftValid = BrowserSourceDetector.TryDetect(draft, screen.ProviderKind, out _);
         var pressedEnter = Ui.TextField(
-            $"##{descriptor.ProviderKind}Url",
+            "##SourceLink",
             ref draft,
             1024,
-            descriptor.Placeholder,
+            "Paste a YouTube, Twitch, Dailymotion, Vimeo or web link",
             Math.Max(S(80.0f), fieldWidth),
-            error: draftInvalid,
+            error: !draftValid && !string.IsNullOrWhiteSpace(draft),
             disabled: sourceLocked,
             flags: ImGuiInputTextFlags.EnterReturnsTrue);
         uiState.UrlDraft = draft;
-        draftSourceValid = descriptor.SourceDescriptor.TryParse(uiState.UrlDraft, out draftSource);
+        draftValid = BrowserSourceDetector.TryDetect(draft, screen.ProviderKind, out var detected);
+        var draftInvalid = !draftValid && !string.IsNullOrWhiteSpace(draft);
+        var draftIsNew = draftValid
+            && (detected.ProviderKind != screen.ProviderKind || !string.Equals(detected.Url, url, StringComparison.Ordinal));
+
+        // A pending Generic Web confirmation only applies to the link it was raised for.
+        if (uiState.ConfirmGenericWebUrl != null
+            && (!draftValid || !detected.IsGenericWebFallback || detected.Url != uiState.ConfirmGenericWebUrl))
+        {
+            uiState.ConfirmGenericWebUrl = null;
+        }
 
         ImGui.SameLine(0.0f, spacing);
-        if ((Ui.Button($"Load##{descriptor.ProviderKind}Load", ButtonKind.Primary, disabled: sourceLocked || !draftSourceValid) || pressedEnter)
-            && draftSourceValid
+        if ((Ui.Button("Load##SourceLinkLoad", ButtonKind.Primary, disabled: sourceLocked || !draftValid) || pressedEnter)
+            && draftValid
             && !sourceLocked)
         {
-            descriptor.SetUrl(screen, uiState.UrlDraft.Trim());
-            uiState.UrlDraftSource = descriptor.GetUrl(screen);
-            screen.PlaybackPaused = false;
-            changed = true;
+            if (detected.IsGenericWebFallback && screen.ProviderKind != BrowserSourceProviderKind.GenericWeb)
+                uiState.ConfirmGenericWebUrl = detected.Url;
+            else
+                changed |= ApplyDetectedSource(screen, uiState, detected);
         }
 
         ImGui.SameLine(0.0f, spacing);
         var canCopyLink = !string.IsNullOrWhiteSpace(url);
-        if (Ui.IconButton($"##{descriptor.ProviderKind}CopyLink", FontAwesomeIcon.Copy, "Copy link", disabled: !canCopyLink, ghost: false))
+        if (Ui.IconButton("##SourceLinkCopy", FontAwesomeIcon.Copy, "Copy link", disabled: !canCopyLink, ghost: false))
         {
             ImGui.SetClipboardText(url);
             uiState.SourceCopiedAtTick = Environment.TickCount64;
@@ -173,15 +164,62 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         else if (uiState.SourceCopiedAtTick > 0 && Environment.TickCount64 - uiState.SourceCopiedAtTick < 2000)
             Ui.Meta("Link copied.");
         else if (draftInvalid)
-            Ui.ErrorText(descriptor.InvalidText);
-        else if (draftSourceValid && !string.Equals(uiState.UrlDraft.Trim(), url, StringComparison.Ordinal))
-            Ui.Meta($"{draftSource.DisplayName} · press Load to play");
+            Ui.ErrorText(DescribeInvalidDraft(draft, screen.ProviderKind));
+        else if (draftIsNew && detected.IsGenericWebFallback)
+            Ui.Text($"Not a supported video site · opens as a web page ({detected.Source.DisplayName})", Warning, f => f.Small, wrap: true);
+        else if (draftIsNew)
+            Ui.Meta($"{detected.Source.DisplayName} · press Load to play");
         else if (committedSourceValid)
             Ui.Meta($"Loaded · {committedSource.DisplayName}");
         else
-            Ui.Meta(descriptor.EmptyText);
+            Ui.Meta("Nothing loaded");
+
+        if (uiState.ConfirmGenericWebUrl != null && !sourceLocked)
+            changed |= DrawGenericWebConfirmation(screen, uiState, detected);
 
         return changed;
+    }
+
+    private static bool DrawGenericWebConfirmation(BrowserScreenProfile screen, BrowserSourceUiState uiState, DetectedBrowserSource detected)
+    {
+        var changed = false;
+        ImGui.Spacing();
+        if (Ui.Banner(
+                "GenericWebConfirm",
+                BannerKind.Warning,
+                "Open this link as a web page?",
+                "It isn't a supported video site. " + BrowserNavigationPolicy.GenericWebTrustWarning,
+                "Open as web page"))
+        {
+            changed = ApplyDetectedSource(screen, uiState, detected);
+        }
+
+        if (Ui.Button("Cancel##GenericWebConfirmCancel", ButtonKind.Ghost))
+            uiState.ConfirmGenericWebUrl = null;
+
+        ImGui.Spacing();
+        return changed;
+    }
+
+    private static bool ApplyDetectedSource(BrowserScreenProfile screen, BrowserSourceUiState uiState, DetectedBrowserSource detected)
+    {
+        screen.ProviderKind = detected.ProviderKind;
+        GetDescriptor(screen).SetUrl(screen, detected.Url);
+        screen.PlaybackPaused = false;
+        uiState.UrlDraft = detected.Url;
+        uiState.UrlDraftSource = detected.Url;
+        uiState.ConfirmGenericWebUrl = null;
+        return true;
+    }
+
+    private static string DescribeInvalidDraft(string draft, BrowserSourceProviderKind currentProvider)
+    {
+        if (BrowserSourceDetector.NormalizeLink(draft.Trim()) != null)
+            return "Not a link CrystalCast can play";
+
+        return currentProvider == BrowserSourceProviderKind.GenericWeb
+            ? "Paste a full link"
+            : $"Not a link or {ProviderName(currentProvider)} ID";
     }
 
     private void DrawBrowserControlsRow(
@@ -322,16 +360,17 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         Ui.RowText(text, TextTertiary, f => f.Small);
     }
 
-    private BrowserSourceUiState GetUiState(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
+    private BrowserSourceUiState GetUiState(BrowserScreenProfile screen)
     {
-        var key = $"{screen.ScreenId}|{descriptor.ProviderKind}";
+        var key = $"{screen.ScreenId}|link";
         if (uiStates.TryGetValue(key, out var state))
             return state;
 
+        var url = GetDescriptor(screen).GetUrl(screen);
         state = new BrowserSourceUiState
         {
-            UrlDraft = descriptor.GetUrl(screen),
-            UrlDraftSource = descriptor.GetUrl(screen),
+            UrlDraft = url,
+            UrlDraftSource = url,
         };
         uiStates[key] = state;
         return state;
@@ -343,10 +382,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         {
             ProviderKind = BrowserSourceProviderKind.YouTube,
             SourceDescriptor = BrowserSourceDescriptors.YouTube,
-            InputLabel = "YouTube URL",
-            Placeholder = "Paste a link or video ID",
-            InvalidText = "Not a YouTube link or video ID",
-            EmptyText = "No video loaded",
             LoopLabel = "Loop video",
             RequireDurationForSeek = false,
             GetUrl = screen => screen.YouTubeUrl,
@@ -380,10 +415,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         {
             ProviderKind = BrowserSourceProviderKind.Twitch,
             SourceDescriptor = BrowserSourceDescriptors.Twitch,
-            InputLabel = "Twitch URL",
-            Placeholder = "Channel name or VOD link",
-            InvalidText = "Not a Twitch channel or VOD link",
-            EmptyText = "No channel loaded",
             LoopLabel = string.Empty,
             RequireDurationForSeek = true,
             GetUrl = screen => screen.TwitchUrl,
@@ -410,10 +441,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         {
             ProviderKind = BrowserSourceProviderKind.Dailymotion,
             SourceDescriptor = BrowserSourceDescriptors.Dailymotion,
-            InputLabel = "Dailymotion URL",
-            Placeholder = "Paste a link or video ID",
-            InvalidText = "Not a Dailymotion link or video ID",
-            EmptyText = "No video loaded",
             LoopLabel = "Loop video",
             RequireDurationForSeek = true,
             GetUrl = screen => screen.DailymotionUrl,
@@ -442,10 +469,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         {
             ProviderKind = BrowserSourceProviderKind.Vimeo,
             SourceDescriptor = BrowserSourceDescriptors.Vimeo,
-            InputLabel = "Vimeo URL",
-            Placeholder = "Paste a link or video ID",
-            InvalidText = "Not a Vimeo link or video ID",
-            EmptyText = "No video loaded",
             LoopLabel = "Loop video",
             RequireDurationForSeek = true,
             GetUrl = screen => screen.VimeoUrl,
@@ -476,10 +499,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         {
             ProviderKind = BrowserSourceProviderKind.GenericWeb,
             SourceDescriptor = BrowserSourceDescriptors.GenericWeb,
-            InputLabel = "Web page URL",
-            Placeholder = "https://",
-            InvalidText = "Not a valid http or https address",
-            EmptyText = "No page loaded",
             LoopLabel = "Loop media",
             RequireDurationForSeek = true,
             GetUrl = screen => screen.GenericWebUrl,
@@ -509,16 +528,13 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         public string UrlDraft { get; set; } = string.Empty;
         public string UrlDraftSource { get; set; } = string.Empty;
         public long SourceCopiedAtTick { get; set; }
+        public string? ConfirmGenericWebUrl { get; set; }
     }
 
     private sealed class BrowserSourceUiDescriptor
     {
         public required BrowserSourceProviderKind ProviderKind { get; init; }
         public required BrowserSourceDescriptor SourceDescriptor { get; init; }
-        public required string InputLabel { get; init; }
-        public required string Placeholder { get; init; }
-        public required string InvalidText { get; init; }
-        public required string EmptyText { get; init; }
         public required string LoopLabel { get; init; }
         public required bool RequireDurationForSeek { get; init; }
         public required Func<BrowserScreenProfile, string> GetUrl { get; init; }

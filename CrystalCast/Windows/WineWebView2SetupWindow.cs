@@ -2,6 +2,8 @@ using System.Numerics;
 using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using static CrystalCast.Windows.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
@@ -9,12 +11,13 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private string runtimeStatus = string.Empty;
+    private bool runtimeAvailable;
 
     public WineWebView2SetupWindow(Plugin plugin)
         : base("CrystalCast Wine Setup###CrystalCastWineWebView2Setup")
     {
         this.plugin = plugin;
-        Size = new Vector2(660, 520);
+        Size = new Vector2(660, 600);
         SizeCondition = ImGuiCond.FirstUseEver;
         IsOpen = ShouldOpenAutomatically(plugin.Configuration);
         RefreshRuntimeStatus();
@@ -43,208 +46,116 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
     {
     }
 
+    public override void PreDraw()
+    {
+        PushWindowStyle(S(28.0f, 24.0f));
+    }
+
+    public override void PostDraw()
+    {
+        PopWindowStyle();
+    }
+
     public override void Draw()
     {
-        DrawHero();
+        Ui.Hero(
+            "Linux / Wine · browser setup",
+            "Install WebView2 in your FFXIV prefix",
+            "One dependency is required before CrystalCast can render browser sources under Wine.");
 
-        var footerHeight = ImGui.GetFrameHeightWithSpacing() + (ImGui.GetStyle().ItemSpacing.Y * 2.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.0f, 0.0f, 0.0f, 0.0f));
+        var footerHeight = Ui.FrameHeight + (ImGui.GetStyle().ItemSpacing.Y * 2.0f);
         if (ImGui.BeginChild("CrystalCastWineSetupContent", new Vector2(0.0f, -footerHeight), false, ImGuiWindowFlags.None))
         {
             DrawNativeBrowserCard();
-            DrawPreparationCard();
+            Ui.Card(
+                "Before you install",
+                "Use a recent Winetricks release and make sure WINEPREFIX points to the prefix that runs FINAL FANTASY XIV.",
+                "Back up that prefix first if it contains settings or data you cannot easily replace.");
             DrawCommandCard();
-            DrawStatusCallout();
-            DrawCompatibilityCard();
+            Ui.Card(
+                "How Wine capture works",
+                "WebView2 must be installed in the same Wine prefix as the game; another prefix will not be visible to CrystalCast.",
+                "With WebView2, Wine uses JPEG capture. Windows Graphics Capture is disabled in this environment.",
+                "Wine support is experimental and still needs broader testing on real Linux installations.");
         }
+
         ImGui.EndChild();
-        ImGui.PopStyleColor();
 
         ImGui.Spacing();
-        if (ImGui.Button("Remind me later"))
+        if (Ui.Button("Remind me later", ButtonKind.Ghost))
             IsOpen = false;
 
-        var dismissLabel = "Don't show again";
-        var dismissWidth = ImGui.CalcTextSize(dismissLabel).X + (ImGui.GetStyle().FramePadding.X * 2.0f);
-        ImGui.SameLine();
-        ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - dismissWidth));
-        ImGui.PushStyleColor(ImGuiCol.Button, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.72f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, CrystalCastUiTheme.AccentHover);
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, CrystalCastUiTheme.AccentActive);
-        if (ImGui.Button(dismissLabel, new Vector2(dismissWidth, 0.0f)))
+        const string dismissLabel = "Don't show again";
+        ImGui.SameLine(Math.Max(0.0f, ImGui.GetContentRegionMax().X - Ui.ButtonWidth(dismissLabel)));
+        if (Ui.Button(dismissLabel))
         {
             plugin.Configuration.WineWebView2SetupDismissed = true;
             plugin.Configuration.Save();
             IsOpen = false;
         }
-        ImGui.PopStyleColor(3);
-    }
-
-    private static void DrawHero()
-    {
-        var accent = CrystalCastUiTheme.Accent;
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 10.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(accent.X * 0.11f, accent.Y * 0.11f, accent.Z * 0.11f, 0.92f));
-        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(accent, 0.42f));
-        if (ImGui.BeginChild("CrystalCastWineSetupHero", new Vector2(0.0f, 105.0f), true, ImGuiWindowFlags.None))
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            var windowPos = ImGui.GetWindowPos();
-            var windowSize = ImGui.GetWindowSize();
-            drawList.AddRectFilled(
-                windowPos,
-                new Vector2(windowPos.X + 5.0f, windowPos.Y + windowSize.Y),
-                ImGui.GetColorU32(accent),
-                10.0f);
-
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8.0f);
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, "LINUX / WINE  •  BROWSER SETUP");
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8.0f);
-            ImGui.TextUnformatted("Install WebView2 in your FFXIV prefix");
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8.0f);
-            ImGui.TextDisabled("One dependency is required before CrystalCast can render browser sources under Wine.");
-        }
-        ImGui.EndChild();
-        ImGui.PopStyleColor(2);
-        ImGui.PopStyleVar(2);
-        ImGui.Spacing();
     }
 
     private void DrawNativeBrowserCard()
     {
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.10f, 0.12f, 0.64f));
-        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.38f));
-        if (ImGui.BeginChild("CrystalCastWineNativeBrowserCard", new Vector2(0.0f, 150.0f), true, ImGuiWindowFlags.None))
+        Ui.BeginCard();
+        Ui.Heading("Alternative: use your Linux browser (experimental)");
+        Ui.Text(
+            "YouTube, Twitch, Dailymotion and Vimeo can play in your Linux system's WebKitGTK 6.0 instead of WebView2. No winetricks needed; install WebKitGTK 6.0 with your package manager (libwebkitgtk-6.0-4 on Ubuntu/Debian, webkitgtk6.0 on Fedora, webkitgtk-6.0 on Arch). Generic Web screens still need WebView2.",
+            TextSecondary,
+            f => f.Body,
+            wrap: true);
+        Ui.Meta(WebKitGtkAvailability.Describe());
+        if (Ui.Button("Use the native Linux browser"))
         {
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, "Alternative: use your Linux browser (experimental)");
-            ImGui.Separator();
-            ImGui.TextWrapped("YouTube, Twitch, Dailymotion and Vimeo can play in your Linux system's WebKitGTK 6.0 instead of WebView2. No winetricks needed; install WebKitGTK 6.0 with your package manager (libwebkitgtk-6.0-4 on Ubuntu/Debian, webkitgtk6.0 on Fedora, webkitgtk-6.0 on Arch). Generic Web screens still need WebView2.");
-            ImGui.TextDisabled(WebKitGtkAvailability.Describe());
-            if (ImGui.Button("Use the native Linux browser"))
-            {
-                plugin.Configuration.YouTubeBrowserEngine = BrowserMediaEngine.WebKitGtk;
-                plugin.Configuration.Save();
-                IsOpen = false;
-            }
+            plugin.Configuration.YouTubeBrowserEngine = BrowserMediaEngine.WebKitGtk;
+            plugin.Configuration.Save();
+            IsOpen = false;
         }
-        ImGui.EndChild();
-        ImGui.PopStyleColor(2);
-        ImGui.PopStyleVar(2);
-        ImGui.Spacing();
-    }
 
-    private static void DrawPreparationCard()
-    {
-        DrawCard(
-            "Preparation",
-            "Before you install",
-            "Use a recent Winetricks release and make sure WINEPREFIX points to the prefix that runs FINAL FANTASY XIV.",
-            "Back up that prefix first if it contains settings or data you cannot easily replace.");
+        Ui.EndCard();
     }
 
     private void DrawCommandCard()
     {
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.10f, 0.12f, 0.64f));
-        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.38f));
-        if (ImGui.BeginChild("CrystalCastWineCommandCard", new Vector2(0.0f, 142.0f), true, ImGuiWindowFlags.None))
+        Ui.BeginCard();
+        Ui.Heading("Run the setup command");
+
+        var command = GetInstallCommand();
+        var pos = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X - S(16.0f);
+        float textHeight;
+        using (Ui.Font(f => f.Mono))
+            textHeight = ImGui.CalcTextSize(command, false, width - S(20.0f)).Y;
+        var boxSize = new Vector2(width, textHeight + S(16.0f));
+        var dl = ImGui.GetWindowDrawList();
+        dl.AddRectFilled(pos, pos + boxSize, U32(Inset), S(4.0f));
+        dl.AddRect(pos, pos + boxSize, U32(Hairline), S(4.0f), ImDrawFlags.None, 1.0f);
+        ImGui.SetCursorScreenPos(pos + S(10.0f, 8.0f));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + width - S(20.0f));
+        Ui.Text(command, CrystalCastUiTheme.Text, f => f.Mono);
+        ImGui.PopTextWrapPos();
+        ImGui.SetCursorScreenPos(pos);
+        ImGui.Dummy(boxSize);
+
+        if (Ui.Button("Copy setup command", ButtonKind.Primary))
         {
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, "Run the setup command");
-            ImGui.Separator();
-
-            ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 5.0f);
-            ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.045f, 0.045f, 0.055f, 0.95f));
-            if (ImGui.BeginChild("CrystalCastWineCommand", new Vector2(0.0f, 52.0f), false, ImGuiWindowFlags.None))
-            {
-                ImGui.TextWrapped(GetInstallCommand());
-            }
-            ImGui.EndChild();
-            ImGui.PopStyleColor();
-            ImGui.PopStyleVar();
-
-            if (ImGui.Button("Copy setup command"))
-            {
-                ImGui.SetClipboardText(GetInstallCommand());
-                runtimeStatus = "Setup command copied. Check the prefix path before running it.";
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Retry detection"))
-                RefreshRuntimeStatus();
+            ImGui.SetClipboardText(command);
+            runtimeStatus = "Setup command copied. Check the prefix path before running it.";
         }
-        ImGui.EndChild();
-        ImGui.PopStyleColor(2);
-        ImGui.PopStyleVar(2);
-        ImGui.Spacing();
-    }
 
-    private void DrawStatusCallout()
-    {
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 7.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.10f));
-        if (ImGui.BeginChild("CrystalCastWineStatus", new Vector2(0.0f, 66.0f), false, ImGuiWindowFlags.None))
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            var windowPos = ImGui.GetWindowPos();
-            var windowSize = ImGui.GetWindowSize();
-            drawList.AddRectFilled(
-                windowPos,
-                new Vector2(windowPos.X + 4.0f, windowPos.Y + windowSize.Y),
-                ImGui.GetColorU32(CrystalCastUiTheme.Accent),
-                7.0f);
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 7.0f);
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, "DETECTION STATUS");
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 7.0f);
-            ImGui.TextWrapped(runtimeStatus);
-        }
-        ImGui.EndChild();
-        ImGui.PopStyleColor();
-        ImGui.PopStyleVar();
-        ImGui.Spacing();
-    }
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Retry detection"))
+            RefreshRuntimeStatus();
 
-    private static void DrawCompatibilityCard()
-    {
-        DrawCard(
-            "Compatibility",
-            "How Wine capture works",
-            "WebView2 must be installed in the same Wine prefix as the game; another prefix will not be visible to CrystalCast.",
-            "With WebView2, Wine uses JPEG capture. Windows Graphics Capture is disabled in this environment.",
-            "Wine support is experimental and still needs broader testing on real Linux installations.");
-    }
-
-    private static void DrawCard(string id, string title, params string[] bullets)
-    {
-        var height = 48.0f + (bullets.Length * 35.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8.0f);
-        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.10f, 0.12f, 0.64f));
-        ImGui.PushStyleColor(ImGuiCol.Border, CrystalCastUiTheme.WithAlpha(CrystalCastUiTheme.Accent, 0.38f));
-        if (ImGui.BeginChild($"CrystalCastWineCard{id}", new Vector2(0.0f, height), true, ImGuiWindowFlags.None))
-        {
-            ImGui.TextColored(CrystalCastUiTheme.AccentText, title);
-            ImGui.Separator();
-            foreach (var bullet in bullets)
-            {
-                ImGui.TextColored(CrystalCastUiTheme.AccentText, "•");
-                ImGui.SameLine();
-                ImGui.TextWrapped(bullet);
-            }
-        }
-        ImGui.EndChild();
-        ImGui.PopStyleColor(2);
-        ImGui.PopStyleVar(2);
-        ImGui.Spacing();
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + S(2.0f));
+        Ui.StatusLine(runtimeAvailable ? Accent : Warning, runtimeAvailable ? "WebView2 detected" : "WebView2 not detected", string.Empty);
+        Ui.Meta(runtimeStatus);
+        Ui.EndCard();
     }
 
     private void RefreshRuntimeStatus()
     {
-        runtimeStatus = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var version, out var error)
-            ? $"WebView2 detected: {version}"
-            : error;
+        runtimeAvailable = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var version, out var error);
+        runtimeStatus = runtimeAvailable ? $"WebView2 {version}" : error;
     }
 }

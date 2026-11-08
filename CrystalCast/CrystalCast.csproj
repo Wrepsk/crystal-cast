@@ -39,6 +39,15 @@
     <EmbeddedResource Include="Assets\Browser\CommandBridge.js" LogicalName="CrystalCast.BrowserAssets.CommandBridge.js" />
   </ItemGroup>
 
+  <!-- UI fonts from the redesign (SIL OFL). Optional: the UI falls back to Dalamud's fonts when absent. -->
+  <ItemGroup>
+    <Content Include="Assets\Fonts\*.ttf;Assets\Fonts\*.txt">
+      <Link>Assets\Fonts\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.3.1" ExcludeAssets="compile;runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.17763.1000" PrivateAssets="all" />

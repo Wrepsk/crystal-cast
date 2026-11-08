@@ -1,6 +1,9 @@
 using System.Numerics;
 using CrystalCast.Rendering;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using static CrystalCast.Windows.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
@@ -9,26 +12,47 @@ internal sealed class PlacementPanel(
     PlacementUndoService undoService,
     ScreenPlacementResolver placementResolver)
 {
-    private static readonly string[] PlacementModeNames =
-        ["World", "Follow player", "Follow camera"];
+    private const float LabelWidth = MainLabelWidth;
+    private const float LabelGap = MainLabelGap;
+    private const float RadiansToDegrees = 180.0f / MathF.PI;
 
-    private static readonly ScreenPlacementMode[] PlacementModes =
-        [ScreenPlacementMode.World, ScreenPlacementMode.FollowPlayer, ScreenPlacementMode.FollowCamera];
-
-    private static readonly string[] GizmoOperationNames =
-        ["Move", "Rotate"];
-
-    private static readonly ScreenPlacementGizmoOperation[] GizmoOperations =
-        [ScreenPlacementGizmoOperation.Translate, ScreenPlacementGizmoOperation.Rotate];
+    private static readonly (ScreenPlacementMode Mode, string Name, string Description)[] PlacementModes =
+    [
+        (ScreenPlacementMode.World, "World", "Stays at a fixed position in the zone."),
+        (ScreenPlacementMode.FollowPlayer, "Follow player", "Coordinates are relative to the local player."),
+        (ScreenPlacementMode.FollowCamera, "Follow camera", "Coordinates are relative to the camera heading around the local player."),
+    ];
 
     private string renamingPresetId = string.Empty;
     private string presetRenameDraft = string.Empty;
     private ScreenPlacementSettings? copiedPlacement;
     private long placementCopiedAtTick;
+    private long placeFailedAtTick;
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
     {
-        return DrawBrowserPlacement(config, activeScreen);
+        var placementLocked = IsPlacementControlsLocked(activeScreen);
+        if (placementLocked)
+        {
+            Ui.Banner(
+                "PlacementLocked",
+                BannerKind.Warning,
+                $"Placement is controlled by {SourceControlUi.LockedOwner(activeScreen)}",
+                "You can still copy this layout and paste it onto an editable screen.");
+            ImGui.Spacing();
+        }
+
+        var before = activeScreen.Placement.Clone();
+        var changed = DrawAnchor(config, activeScreen.Placement, placementLocked);
+        Ui.VerticalSpace(24.0f);
+        changed |= DrawTransform(activeScreen.Placement, placementLocked);
+        Ui.VerticalSpace(24.0f);
+        changed |= DrawLayoutTools(config, activeScreen, placementLocked);
+
+        if (changed)
+            undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
+
+        return changed;
     }
 
     public bool DrawGizmo(Configuration config, BrowserScreenProfile activeScreen)
@@ -47,107 +71,86 @@ internal sealed class PlacementPanel(
         return true;
     }
 
-    private bool DrawBrowserPlacement(Configuration config, BrowserScreenProfile screen)
-    {
-        var placementLocked = IsPlacementControlsLocked(screen);
-        if (placementLocked)
-            DrawLockedControlsMessage(screen, "Placement controls");
-
-        var before = screen.Placement.Clone();
-        var changed = DrawPlacementCopyPaste(screen.Placement, placementLocked);
-        if (placementLocked)
-            ImGui.BeginDisabled();
-
-        changed |= DrawPlacementSettings(config, screen.ScreenId, screen.Placement);
-
-        if (placementLocked)
-            ImGui.EndDisabled();
-
-        if (changed)
-            undoService.Capture(screen.ScreenId, before, screen.Placement);
-
-        return changed;
-    }
-
-    private bool DrawPlacementCopyPaste(ScreenPlacementSettings placement, bool placementLocked)
-    {
-        if (ImGui.Button("Copy placement"))
-        {
-            copiedPlacement = placement.Clone();
-            placementCopiedAtTick = Environment.TickCount64;
-        }
-
-        ImGui.SameLine();
-        var canPaste = copiedPlacement != null && !placementLocked;
-        if (!canPaste)
-            ImGui.BeginDisabled();
-        var pasted = ImGui.Button("Paste placement") && canPaste;
-        if (!canPaste)
-            ImGui.EndDisabled();
-
-        if (pasted)
-        {
-            placement.CopyFrom(copiedPlacement!);
-            placement.Normalize();
-        }
-
-        if (placementCopiedAtTick > 0 && Environment.TickCount64 - placementCopiedAtTick < 2000)
-        {
-            ImGui.SameLine();
-            ImGui.TextDisabled("Copied!");
-        }
-
-        return pasted;
-    }
-
-    private bool DrawPlacementSettings(Configuration config, string undoKey, ScreenPlacementSettings placement)
+    private bool DrawAnchor(Configuration config, ScreenPlacementSettings placement, bool locked)
     {
         var changed = false;
-        changed |= undoService.DrawUndoButton(undoKey, placement);
+        var mode = Array.FindIndex(PlacementModes, entry => entry.Mode == placement.Mode);
+        if (mode < 0)
+            mode = 0;
 
-        var placementGizmoEnabled = config.PlacementGizmoEnabled;
-        if (ImGui.Checkbox("Placement gizmo", ref placementGizmoEnabled))
+        Ui.RowLabel("Anchor", LabelWidth, LabelGap);
+        if (Ui.BeginDropdown("##CrystalCastPlacementMode", PlacementModes[mode].Name, disabled: locked))
         {
-            config.PlacementGizmoEnabled = placementGizmoEnabled;
-            changed = true;
+            for (var i = 0; i < PlacementModes.Length; i++)
+            {
+                if (Ui.MenuItem($"{PlacementModes[i].Name}##PlacementMode{i}", i == mode) && PlacementModes[i].Mode != placement.Mode)
+                    changed |= placementResolver.TryConvertModePreservingWorld(placement, PlacementModes[i].Mode);
+            }
+
+            Ui.EndDropdown();
         }
 
-        if (config.PlacementGizmoEnabled)
-        {
-            changed |= DrawGizmoOperation(config);
-            ImGui.TextDisabled(config.PlacementGizmoOperation == ScreenPlacementGizmoOperation.Rotate
-                ? "Drag the in-world rings to rotate the active screen."
-                : "Drag the in-world arrows to move the active screen.");
-        }
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(PlacementModes[mode].Description);
 
-        changed |= DrawPlacementMode(placement);
-
-        var placeButtonLabel = placement.Mode == ScreenPlacementMode.FollowCamera
+        Ui.RowLabel("Bring into view", LabelWidth, LabelGap);
+        var placeLabel = placement.Mode == ScreenPlacementMode.FollowCamera
             ? "Place in front of camera"
             : "Place in front of player";
-        if (ImGui.Button(placeButtonLabel))
+        if (Ui.Button(placeLabel, disabled: locked))
         {
             if (placementResolver.PlaceInFrontOfPlayer(placement))
                 changed = true;
             else
-                ImGui.TextColored(
-                    new Vector4(1.0f, 0.45f, 0.35f, 1.0f),
-                    placement.Mode == ScreenPlacementMode.FollowCamera
-                        ? "Waiting for local player/camera"
-                        : "Waiting for local player");
+                placeFailedAtTick = Environment.TickCount64;
         }
 
-        changed |= DrawPlacementPresets(
-            config,
-            () => placement,
-            placement.CopyFrom);
+        if (placeFailedAtTick > 0 && Environment.TickCount64 - placeFailedAtTick < 3000)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.ErrorText(placement.Mode == ScreenPlacementMode.FollowCamera
+                ? "Waiting for the local player and camera."
+                : "Waiting for the local player.");
+        }
 
-        var followMode = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera;
-        var positionLabel = followMode
-            ? "Local position (right / up / forward)"
-            : "Position";
+        var gizmoEnabled = config.PlacementGizmoEnabled;
+        Ui.RowLabel("Gizmo", LabelWidth, LabelGap);
+        if (Ui.Switch("##CrystalCastPlacementGizmo", ref gizmoEnabled, locked))
+        {
+            config.PlacementGizmoEnabled = gizmoEnabled;
+            changed = true;
+        }
+
+        ImGui.SameLine(0.0f, S(12.0f));
+        var gizmoOff = !config.PlacementGizmoEnabled || locked;
+        var translate = config.PlacementGizmoOperation == ScreenPlacementGizmoOperation.Translate;
+        if (Ui.Button("Move##GizmoMove", ButtonKind.Ghost, disabled: gizmoOff, on: translate && !gizmoOff, tooltip: "Drag the in-world arrows to move the screen"))
+        {
+            config.PlacementGizmoOperation = ScreenPlacementGizmoOperation.Translate;
+            changed = true;
+        }
+
+        ImGui.SameLine(0.0f, S(4.0f));
+        if (Ui.Button("Rotate##GizmoRotate", ButtonKind.Ghost, disabled: gizmoOff, on: !translate && !gizmoOff, tooltip: "Drag the in-world rings to rotate the screen"))
+        {
+            config.PlacementGizmoOperation = ScreenPlacementGizmoOperation.Rotate;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool DrawTransform(ScreenPlacementSettings placement, bool locked)
+    {
+        var changed = false;
+        var follow = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera;
+        Ui.SectionHeader("Position and shape", follow
+            ? "Local offsets: right, up and forward from the anchor."
+            : "World coordinates of the screen center.");
+
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
-        if (CrystalCastUiWidgets.DragFloat3(positionLabel, ref position, 0.01f))
+        Ui.RowLabel("Position", LabelWidth, LabelGap);
+        if (Ui.DragFloat3("CrystalCastPosition", ref position, 0.01f, follow ? ["R", "U", "F"] : ["X", "Y", "Z"], "%.2f", locked))
         {
             placement.PositionX = position.X;
             placement.PositionY = position.Y;
@@ -155,152 +158,188 @@ internal sealed class PlacementPanel(
             changed = true;
         }
 
-        var rotationLabel = followMode
-            ? "Local yaw / pitch / roll"
-            : "Yaw / Pitch / Roll";
-        var rotation = new Vector3(placement.YawRadians, placement.PitchRadians, placement.RollRadians);
-        if (CrystalCastUiWidgets.DragFloat3(rotationLabel, ref rotation, 0.01f))
+        var rotation = new Vector3(placement.YawRadians, placement.PitchRadians, placement.RollRadians) * RadiansToDegrees;
+        Ui.RowLabel("Rotation", LabelWidth, LabelGap);
+        if (Ui.DragFloat3("CrystalCastRotation", ref rotation, 0.5f, ["Yaw", "Pitch", "Roll"], "%.1f°", locked))
         {
-            placement.YawRadians = rotation.X;
-            placement.PitchRadians = rotation.Y;
-            placement.RollRadians = rotation.Z;
+            placement.YawRadians = rotation.X / RadiansToDegrees;
+            placement.PitchRadians = rotation.Y / RadiansToDegrees;
+            placement.RollRadians = rotation.Z / RadiansToDegrees;
             changed = true;
         }
 
-        changed |= DrawSizeAndCurve(placement);
-        return changed;
-    }
-
-    private static bool DrawGizmoOperation(Configuration config)
-    {
-        var changed = false;
-        var current = FindGizmoOperationIndex(config.PlacementGizmoOperation);
-        if (ImGui.BeginCombo("Gizmo mode", GizmoOperationNames[current]))
+        var width = placement.WidthMeters;
+        Ui.RowLabel("Width", LabelWidth, LabelGap);
+        if (Ui.DragFloat("##CrystalCastWidth", ref width, 0.01f, format: "%.2f m", width: S(120.0f), disabled: locked))
         {
-            for (var i = 0; i < GizmoOperations.Length; i++)
-            {
-                var selected = i == current;
-                if (ImGui.Selectable(GizmoOperationNames[i], selected))
-                {
-                    config.PlacementGizmoOperation = GizmoOperations[i];
-                    changed = true;
-                }
+            placement.WidthMeters = Math.Max(0.1f, width);
+            changed = true;
+        }
 
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
+        ImGui.SameLine(0.0f, S(12.0f));
+        Ui.RowText(renderer.TextureWidth > 0 && renderer.TextureHeight > 0
+                    ? $"Height {placement.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.00} m, from the source"
+                    : "Height follows the source",
+                TextTertiary, f => f.Small);
 
-            ImGui.EndCombo();
+        var maxCurveAmount = Math.Max(0.001f, placement.WidthMeters / MathF.PI);
+        var curveAmount = Math.Clamp(placement.ScreenCurveAmountMeters, 0.0f, maxCurveAmount);
+        if (Math.Abs(placement.ScreenCurveAmountMeters - curveAmount) > 0.0001f)
+        {
+            placement.ScreenCurveAmountMeters = curveAmount;
+            changed = true;
+        }
+
+        Ui.RowLabel("Curve", LabelWidth, LabelGap);
+        if (Ui.Slider("##CrystalCastCurve", ref curveAmount, 0.0f, maxCurveAmount, value => $"{value:0.00} m", detent: 0.0f, disabled: locked))
+        {
+            placement.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
+            changed = true;
         }
 
         return changed;
     }
 
-    private bool DrawPlacementPresets(
-        Configuration config,
-        Func<ScreenPlacementSettings> getCurrentPlacement,
-        Action<ScreenPlacementSettings> applyPlacement)
+    private bool DrawLayoutTools(Configuration config, BrowserScreenProfile screen, bool locked)
+    {
+        var changed = false;
+        var placement = screen.Placement;
+        Ui.SectionHeader("Layouts", "Copy a layout between screens, undo recent edits, or save presets.");
+
+        Ui.RowLabel("This layout", LabelWidth, LabelGap);
+        if (Ui.Button("Copy##PlacementCopy"))
+        {
+            copiedPlacement = placement.Clone();
+            placementCopiedAtTick = Environment.TickCount64;
+        }
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Paste##PlacementPaste", disabled: copiedPlacement == null || locked))
+        {
+            placement.CopyFrom(copiedPlacement!);
+            placement.Normalize();
+            changed = true;
+        }
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        changed |= undoService.DrawUndoButton(screen.ScreenId, placement, locked);
+
+        if (placementCopiedAtTick > 0 && Environment.TickCount64 - placementCopiedAtTick < 2000)
+        {
+            ImGui.SameLine(0.0f, S(12.0f));
+            Ui.RowText("Copied", TextTertiary, f => f.Small);
+        }
+
+        changed |= DrawPlacementPresets(config, placement, locked);
+        return changed;
+    }
+
+    private bool DrawPlacementPresets(Configuration config, ScreenPlacementSettings placement, bool locked)
     {
         config.Normalize();
         var changed = false;
         var activePreset = config.GetActivePlacementPreset();
-        var presetLabel = activePreset?.Name ?? "No presets";
 
-        ImGui.Spacing();
-        ImGui.PushID("PlacementPresets");
-        if (ImGui.BeginCombo("Placement preset", presetLabel))
+        Ui.RowLabel("Preset", LabelWidth, LabelGap);
+        var buttonsWidth = Ui.ButtonWidth("Load") + Ui.ButtonWidth("Save new") + Ui.FrameHeight + S(16.0f);
+        var dropdownWidth = Math.Max(S(100.0f), ImGui.GetContentRegionAvail().X - buttonsWidth - S(8.0f));
+        if (Ui.BeginDropdown("##CrystalCastPlacementPreset", activePreset?.Name ?? "No presets saved", dropdownWidth))
         {
             if (config.PlacementPresets.Count == 0)
-            {
-                ImGui.TextDisabled("No presets saved");
-            }
-            else
-            {
-                foreach (var preset in config.PlacementPresets)
-                {
-                    var selected = preset.PresetId == config.ActivePlacementPresetId;
-                    if (ImGui.Selectable($"{preset.Name}##PlacementPreset{preset.PresetId}", selected))
-                    {
-                        config.ActivePlacementPresetId = preset.PresetId;
-                        config.Save();
-                        activePreset = preset;
-                    }
+                Ui.MenuHint("Save the current layout to create one.");
 
-                    if (selected)
-                        ImGui.SetItemDefaultFocus();
+            foreach (var preset in config.PlacementPresets)
+            {
+                if (Ui.MenuItem($"{preset.Name}##PlacementPreset{preset.PresetId}", preset.PresetId == config.ActivePlacementPresetId))
+                {
+                    config.ActivePlacementPresetId = preset.PresetId;
+                    config.Save();
+                    activePreset = preset;
                 }
             }
 
-            ImGui.EndCombo();
+            Ui.EndDropdown();
         }
 
-        if (ImGui.Button("Save New"))
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Load##PresetLoad", disabled: activePreset == null || locked, tooltip: "Apply the selected preset to this screen") && activePreset != null)
         {
-            var preset = config.CreatePlacementPreset(GetNextPresetName(config), getCurrentPlacement());
+            placement.CopyFrom(activePreset.Placement);
+            changed = true;
+        }
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Save new##PresetSave", tooltip: "Save this screen's layout as a new preset"))
+        {
+            var preset = config.CreatePlacementPreset(GetNextPresetName(config), placement);
             config.PlacementPresets.Add(preset);
             config.ActivePlacementPresetId = preset.PresetId;
             config.Save();
             activePreset = preset;
         }
 
-        var hasPreset = activePreset != null;
-        ImGui.SameLine();
-        if (!hasPreset)
-            ImGui.BeginDisabled();
-        if (ImGui.Button("Update") && activePreset != null)
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.IconButton("##PresetMore", FontAwesomeIcon.EllipsisH, "More preset actions", disabled: activePreset == null))
+            Ui.OpenMenu("PresetActions");
+
+        if (Ui.BeginMenu("PresetActions", ImGui.GetItemRectMax()))
         {
-            activePreset.Placement = getCurrentPlacement().Clone();
-            activePreset.Placement.Normalize();
-            config.Save();
+            if (Ui.MenuItem("Update with this layout", icon: FontAwesomeIcon.Sync) && activePreset != null)
+            {
+                activePreset.Placement = placement.Clone();
+                activePreset.Placement.Normalize();
+                config.Save();
+            }
+
+            if (Ui.MenuItem("Rename", icon: FontAwesomeIcon.Pen) && activePreset != null)
+            {
+                renamingPresetId = activePreset.PresetId;
+                presetRenameDraft = activePreset.Name;
+            }
+
+            Ui.MenuSeparator();
+            if (Ui.MenuItem("Delete", danger: true, icon: FontAwesomeIcon.TrashAlt) && activePreset != null)
+            {
+                var removedId = activePreset.PresetId;
+                var removedIndex = Math.Max(0, config.PlacementPresets.FindIndex(preset => preset.PresetId == removedId));
+                config.PlacementPresets.RemoveAll(preset => preset.PresetId == removedId);
+                if (renamingPresetId == removedId)
+                    renamingPresetId = string.Empty;
+
+                config.ActivePlacementPresetId = config.PlacementPresets.Count == 0
+                    ? string.Empty
+                    : config.PlacementPresets[Math.Clamp(removedIndex - 1, 0, config.PlacementPresets.Count - 1)].PresetId;
+                config.Save();
+                activePreset = config.GetActivePlacementPreset();
+            }
+
+            Ui.EndMenu();
         }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Load") && activePreset != null)
-        {
-            applyPlacement(activePreset.Placement);
-            changed = true;
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Rename") && activePreset != null)
-        {
-            renamingPresetId = activePreset.PresetId;
-            presetRenameDraft = activePreset.Name;
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Delete") && activePreset != null)
-        {
-            var removedId = activePreset.PresetId;
-            var removedIndex = Math.Max(0, config.PlacementPresets.FindIndex(preset => preset.PresetId == removedId));
-            config.PlacementPresets.RemoveAll(preset => preset.PresetId == removedId);
-            if (renamingPresetId == removedId)
-                renamingPresetId = string.Empty;
-
-            config.ActivePlacementPresetId = config.PlacementPresets.Count == 0
-                ? string.Empty
-                : config.PlacementPresets[Math.Clamp(removedIndex - 1, 0, config.PlacementPresets.Count - 1)].PresetId;
-            config.Save();
-            activePreset = config.GetActivePlacementPreset();
-        }
-
-        if (!hasPreset)
-            ImGui.EndDisabled();
 
         if (activePreset != null && renamingPresetId == activePreset.PresetId)
             DrawPresetRenameControls(config, activePreset);
 
-        ImGui.PopID();
         return changed;
     }
 
     private void DrawPresetRenameControls(Configuration config, ScreenPlacementPreset activePreset)
     {
+        Ui.RowLabel("Preset name", LabelWidth, LabelGap);
         var draft = presetRenameDraft;
-        var pressedEnter = ImGui.InputText("Preset name", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+        var saveWidth = Ui.ButtonWidth("Save");
+        var cancelWidth = Ui.ButtonWidth("Cancel");
+        if (ImGui.IsWindowAppearing())
+            ImGui.SetKeyboardFocusHere();
+        var pressedEnter = Ui.TextField(
+            "##CrystalCastPresetName",
+            ref draft,
+            128,
+            width: Math.Max(S(80.0f), ImGui.GetContentRegionAvail().X - saveWidth - cancelWidth - S(16.0f)),
+            flags: ImGuiInputTextFlags.EnterReturnsTrue);
         presetRenameDraft = draft;
-        ImGui.SameLine();
-        if (ImGui.Button("Save preset name") || pressedEnter)
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Save##PresetRenameSave", ButtonKind.Primary) || pressedEnter)
         {
             var trimmed = presetRenameDraft.Trim();
             if (!string.IsNullOrWhiteSpace(trimmed))
@@ -312,102 +351,14 @@ internal sealed class PlacementPanel(
             renamingPresetId = string.Empty;
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Cancel preset rename"))
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Cancel##PresetRenameCancel", ButtonKind.Ghost))
             renamingPresetId = string.Empty;
-    }
-
-    private bool DrawPlacementMode(ScreenPlacementSettings placement)
-    {
-        var changed = false;
-        var current = FindPlacementModeIndex(placement.Mode);
-        if (ImGui.BeginCombo("Placement mode", PlacementModeNames[current]))
-        {
-            for (var i = 0; i < PlacementModes.Length; i++)
-            {
-                var mode = PlacementModes[i];
-                var selected = i == current;
-                if (ImGui.Selectable(PlacementModeNames[i], selected) && mode != placement.Mode)
-                    changed |= placementResolver.TryConvertModePreservingWorld(placement, mode);
-
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
-        }
-
-        if (placement.Mode == ScreenPlacementMode.FollowPlayer)
-            ImGui.TextDisabled("Coordinates are relative to the local player.");
-        else if (placement.Mode == ScreenPlacementMode.FollowCamera)
-            ImGui.TextDisabled("Coordinates are relative to the camera heading around the local player.");
-
-        return changed;
-    }
-
-    private bool DrawSizeAndCurve(ScreenPlacementSettings placement)
-    {
-        var changed = false;
-        var width = placement.WidthMeters;
-        if (CrystalCastUiWidgets.DragFloat("Width meters", ref width, 0.01f))
-        {
-            placement.WidthMeters = Math.Max(0.1f, width);
-            changed = true;
-        }
-
-        ImGui.TextDisabled(renderer.TextureWidth > 0 && renderer.TextureHeight > 0
-            ? $"Auto height: {placement.WidthMeters * renderer.TextureHeight / renderer.TextureWidth:0.###} m"
-            : "Auto height: waiting for texture");
-
-        var maxCurveAmount = Math.Max(0.001f, placement.WidthMeters / MathF.PI);
-        var curveAmount = Math.Clamp(placement.ScreenCurveAmountMeters, 0.0f, maxCurveAmount);
-        if (Math.Abs(placement.ScreenCurveAmountMeters - curveAmount) > 0.0001f)
-        {
-            placement.ScreenCurveAmountMeters = curveAmount;
-            changed = true;
-        }
-
-        if (CrystalCastUiWidgets.SliderFloat("Curve amount", ref curveAmount, 0.0f, maxCurveAmount))
-        {
-            placement.ScreenCurveAmountMeters = Math.Clamp(curveAmount, 0.0f, maxCurveAmount);
-            changed = true;
-        }
-
-        return changed;
     }
 
     private static bool IsPlacementControlsLocked(BrowserScreenProfile screen)
     {
         return screen.SourceControlsLocked;
-    }
-
-    private static void DrawLockedControlsMessage(BrowserScreenProfile screen, string label)
-    {
-        ImGui.TextDisabled(string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId)
-            ? $"{label} locked by IPC."
-            : $"{label} locked by {screen.SourceControlsOwnerId}.");
-    }
-
-    private static int FindPlacementModeIndex(ScreenPlacementMode mode)
-    {
-        for (var i = 0; i < PlacementModes.Length; i++)
-        {
-            if (PlacementModes[i] == mode)
-                return i;
-        }
-
-        return 0;
-    }
-
-    private static int FindGizmoOperationIndex(ScreenPlacementGizmoOperation operation)
-    {
-        for (var i = 0; i < GizmoOperations.Length; i++)
-        {
-            if (GizmoOperations[i] == operation)
-                return i;
-        }
-
-        return 0;
     }
 
     private static string GetNextPresetName(Configuration config)

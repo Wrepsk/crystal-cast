@@ -13,3 +13,11 @@ Pictomancy is distributed under `AGPL-3.0-or-later`. CrystalRenderer remains und
 The release archive includes the runtime assemblies selected by the locked dependency graph, including Microsoft WebView2, ImageSharp, KamiToolKit, and SharpDX components. Package versions and integrity hashes are recorded in the project lock files, including `CrystalCast/packages.lock.json` and `CrystalRenderer/CrystalRenderer/packages.lock.json`; their respective upstream licenses apply.
 
 ImageSharp remains at its existing version during the renderer migration. Its direct/transitive uses, current audit findings, and separate upgrade/removal follow-up are documented in `docs/DEPENDENCY_AUDIT.md`.
+
+## Bundled UI fonts
+
+The plugin UI ships three font families in `CrystalCast/Assets/Fonts`, unmodified static instances downloaded from Google Fonts. Each is licensed under the SIL Open Font License 1.1; the license text with its copyright line is included beside the fonts.
+
+- Marcellus, Copyright (c) 2012 Brian J. Bonislawsky DBA Astigmatic (AOETI), Reserved Font Name "Marcellus" (`OFL-Marcellus.txt`)
+- Hanken Grotesk, Copyright 2021 The Hanken Grotesk Project Authors (`OFL-HankenGrotesk.txt`)
+- Geist Mono, Copyright 2024 The Geist Project Authors (`OFL-GeistMono.txt`)

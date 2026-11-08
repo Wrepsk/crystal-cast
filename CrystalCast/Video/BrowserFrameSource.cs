@@ -2,7 +2,7 @@ namespace CrystalCast.Video;
 
 using Dalamud.Plugin.Services;
 
-internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
+internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -59,6 +59,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     public bool BrowserControlsAvailable => activeSource is IBrowserControlsHost { BrowserControlsAvailable: true }
         || activeSource == null;
     public bool BrowserControlsVisible => activeSource is IBrowserControlsHost { BrowserControlsVisible: true };
+
+    public float MeasuredCaptureFps => activeSource is ICaptureRateSource rateSource ? rateSource.MeasuredCaptureFps : 0.0f;
 
     public float DetectedVideoFps
     {

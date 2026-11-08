@@ -1,129 +1,102 @@
+using System.Numerics;
 using CrystalCast.Rendering;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using static CrystalCast.Windows.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
 internal sealed class AudioControlsPanel(WorldScreenManager renderer)
 {
+    private const float LabelWidth = MainLabelWidth;
+    private const float LabelGap = MainLabelGap;
+
     public bool Draw(BrowserScreenProfile activeScreen)
     {
-        var changed = activeScreen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.Twitch => DrawTwitchAudio(activeScreen),
-            BrowserSourceProviderKind.Dailymotion => DrawDailymotionAudio(activeScreen),
-            BrowserSourceProviderKind.Vimeo => DrawVimeoAudio(activeScreen),
-            BrowserSourceProviderKind.GenericWeb => DrawGenericWebAudio(activeScreen),
-            _ => DrawYouTubeAudio(activeScreen),
-        };
+        var audio = GetAudioSettings(activeScreen);
+        var changed = DrawPlaybackVolume(activeScreen, audio);
+        Ui.VerticalSpace(24.0f);
         changed |= DrawSpatialAudio(activeScreen);
-
         return changed;
     }
 
-    private static bool DrawYouTubeAudio(BrowserScreenProfile screen)
+    private static bool DrawPlaybackVolume(BrowserScreenProfile screen, AudioSettingsAccessor audio)
     {
         var changed = false;
-        var audioEnabled = screen.YouTubeAudioEnabled;
-        var volume = screen.YouTubeVolume;
-
-        ImGui.TextUnformatted("Playback volume");
-        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        var audioEnabled = audio.GetEnabled(screen);
+        Ui.RowLabel("Browser audio", LabelWidth, LabelGap);
+        if (Ui.Switch("##CrystalCastBrowserAudio", ref audioEnabled))
         {
-            screen.YouTubeAudioEnabled = audioEnabled;
+            audio.SetEnabled(screen, audioEnabled);
             changed = true;
         }
 
-        if (screen.YouTubeAudioEnabled && CrystalCastUiWidgets.SliderFloat("YouTube volume", ref volume, 0.0f, 1.0f))
+        var volume = audio.GetVolume(screen);
+        Ui.RowLabel("Volume", LabelWidth, LabelGap);
+        if (Ui.Slider(
+                "##CrystalCastVolume",
+                ref volume,
+                0.0f,
+                1.0f,
+                FormatPercent,
+                disabled: !audio.GetEnabled(screen)))
         {
-            screen.YouTubeVolume = Math.Clamp(volume, 0.0f, 1.0f);
-            changed = true;
-        }
-
-        return changed;
-    }
-
-    private static bool DrawTwitchAudio(BrowserScreenProfile screen)
-    {
-        var changed = false;
-        var audioEnabled = screen.TwitchAudioEnabled;
-        var volume = screen.TwitchVolume;
-
-        ImGui.TextUnformatted("Playback volume");
-        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
-        {
-            screen.TwitchAudioEnabled = audioEnabled;
-            changed = true;
-        }
-
-        if (screen.TwitchAudioEnabled && CrystalCastUiWidgets.SliderFloat("Twitch volume", ref volume, 0.0f, 1.0f))
-        {
-            screen.TwitchVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            audio.SetVolume(screen, Math.Clamp(volume, 0.0f, 1.0f));
             changed = true;
         }
 
         return changed;
     }
 
-    private static bool DrawDailymotionAudio(BrowserScreenProfile screen)
+    /// <summary>
+    /// The transport bar's volume control: a mute toggle and a slider that slides out beside it. Only
+    /// <paramref name="revealWidth"/> of the <paramref name="sliderWidth"/>-wide slider is visible, which lets the
+    /// caller animate it open. It edits the same provider audio settings as the Audio tab, so the two stay in sync.
+    /// </summary>
+    internal static bool DrawCompactVolume(
+        BrowserScreenProfile screen,
+        string idSuffix,
+        float sliderWidth,
+        float revealWidth,
+        out bool sliderActive,
+        bool disabled = false)
     {
+        sliderActive = false;
         var changed = false;
-        var audioEnabled = screen.DailymotionAudioEnabled;
-        var volume = screen.DailymotionVolume;
-
-        ImGui.TextUnformatted("Playback volume");
-        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        var audio = GetAudioSettings(screen);
+        var enabled = audio.GetEnabled(screen);
+        if (Ui.IconButton(
+                $"##Mute{idSuffix}",
+                enabled ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute,
+                enabled ? "Mute browser audio" : "Turn browser audio on",
+                disabled: disabled))
         {
-            screen.DailymotionAudioEnabled = audioEnabled;
+            audio.SetEnabled(screen, !enabled);
             changed = true;
         }
 
-        if (screen.DailymotionAudioEnabled && CrystalCastUiWidgets.SliderFloat("Dailymotion volume", ref volume, 0.0f, 1.0f))
+        if (revealWidth < 1.0f)
+            return changed;
+
+        ImGui.SameLine(0.0f, S(4.0f));
+        var volume = audio.GetVolume(screen);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        var open = ImGui.BeginChild($"##VolumeColumn{idSuffix}", new Vector2(revealWidth, Ui.FrameHeight), false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoBackground);
+        ImGui.PopStyleVar();
+        var moved = false;
+        if (open)
         {
-            screen.DailymotionVolume = Math.Clamp(volume, 0.0f, 1.0f);
-            changed = true;
+            // Keep the cap clear of the clip edge while revealing.
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + S(2.0f));
+            moved = Ui.Slider($"##Volume{idSuffix}", ref volume, 0.0f, 1.0f, FormatPercent, disabled: disabled || !audio.GetEnabled(screen), readoutWidth: 0.0f, trackWidth: sliderWidth - S(4.0f));
+            sliderActive = ImGui.IsItemActive();
         }
 
-        return changed;
-    }
-
-    private static bool DrawVimeoAudio(BrowserScreenProfile screen)
-    {
-        var changed = false;
-        var audioEnabled = screen.VimeoAudioEnabled;
-        var volume = screen.VimeoVolume;
-
-        ImGui.TextUnformatted("Playback volume");
-        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
+        ImGui.EndChild();
+        if (moved)
         {
-            screen.VimeoAudioEnabled = audioEnabled;
-            changed = true;
-        }
-
-        if (screen.VimeoAudioEnabled && CrystalCastUiWidgets.SliderFloat("Vimeo volume", ref volume, 0.0f, 1.0f))
-        {
-            screen.VimeoVolume = Math.Clamp(volume, 0.0f, 1.0f);
-            changed = true;
-        }
-
-        return changed;
-    }
-
-    private static bool DrawGenericWebAudio(BrowserScreenProfile screen)
-    {
-        var changed = false;
-        var audioEnabled = screen.GenericWebAudioEnabled;
-        var volume = screen.GenericWebVolume;
-
-        ImGui.TextUnformatted("Playback volume");
-        if (ImGui.Checkbox("Enable browser audio", ref audioEnabled))
-        {
-            screen.GenericWebAudioEnabled = audioEnabled;
-            changed = true;
-        }
-
-        if (screen.GenericWebAudioEnabled && CrystalCastUiWidgets.SliderFloat("Generic Web volume", ref volume, 0.0f, 1.0f))
-        {
-            screen.GenericWebVolume = Math.Clamp(volume, 0.0f, 1.0f);
+            audio.SetVolume(screen, Math.Clamp(volume, 0.0f, 1.0f));
             changed = true;
         }
 
@@ -133,48 +106,72 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
     private bool DrawSpatialAudio(BrowserScreenProfile screen)
     {
         var changed = false;
-        var enabled = screen.SpatialAudioEnabled;
-        var fullRadius = screen.SpatialAudioFullVolumeRadiusMeters;
-        var silentRadius = screen.SpatialAudioSilentRadiusMeters;
+        Ui.SectionHeader("Spatial audio", "Fade browser volume as you move away from the selected screen.");
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.TextUnformatted("Spatial audio");
-        ImGui.TextDisabled("Fade browser volume as you move away from the selected screen.");
-        if (ImGui.Checkbox("Spatial audio", ref enabled))
+        var enabled = screen.SpatialAudioEnabled;
+        Ui.RowLabel("Distance falloff", LabelWidth, LabelGap);
+        if (Ui.Switch("##CrystalCastSpatialAudio", ref enabled))
         {
             screen.SpatialAudioEnabled = enabled;
             changed = true;
         }
 
-        if (screen.SpatialAudioEnabled)
+        var fullRadius = screen.SpatialAudioFullVolumeRadiusMeters;
+        Ui.RowLabel("Full volume radius", LabelWidth, LabelGap);
+        if (Ui.DragFloat("##CrystalCastFullRadius", ref fullRadius, 0.1f, format: "%.1f m", width: S(120.0f), disabled: !screen.SpatialAudioEnabled))
         {
-            if (CrystalCastUiWidgets.DragFloat("Full volume radius", ref fullRadius, 0.1f))
-            {
-                screen.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
-                if (screen.SpatialAudioSilentRadiusMeters <= screen.SpatialAudioFullVolumeRadiusMeters)
-                    screen.SpatialAudioSilentRadiusMeters = screen.SpatialAudioFullVolumeRadiusMeters + 0.1f;
-                changed = true;
-            }
-
-            if (CrystalCastUiWidgets.DragFloat("Silent radius", ref silentRadius, 0.1f))
-            {
-                screen.SpatialAudioSilentRadiusMeters = Math.Max(screen.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
-                changed = true;
-            }
-
-            ImGui.TextDisabled($"Distance: {renderer.AudioDistanceMeters:0.0} m  Falloff: {FormatPercent(renderer.SpatialAudioAttenuation)}");
-            ImGui.TextDisabled($"Applied volume: {FormatPercent(renderer.EffectiveAudioVolume)}");
-        }
-        else
-        {
-            ImGui.TextDisabled("Distance falloff disabled");
+            screen.SpatialAudioFullVolumeRadiusMeters = Math.Max(0.0f, fullRadius);
+            if (screen.SpatialAudioSilentRadiusMeters <= screen.SpatialAudioFullVolumeRadiusMeters)
+                screen.SpatialAudioSilentRadiusMeters = screen.SpatialAudioFullVolumeRadiusMeters + 0.1f;
+            changed = true;
         }
 
+        var silentRadius = screen.SpatialAudioSilentRadiusMeters;
+        Ui.RowLabel("Silent radius", LabelWidth, LabelGap);
+        if (Ui.DragFloat("##CrystalCastSilentRadius", ref silentRadius, 0.1f, format: "%.1f m", width: S(120.0f), disabled: !screen.SpatialAudioEnabled))
+        {
+            screen.SpatialAudioSilentRadiusMeters = Math.Max(screen.SpatialAudioFullVolumeRadiusMeters + 0.1f, silentRadius);
+            changed = true;
+        }
+
+        Ui.RowLabel("Distance", LabelWidth, LabelGap);
+        ReadoutRow(screen.SpatialAudioEnabled
+            ? $"{renderer.AudioDistanceMeters:0.0} m · falloff {FormatPercent(renderer.SpatialAudioAttenuation)}"
+            : "Falloff off");
+
+        Ui.RowLabel("Applied volume", LabelWidth, LabelGap);
+        ReadoutRow(FormatPercent(renderer.EffectiveAudioVolume));
         return changed;
     }
 
-    private static string FormatPercent(float value)
+    private static void ReadoutRow(string text)
+    {
+        Ui.RowText(text, TextSecondary, f => f.Mono);
+    }
+
+    internal static AudioSettingsAccessor GetAudioSettings(BrowserScreenProfile screen)
+    {
+        return screen.ProviderKind switch
+        {
+            BrowserSourceProviderKind.Twitch => new AudioSettingsAccessor(
+                s => s.TwitchAudioEnabled, (s, v) => s.TwitchAudioEnabled = v,
+                s => s.TwitchVolume, (s, v) => s.TwitchVolume = v),
+            BrowserSourceProviderKind.Dailymotion => new AudioSettingsAccessor(
+                s => s.DailymotionAudioEnabled, (s, v) => s.DailymotionAudioEnabled = v,
+                s => s.DailymotionVolume, (s, v) => s.DailymotionVolume = v),
+            BrowserSourceProviderKind.Vimeo => new AudioSettingsAccessor(
+                s => s.VimeoAudioEnabled, (s, v) => s.VimeoAudioEnabled = v,
+                s => s.VimeoVolume, (s, v) => s.VimeoVolume = v),
+            BrowserSourceProviderKind.GenericWeb => new AudioSettingsAccessor(
+                s => s.GenericWebAudioEnabled, (s, v) => s.GenericWebAudioEnabled = v,
+                s => s.GenericWebVolume, (s, v) => s.GenericWebVolume = v),
+            _ => new AudioSettingsAccessor(
+                s => s.YouTubeAudioEnabled, (s, v) => s.YouTubeAudioEnabled = v,
+                s => s.YouTubeVolume, (s, v) => s.YouTubeVolume = v),
+        };
+    }
+
+    internal static string FormatPercent(float value)
     {
         if (!float.IsFinite(value) || value <= 0.0f)
             return "0%";
@@ -184,4 +181,10 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             ? "<1%"
             : $"{percent:0}%";
     }
+
+    internal sealed record AudioSettingsAccessor(
+        Func<BrowserScreenProfile, bool> GetEnabled,
+        Action<BrowserScreenProfile, bool> SetEnabled,
+        Func<BrowserScreenProfile, float> GetVolume,
+        Action<BrowserScreenProfile, float> SetVolume);
 }

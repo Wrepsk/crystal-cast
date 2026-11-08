@@ -33,6 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
+    private readonly CrystalCastFonts fonts;
 
     public Plugin()
     {
@@ -64,6 +65,9 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.AttachPersistence(configuration => PluginInterface.SavePluginConfig(configuration));
         if (Configuration.Normalize())
             Configuration.Save();
+
+        fonts = new CrystalCastFonts(PluginInterface);
+        CrystalCastUiTheme.Fonts = fonts;
 
         renderer = new WorldScreenManager(Configuration, services);
         ipc = new ScreenStateIpc(Configuration, renderer, services);
@@ -126,6 +130,8 @@ public sealed class Plugin : IDalamudPlugin
         ipc.Dispose();
         renderer.Dispose();
         genericWebIpcApprovals.Dispose();
+        CrystalCastUiTheme.Fonts = null;
+        fonts.Dispose();
         Configuration.FlushPendingSave();
     }
 

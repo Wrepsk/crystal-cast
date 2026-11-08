@@ -6,7 +6,7 @@ using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Video;
 
-internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost
+internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
 {
     private const string PlaybackUnavailableStatus = "Playback sync unavailable for this page";
 
@@ -84,6 +84,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled;
     public float DetectedVideoFps => 0.0f;
+    public float MeasuredCaptureFps => (float)Volatile.Read(ref measuredCaptureFps);
     public bool BrowserControlsAvailable => isValidSource;
     public bool BrowserControlsVisible => browserThread?.BrowserControlsVisible == true;
 

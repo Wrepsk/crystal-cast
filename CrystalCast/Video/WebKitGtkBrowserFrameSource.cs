@@ -5,7 +5,7 @@ namespace CrystalCast.Video;
 /// <summary>
 /// Experimental Wine-only provider player that renders in a native Linux WebKitGTK helper.
 /// </summary>
-internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, IBrowserControlsHost, IWebKitGtkHostListener
+internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost, IWebKitGtkHostListener
 {
     private const int MaximumPendingPlayerMessages = 64;
     private const long StalledFrameMilliseconds = 5000;
@@ -99,6 +99,7 @@ internal sealed class WebKitGtkBrowserFrameSource : IVideoFrameSource, IMediaPla
     public float FramesPerSecond { get; private set; }
     public bool IsRunning => captureEnabled && !failed;
     public float DetectedVideoFps => playerState.DetectedVideoFps;
+    public float MeasuredCaptureFps => (float)Volatile.Read(ref measuredCaptureFps);
     public bool BrowserControlsAvailable => isValidSource && !failed;
     public bool BrowserControlsVisible => controlsVisible;
 

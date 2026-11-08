@@ -2,6 +2,9 @@ using System.Numerics;
 using CrystalCast.Rendering;
 using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using static CrystalCast.Windows.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
@@ -9,100 +12,129 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
 {
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
+    private bool focusRename;
 
     public bool Draw(Configuration config, BrowserScreenProfile? activeScreen, Action<string> onScreenDeleted)
     {
         var changed = false;
-        var activeIndex = activeScreen == null
-            ? -1
-            : config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen.ScreenId);
         var userScreenCount = ScreenLimitPolicy.CountUserScreens(config.BrowserScreens);
         var canAddUserScreen = ScreenLimitPolicy.CanCreateUserScreen(config.BrowserScreens);
 
-        ImGui.TextDisabled("Screen");
-        ImGui.SetNextItemWidth(-1.0f);
-        if (ImGui.BeginCombo("##CrystalCastScreen", activeScreen?.Name ?? "No screens"))
-        {
-            if (config.BrowserScreens.Count == 0)
-            {
-                ImGui.TextDisabled("No screens");
-            }
-            else
-            {
-                for (var i = 0; i < config.BrowserScreens.Count; i++)
-                {
-                    var screen = config.BrowserScreens[i];
-                    var selected = i == activeIndex;
-                    if (ImGui.Selectable($"{screen.Name}##Screen{screen.ScreenId}", selected))
-                    {
-                        config.ActiveBrowserScreenId = screen.ScreenId;
-                        changed = true;
-                    }
+        // Header: "Screens  1 of 8" with duplicate / rename / more.
+        Ui.RowText("Screens", CrystalCastUiTheme.Text, f => f.SemiBold);
 
-                    if (selected)
-                        ImGui.SetItemDefaultFocus();
+        ImGui.SameLine(0.0f, S(8.0f));
+        Ui.RowText($"{userScreenCount} of {Configuration.MaxBrowserScreens}", TextTertiary, f => f.Small);
+
+        var actionsWidth = (Ui.FrameHeight * 3.0f) + (S(4.0f) * 2.0f);
+        ImGui.SameLine(Math.Max(0.0f, ImGui.GetContentRegionMax().X - actionsWidth));
+        var canDuplicate = activeScreen != null && canAddUserScreen;
+        if (Ui.IconButton("##DuplicateScreen", FontAwesomeIcon.Clone, canAddUserScreen ? "Duplicate screen" : "Screen limit reached", disabled: !canDuplicate))
+            changed |= Duplicate(config, activeScreen!);
+
+        ImGui.SameLine(0.0f, S(4.0f));
+        if (Ui.IconButton("##RenameScreen", FontAwesomeIcon.Pen, "Rename screen", disabled: activeScreen == null))
+            BeginRename(activeScreen!);
+
+        ImGui.SameLine(0.0f, S(4.0f));
+        if (Ui.IconButton("##ScreenMore", FontAwesomeIcon.EllipsisH, "More screen actions"))
+            Ui.OpenMenu("ScreenActions");
+        var menuAnchor = ImGui.GetItemRectMax();
+        changed |= DrawScreenMenu(config, activeScreen, canAddUserScreen, onScreenDeleted, menuAnchor);
+
+        if (activeScreen != null && renamingScreenId == activeScreen.ScreenId)
+            changed |= DrawRenameControls(activeScreen);
+
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + S(2.0f));
+        changed |= DrawThumbnails(config, activeScreen, canAddUserScreen);
+        return changed;
+    }
+
+    private bool DrawThumbnails(Configuration config, BrowserScreenProfile? activeScreen, bool canAddUserScreen)
+    {
+        var changed = false;
+        var tileWidth = S(128.0f);
+        var gap = S(14.0f);
+        var available = ImGui.GetContentRegionAvail().X;
+        var perRow = Math.Max(1, (int)((available + gap) / (tileWidth + gap)));
+        var index = 0;
+
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(gap, S(16.0f)));
+        foreach (var screen in config.BrowserScreens)
+        {
+            if (index % perRow != 0)
+                ImGui.SameLine();
+
+            var selected = activeScreen != null && screen.ScreenId == activeScreen.ScreenId;
+            var seed = CrystalArtwork.SeedFor(screen.ScreenId);
+            var meta = screen.CreatedByIpc
+                ? $"{BrowserSourceControlsPanel.ProviderName(screen.ProviderKind)} · IPC"
+                : BrowserSourceControlsPanel.ProviderName(screen.ProviderKind);
+            if (!screen.Enabled)
+                meta = $"{meta} · off";
+
+            if (Ui.Thumbnail(
+                    $"##Screen{screen.ScreenId}",
+                    screen.Name,
+                    meta,
+                    selected,
+                    dimmed: !screen.Enabled,
+                    (dl, min, max) => CrystalArtwork.DrawThumbnail(dl, min, max, seed),
+                    Base))
+            {
+                if (!selected)
+                {
+                    config.ActiveBrowserScreenId = screen.ScreenId;
+                    changed = true;
                 }
             }
 
-            ImGui.EndCombo();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(screen.Enabled ? screen.Name : $"{screen.Name} (screen off)");
+            if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+            {
+                config.ActiveBrowserScreenId = screen.ScreenId;
+                changed = true;
+                Ui.OpenMenu("ScreenActions");
+            }
+
+            index++;
         }
 
-        if (activeScreen != null)
-            changed |= DrawScreenSourceCombo(activeScreen);
-        else
-            ImGui.TextDisabled("No screens yet. Add one to configure a browser source.");
-
-        var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var actionWidth = Math.Max(54.0f, (ImGui.GetContentRegionAvail().X - (spacing * 3.0f)) / 4.0f);
-
-        if (!canAddUserScreen)
-            ImGui.BeginDisabled();
-        CrystalCastUiTheme.PushPrimaryButtonStyle();
-        if (ImGui.Button("Add screen", new Vector2(actionWidth, 0.0f)))
+        if (index % perRow != 0)
+            ImGui.SameLine();
+        if (Ui.AddTile(
+                "##AddScreen",
+                "Add screen",
+                !canAddUserScreen,
+                canAddUserScreen ? "Add a screen and place it in front of you" : $"All {Configuration.MaxBrowserScreens} local screens are in use"))
         {
-            var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
-            screen.ProviderKind = activeScreen?.ProviderKind ?? BrowserSourceProviderKind.YouTube;
-            config.BrowserScreens.Add(screen);
-            config.ActiveBrowserScreenId = screen.ScreenId;
-            renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
-            changed = true;
+            changed |= Add(config, activeScreen);
         }
-        CrystalCastUiTheme.PopPrimaryButtonStyle();
-        if (!canAddUserScreen)
-            ImGui.EndDisabled();
 
-        ImGui.SameLine();
-        var canDuplicate = activeScreen != null && canAddUserScreen;
-        if (!canDuplicate)
-            ImGui.BeginDisabled();
-        if (ImGui.Button("Duplicate", new Vector2(actionWidth, 0.0f)))
-        {
-            var copy = activeScreen!.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
-            OffsetDuplicatePlacement(copy.Placement);
-            config.BrowserScreens.Add(copy);
-            config.ActiveBrowserScreenId = copy.ScreenId;
-            changed = true;
-        }
-        if (!canDuplicate)
-            ImGui.EndDisabled();
+        ImGui.PopStyleVar();
+        return changed;
+    }
 
-        ImGui.SameLine();
-        if (activeScreen == null)
-            ImGui.BeginDisabled();
-        if (ImGui.Button("Rename", new Vector2(actionWidth, 0.0f)))
-        {
-            renamingScreenId = activeScreen!.ScreenId;
-            renameDraft = activeScreen.Name;
-        }
-        if (activeScreen == null)
-            ImGui.EndDisabled();
+    private bool DrawScreenMenu(Configuration config, BrowserScreenProfile? activeScreen, bool canAddUserScreen, Action<string> onScreenDeleted, Vector2 anchor)
+    {
+        if (!Ui.BeginMenu("ScreenActions", anchor))
+            return false;
 
-        ImGui.SameLine();
-        var canDelete = activeScreen != null;
-        if (!canDelete)
-            ImGui.BeginDisabled();
-        if (ImGui.Button("Delete", new Vector2(actionWidth, 0.0f)) && canDelete)
+        var changed = false;
+        if (Ui.MenuItem("Duplicate", disabled: activeScreen == null || !canAddUserScreen, icon: FontAwesomeIcon.Clone))
+            changed |= Duplicate(config, activeScreen!);
+        if (Ui.MenuItem("Rename", disabled: activeScreen == null, icon: FontAwesomeIcon.Pen))
+            BeginRename(activeScreen!);
+        if (Ui.MenuItem("Add screen", disabled: !canAddUserScreen, icon: FontAwesomeIcon.Plus))
+            changed |= Add(config, activeScreen);
+        if (activeScreen != null && Ui.MenuItem("Place in front of me", icon: FontAwesomeIcon.Crosshairs))
+            changed |= renderer.PlaceBrowserScreenInFrontOfPlayer(activeScreen);
+
+        Ui.MenuSeparator();
+        if (Ui.MenuItem("Delete", disabled: activeScreen == null, danger: true, icon: FontAwesomeIcon.TrashAlt))
         {
+            var activeIndex = config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen!.ScreenId);
             var removedId = activeScreen!.ScreenId;
             config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
             onScreenDeleted(removedId);
@@ -113,73 +145,60 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
                 : config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
             changed = true;
         }
-        if (!canDelete)
-            ImGui.EndDisabled();
 
-        if (activeScreen != null && renamingScreenId == activeScreen.ScreenId)
-            changed |= DrawRenameControls(activeScreen);
-
-        if (activeScreen != null)
-        {
-            var enabled = activeScreen.Enabled;
-            if (ImGui.Checkbox("Screen enabled", ref enabled))
-            {
-                activeScreen.Enabled = enabled;
-                changed = true;
-            }
-
-            ImGui.SameLine();
-            ImGui.TextDisabled($"{userScreenCount}/{Configuration.MaxBrowserScreens} local screens");
-        }
-
+        Ui.EndMenu();
         return changed;
     }
 
-    private static bool DrawScreenSourceCombo(BrowserScreenProfile activeScreen)
+    private bool Add(Configuration config, BrowserScreenProfile? activeScreen)
     {
-        var changed = false;
-        var current = FindSourceProviderIndex(activeScreen.ProviderKind);
-        var sourceLocked = SourceControlUi.IsSourceControlsLocked(activeScreen);
+        var screen = config.CreateDefaultBrowserScreen(GetNextScreenName(config));
+        screen.ProviderKind = activeScreen?.ProviderKind ?? BrowserSourceProviderKind.YouTube;
+        config.BrowserScreens.Add(screen);
+        config.ActiveBrowserScreenId = screen.ScreenId;
+        renderer.PlaceBrowserScreenInFrontOfPlayer(screen);
+        return true;
+    }
 
-        if (sourceLocked)
-            ImGui.BeginDisabled();
-        var providers = BrowserSourceProviderRegistry.Options;
-        ImGui.TextDisabled("Screen source");
-        ImGui.SetNextItemWidth(-1.0f);
-        if (ImGui.BeginCombo("##CrystalCastScreenSource", providers[current].DisplayName))
-        {
-            for (var i = 0; i < providers.Count; i++)
-            {
-                var provider = providers[i];
-                var selected = i == current;
-                if (ImGui.Selectable(provider.DisplayName, selected))
-                {
-                    activeScreen.ProviderKind = provider.Kind;
-                    activeScreen.PlaybackPaused = false;
-                    changed = true;
-                }
+    private static bool Duplicate(Configuration config, BrowserScreenProfile activeScreen)
+    {
+        var copy = activeScreen.CloneAsNew(GetDuplicateScreenName(config, activeScreen.Name));
+        OffsetDuplicatePlacement(copy.Placement);
+        config.BrowserScreens.Add(copy);
+        config.ActiveBrowserScreenId = copy.ScreenId;
+        return true;
+    }
 
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-
-            ImGui.EndCombo();
-        }
-        if (sourceLocked)
-            ImGui.EndDisabled();
-
-        return changed;
+    private void BeginRename(BrowserScreenProfile screen)
+    {
+        renamingScreenId = screen.ScreenId;
+        renameDraft = screen.Name;
+        focusRename = true;
     }
 
     private bool DrawRenameControls(BrowserScreenProfile activeScreen)
     {
         var changed = false;
         var draft = renameDraft;
-        ImGui.TextDisabled("Screen name");
-        ImGui.SetNextItemWidth(-1.0f);
-        var pressedEnter = ImGui.InputText("##CrystalCastScreenName", ref draft, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+        var saveWidth = Ui.ButtonWidth("Save");
+        var cancelWidth = Ui.ButtonWidth("Cancel");
+        if (focusRename)
+        {
+            ImGui.SetKeyboardFocusHere();
+            focusRename = false;
+        }
+
+        var pressedEnter = Ui.TextField(
+            "##CrystalCastScreenName",
+            ref draft,
+            128,
+            "Screen name",
+            Math.Max(S(80.0f), ImGui.GetContentRegionAvail().X - saveWidth - cancelWidth - S(16.0f)),
+            flags: ImGuiInputTextFlags.EnterReturnsTrue);
         renameDraft = draft;
-        if (ImGui.Button("Save name") || pressedEnter)
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Save##ScreenRenameSave", ButtonKind.Primary) || pressedEnter)
         {
             var trimmed = renameDraft.Trim();
             if (!string.IsNullOrWhiteSpace(trimmed))
@@ -191,8 +210,8 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
             renamingScreenId = string.Empty;
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Cancel"))
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Cancel##ScreenRenameCancel", ButtonKind.Ghost) || ImGui.IsKeyPressed(ImGuiKey.Escape))
             renamingScreenId = string.Empty;
 
         return changed;
@@ -231,17 +250,5 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         var right = new Vector3(MathF.Cos(placement.YawRadians), 0.0f, -MathF.Sin(placement.YawRadians));
         placement.PositionX += right.X * 0.35f;
         placement.PositionZ += right.Z * 0.35f;
-    }
-
-    private static int FindSourceProviderIndex(BrowserSourceProviderKind providerKind)
-    {
-        var providers = BrowserSourceProviderRegistry.Options;
-        for (var i = 0; i < providers.Count; i++)
-        {
-            if (providers[i].Kind == providerKind)
-                return i;
-        }
-
-        return 0;
     }
 }

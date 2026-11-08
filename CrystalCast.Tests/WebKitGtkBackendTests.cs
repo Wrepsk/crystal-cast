@@ -312,3 +312,37 @@ public sealed class WineDetectionTests
         Assert.Contains("Steam's Linux Runtime", reason, StringComparison.Ordinal);
     }
 }
+
+public sealed class WindowCaptureRingTests
+{
+    [Theory]
+    [InlineData(-1, new[] { 0, 1, 2 })]
+    [InlineData(0, new[] { 1, 2, 0 })]
+    [InlineData(1, new[] { 2, 0, 1 })]
+    [InlineData(2, new[] { 0, 1, 2 })]
+    public void NewestPublishedSlotIsTriedLast(int lastPublished, int[] expected)
+    {
+        var order = Enumerable.Range(1, 3).Select(offset => CaptureSlotPolicy.CandidateSlot(lastPublished, offset, 3)).ToArray();
+
+        Assert.Equal(expected, order);
+    }
+
+    [Fact]
+    public void WindowCaptureRotatesThreeSharedTextures()
+    {
+        Assert.Equal(3, CaptureSlotPolicy.SharedTextureCount);
+    }
+
+    [Fact]
+    public void WebView2ArgumentsKeepProviderFlagsAndDisableBackgroundThrottling()
+    {
+        var arguments = WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required");
+
+        Assert.StartsWith("--autoplay-policy=no-user-gesture-required ", arguments, StringComparison.Ordinal);
+        Assert.Contains("--disable-backgrounding-occluded-windows", arguments, StringComparison.Ordinal);
+        Assert.Contains("--force_high_performance_gpu", arguments, StringComparison.Ordinal);
+        Assert.Contains("--disable-features=CalculateNativeWinOcclusion", arguments, StringComparison.Ordinal);
+        Assert.Equal(1, arguments.Split(' ').Count(part => part.StartsWith("--disable-features=", StringComparison.Ordinal)));
+        Assert.Equal(WebView2BrowserArguments.KeepRenderingWhileHidden, WebView2BrowserArguments.Combine(null));
+    }
+}

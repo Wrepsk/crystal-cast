@@ -735,7 +735,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
-                    additionalBrowserArguments: "--autoplay-policy=no-user-gesture-required");
+                    additionalBrowserArguments: WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required"));
                 var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
                 cancellationToken.ThrowIfCancellationRequested();
 

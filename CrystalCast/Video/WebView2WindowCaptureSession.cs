@@ -19,6 +19,7 @@ namespace CrystalCast.Video;
 internal sealed class WebView2WindowCaptureSession : IDisposable
 {
     private const int MaxRetiredSharedTextures = 4;
+    private const int SharedTextureCount = CaptureSlotPolicy.SharedTextureCount;
     private const int DirectXPixelFormatB8G8R8A8UIntNormalized = 87;
     private const int FramePoolBufferCount = 2;
     private const int RoInitSingleThreaded = 0;
@@ -28,6 +29,14 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private static readonly Guid GraphicsCaptureItemGuid = new("79C3F95B-31F7-4EC2-A464-632EF5D30760");
     private static readonly Guid GraphicsCaptureItemInteropGuid = new("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356");
     private static readonly Guid GraphicsCaptureSession2Guid = new("2C39AE40-7D2E-5044-804E-8B6799D4CF9E");
+    private static readonly Guid GraphicsCaptureSession5Guid = new("67C0EA62-1F85-5061-925A-239BE0AC09CB");
+
+    /// <summary>
+    /// Windows Graphics Capture limits sessions to about one frame per 16.7 ms by default and
+    /// then waits for the next desktop refresh, so on 144/240 Hz displays frames land every
+    /// ~20.8 ms (48 fps). Our own limiter caps publishing at the configured capture rate.
+    /// </summary>
+    private static readonly TimeSpan MinimumCaptureUpdateInterval = TimeSpan.FromMilliseconds(1);
     private static readonly Guid GraphicsCaptureSessionStaticsGuid = new("2224A540-5974-49AA-B232-0882536F4CB5");
     private static readonly Guid Direct3D11CaptureFramePoolStatics2Guid = new("589B103F-6BBC-5DF5-A991-02E28B3B66D5");
     private static readonly Guid Direct3D11Texture2DGuid = new("6F15AAF2-D208-4E89-9AB4-489535D34F9C");
@@ -42,7 +51,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private readonly Action<Exception> reportFatalError;
     private readonly CaptureCallbackCoordinator callbackCoordinator = new();
     private readonly CaptureFrameRateLimiter frameRateLimiter = new();
-    private readonly CaptureResourceRetirementQueue<RetiredSharedTexture> retiredSharedTextures =
+    private readonly CaptureResourceRetirementQueue<SharedTextureSet> retiredSharedTextures =
         new(MaxRetiredSharedTextures);
     private readonly D3D11Device d3dDevice;
     private readonly DeviceContext d3dContext;
@@ -53,10 +62,9 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private IntPtr session;
     private global::Windows.Graphics.Capture.Direct3D11CaptureFramePool? projectedFramePool;
     private global::Windows.Foundation.TypedEventHandler<global::Windows.Graphics.Capture.Direct3D11CaptureFramePool, object>? frameArrivedHandler;
-    private D3D11Texture2D? sharedTexture;
-    private KeyedMutex? sharedTextureMutex;
+    private SharedTextureSet? sharedTextures;
+    private int lastPublishedSlot = -1;
     private D3D11Texture2D? diagnosticStagingTexture;
-    private IntPtr sharedTextureHandle;
     private SizeInt32 captureSize;
     private long lastFramePublishedTicks;
     private long lastFrameArrivedTicks;
@@ -71,6 +79,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private long lastStatusTicks;
     private string lastDiagnosticStatus = "diagnostic pending";
     private string capturePumpStatus = "WGC event starting";
+    private string updateIntervalStatus = "update interval not set";
     private string lastFatalError = "none";
     private bool started;
     private volatile bool disposed;
@@ -111,6 +120,7 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             nextFramePool = CreateFramePool(nextWinRtDevice, captureSize);
             nextSession = CreateCaptureSession(nextFramePool, nextItem);
             DisableCursorCapture(nextSession);
+            updateIntervalStatus = SetMinimumUpdateInterval(nextSession);
         }
         catch
         {
@@ -233,7 +243,8 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
         callbackCoordinator.TryRun(() =>
         {
-            if (disposed || handle != sharedTextureHandle)
+            // Any texture of the current set proves the renderer moved past older sets.
+            if (disposed || sharedTextures?.Contains(handle) != true)
                 return;
 
             retiredSharedTextures.AcknowledgeCurrent();
@@ -258,14 +269,12 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         frameArrivedHandler = null;
         Release(ref item);
         Release(ref winRtDevice);
-        sharedTextureMutex?.Dispose();
-        sharedTextureMutex = null;
-        sharedTexture?.Dispose();
-        sharedTexture = null;
+        sharedTextures?.Dispose();
+        sharedTextures = null;
+        lastPublishedSlot = -1;
         retiredSharedTextures.Dispose();
         diagnosticStagingTexture?.Dispose();
         diagnosticStagingTexture = null;
-        sharedTextureHandle = IntPtr.Zero;
         try
         {
             d3dContext.ClearState();
@@ -360,7 +369,8 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     private void ProcessFrame(IntPtr frame, SizeInt32 contentSize, Stopwatch sw)
     {
         EnsureSharedTexture(contentSize.Width, contentSize.Height);
-        if (sharedTexture == null || sharedTextureHandle == IntPtr.Zero)
+        var textures = sharedTextures;
+        if (textures == null)
             return;
 
         var surface = IntPtr.Zero;
@@ -368,21 +378,20 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         {
             surface = GetFrameSurface(frame);
             using var sourceTexture = GetDirect3DTexture(surface);
-            if (sharedTextureMutex == null)
-                return;
-
-            if (!CrystalCast.Rendering.KeyedMutexSynchronization.TryAcquire(sharedTextureMutex, 0, 5))
+            var slotIndex = textures.TryAcquireWritable(lastPublishedSlot);
+            if (slotIndex < 0)
             {
                 Interlocked.Increment(ref mutexBusyCount);
                 Interlocked.Increment(ref framesDrainedCount);
-                ReportStatusIfDue("renderer mutex busy");
+                ReportStatusIfDue("all shared textures busy");
                 return;
             }
 
+            var slot = textures[slotIndex];
             string diagnosticStatus;
             try
             {
-                d3dContext.CopyResource(sourceTexture, sharedTexture);
+                d3dContext.CopyResource(sourceTexture, slot.Texture);
                 if (CrystalCast.Rendering.GraphicsDiagnostics.Enabled)
                 {
                     diagnosticStatus = UpdateDiagnosticStatus(sourceTexture, contentSize.Width, contentSize.Height);
@@ -397,12 +406,14 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
             }
             finally
             {
-                sharedTextureMutex.Release(1);
+                // Key 1: ready for the renderer, which hands it back with key 0.
+                slot.Mutex.Release(1);
             }
 
+            lastPublishedSlot = slotIndex;
             sw.Stop();
             reportCaptureMilliseconds(sw.Elapsed.TotalMilliseconds);
-            publishSharedTexture(sharedTextureHandle, contentSize.Width, contentSize.Height);
+            publishSharedTexture(slot.Handle, contentSize.Width, contentSize.Height);
             Interlocked.Exchange(ref lastFramePublishedTicks, Stopwatch.GetTimestamp());
             Interlocked.Increment(ref framesPublishedCount);
             reportStatus(BuildCaptureStatus(diagnosticStatus));
@@ -444,84 +455,38 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
 
     private void EnsureSharedTexture(int width, int height)
     {
-        if (sharedTexture != null
-            && sharedTextureHandle != IntPtr.Zero
-            && sharedTexture.Description.Width == width
-            && sharedTexture.Description.Height == height)
-        {
+        if (sharedTextures != null && sharedTextures.Width == width && sharedTextures.Height == height)
             return;
-        }
 
         RecreateSharedTexture(width, height);
     }
 
     private void RecreateSharedTexture(int width, int height)
     {
-        D3D11Texture2D? nextTexture = null;
-        KeyedMutex? nextMutex = null;
-        var nextHandle = IntPtr.Zero;
-        try
+        var previous = sharedTextures;
+        if (previous != null && !retiredSharedTextures.CanRetire)
         {
-            nextTexture = new D3D11Texture2D(d3dDevice, new Texture2DDescription
-            {
-                Width = width,
-                Height = height,
-                MipLevels = 1,
-                ArraySize = 1,
-                Format = DxgiFormat.B8G8R8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Default,
-                BindFlags = BindFlags.ShaderResource,
-                CpuAccessFlags = CpuAccessFlags.None,
-                OptionFlags = ResourceOptionFlags.SharedKeyedmutex,
-            });
-            nextMutex = nextTexture.QueryInterface<KeyedMutex>();
-            using var dxgiResource = nextTexture.QueryInterface<SharpDX.DXGI.Resource>();
-            nextHandle = dxgiResource.SharedHandle;
-            if (nextHandle == IntPtr.Zero)
-                throw new InvalidOperationException("D3D11 returned an empty shared texture handle.");
-        }
-        catch
-        {
-            nextMutex?.Dispose();
-            nextTexture?.Dispose();
-            throw;
-        }
-
-        var previousMutex = sharedTextureMutex;
-        var previousTexture = sharedTexture;
-        if (previousTexture != null
-            && previousMutex != null
-            && !retiredSharedTextures.CanRetire)
-        {
-            nextMutex.Dispose();
-            nextTexture.Dispose();
             throw new InvalidOperationException(
                 $"The renderer did not acknowledge {MaxRetiredSharedTextures} resized WGC textures.");
         }
 
-        sharedTexture = nextTexture;
-        sharedTextureMutex = nextMutex;
-        sharedTextureHandle = nextHandle;
-        if (previousTexture != null && previousMutex != null)
-            retiredSharedTextures.Retire(new RetiredSharedTexture(previousTexture, previousMutex));
-        else
-        {
-            previousMutex?.Dispose();
-            previousTexture?.Dispose();
-        }
+        var next = SharedTextureSet.Create(d3dDevice, width, height, SharedTextureCount);
+        sharedTextures = next;
+        lastPublishedSlot = -1;
+        if (previous != null)
+            retiredSharedTextures.Retire(previous);
     }
 
     private string BuildCaptureStatus(string diagnosticStatus)
     {
         var paused = !shouldCapture();
-        return $"{capturePumpStatus}; {captureSize.Width}x{captureSize.Height}; "
+        return $"{capturePumpStatus}; {updateIntervalStatus}; {captureSize.Width}x{captureSize.Height}; "
             + $"paused {paused}; events {Interlocked.Read(ref frameArrivedCount)}; "
             + $"published {Interlocked.Read(ref framesPublishedCount)}; "
             + $"drained {Interlocked.Read(ref framesDrainedCount)}; "
             + $"FPS-limited {Interlocked.Read(ref fpsLimitedCount)}; "
             + $"resizes {Interlocked.Read(ref resizeCount)}; "
-            + $"mutex busy {Interlocked.Read(ref mutexBusyCount)}; "
+            + $"shared textures {SharedTextureCount}; all busy {Interlocked.Read(ref mutexBusyCount)}; "
             + $"retired {retiredSharedTextures.Count}; "
             + $"callback errors {Interlocked.Read(ref callbackErrorCount)}; "
             + $"event age {FormatAge(Interlocked.Read(ref lastFrameArrivedTicks))}; "
@@ -883,6 +848,29 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
         }
     }
 
+    /// <summary>GraphicsCaptureSession.MinUpdateInterval (Windows 11 24H2 and newer).</summary>
+    private static unsafe string SetMinimumUpdateInterval(IntPtr captureSession)
+    {
+        var session5 = IntPtr.Zero;
+        var session5Guid = GraphicsCaptureSession5Guid;
+        if (Marshal.QueryInterface(captureSession, in session5Guid, out session5) != 0)
+            return "update interval Windows default (needs Windows 11 24H2)";
+
+        try
+        {
+            var vtable = *(IntPtr**)session5;
+            var putMinUpdateInterval = (delegate* unmanaged[Stdcall]<IntPtr, long, int>)vtable[7];
+            var result = putMinUpdateInterval(session5, MinimumCaptureUpdateInterval.Ticks);
+            return result < 0
+                ? $"update interval Windows default (setting it failed: 0x{result:X8})"
+                : $"update interval {MinimumCaptureUpdateInterval.TotalMilliseconds:0} ms";
+        }
+        finally
+        {
+            Release(ref session5);
+        }
+    }
+
     private static unsafe IntPtr GetFrameSurface(IntPtr frame)
     {
         var surface = IntPtr.Zero;
@@ -939,23 +927,128 @@ internal sealed class WebView2WindowCaptureSession : IDisposable
     [DllImport("d3d11.dll", ExactSpelling = true, SetLastError = true)]
     private static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
 
-    private sealed class RetiredSharedTexture : IDisposable
+    /// <summary>One shared texture with its keyed mutex and cross-device handle.</summary>
+    private sealed class SharedTextureSlot : IDisposable
     {
-        private D3D11Texture2D? texture;
-        private KeyedMutex? mutex;
-
-        public RetiredSharedTexture(D3D11Texture2D texture, KeyedMutex mutex)
+        public SharedTextureSlot(D3D11Texture2D texture, KeyedMutex mutex, IntPtr handle)
         {
-            this.texture = texture;
-            this.mutex = mutex;
+            Texture = texture;
+            Mutex = mutex;
+            Handle = handle;
+        }
+
+        public D3D11Texture2D Texture { get; }
+        public KeyedMutex Mutex { get; }
+        public IntPtr Handle { get; }
+
+        public void Dispose()
+        {
+            Mutex.Dispose();
+            Texture.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Shared textures of one size. Keyed mutex key 0 means free for capture, key 1 means a
+    /// frame is waiting for the renderer, which releases it back with key 0 after copying.
+    /// </summary>
+    private sealed class SharedTextureSet : IDisposable
+    {
+        private readonly SharedTextureSlot[] slots;
+
+        private SharedTextureSet(SharedTextureSlot[] slots, int width, int height)
+        {
+            this.slots = slots;
+            Width = width;
+            Height = height;
+        }
+
+        public int Width { get; }
+        public int Height { get; }
+        public SharedTextureSlot this[int index] => slots[index];
+
+        public static SharedTextureSet Create(D3D11Device device, int width, int height, int count)
+        {
+            var created = new List<SharedTextureSlot>(count);
+            try
+            {
+                for (var i = 0; i < count; i++)
+                    created.Add(CreateSlot(device, width, height));
+            }
+            catch
+            {
+                foreach (var slot in created)
+                    slot.Dispose();
+                throw;
+            }
+
+            return new SharedTextureSet([.. created], width, height);
+        }
+
+        public bool Contains(IntPtr handle) => handle != IntPtr.Zero && Array.Exists(slots, slot => slot.Handle == handle);
+
+        /// <summary>
+        /// Takes a slot without waiting: first a free one, then one holding a frame the renderer
+        /// never read (it is replaced by a newer frame). The newest frame's slot is tried last.
+        /// </summary>
+        public int TryAcquireWritable(int lastPublished)
+        {
+            for (var offset = 1; offset <= slots.Length; offset++)
+            {
+                var index = CaptureSlotPolicy.CandidateSlot(lastPublished, offset, slots.Length);
+                if (CrystalCast.Rendering.KeyedMutexSynchronization.TryAcquire(slots[index].Mutex, 0, 0))
+                    return index;
+            }
+
+            for (var offset = 1; offset <= slots.Length; offset++)
+            {
+                var index = CaptureSlotPolicy.CandidateSlot(lastPublished, offset, slots.Length);
+                if (CrystalCast.Rendering.KeyedMutexSynchronization.TryAcquire(slots[index].Mutex, 1, 0))
+                    return index;
+            }
+
+            return -1;
         }
 
         public void Dispose()
         {
-            mutex?.Dispose();
-            mutex = null;
-            texture?.Dispose();
-            texture = null;
+            foreach (var slot in slots)
+                slot.Dispose();
+        }
+
+        private static SharedTextureSlot CreateSlot(D3D11Device device, int width, int height)
+        {
+            D3D11Texture2D? texture = null;
+            KeyedMutex? mutex = null;
+            try
+            {
+                texture = new D3D11Texture2D(device, new Texture2DDescription
+                {
+                    Width = width,
+                    Height = height,
+                    MipLevels = 1,
+                    ArraySize = 1,
+                    Format = DxgiFormat.B8G8R8A8_UNorm,
+                    SampleDescription = new SampleDescription(1, 0),
+                    Usage = ResourceUsage.Default,
+                    BindFlags = BindFlags.ShaderResource,
+                    CpuAccessFlags = CpuAccessFlags.None,
+                    OptionFlags = ResourceOptionFlags.SharedKeyedmutex,
+                });
+                mutex = texture.QueryInterface<KeyedMutex>();
+                using var dxgiResource = texture.QueryInterface<SharpDX.DXGI.Resource>();
+                var handle = dxgiResource.SharedHandle;
+                if (handle == IntPtr.Zero)
+                    throw new InvalidOperationException("D3D11 returned an empty shared texture handle.");
+
+                return new SharedTextureSlot(texture, mutex, handle);
+            }
+            catch
+            {
+                mutex?.Dispose();
+                texture?.Dispose();
+                throw;
+            }
         }
     }
 

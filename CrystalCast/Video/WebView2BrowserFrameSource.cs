@@ -639,16 +639,9 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 hostWindow.InteractionDismissed += OnInteractionDismissed;
                 var parentHwnd = hostWindow.Hwnd;
 
-                if (string.IsNullOrWhiteSpace(owner.descriptor.WebView2AdditionalBrowserArguments))
-                {
-                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-                }
-                else
-                {
-                    var environmentOptions = new CoreWebView2EnvironmentOptions(
-                        additionalBrowserArguments: owner.descriptor.WebView2AdditionalBrowserArguments);
-                    environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
-                }
+                var environmentOptions = new CoreWebView2EnvironmentOptions(
+                    additionalBrowserArguments: WebView2BrowserArguments.Combine(owner.descriptor.WebView2AdditionalBrowserArguments));
+                environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);

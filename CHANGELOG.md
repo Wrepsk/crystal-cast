@@ -10,6 +10,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
+- One-click WebView2 for Wine: the Wine setup assistant's **Download and set up** button downloads Microsoft's WebView2 Fixed Version runtime (about 310 MB) into CrystalCast's folder in the game's prefix, checks its Microsoft signature, unpacks it, and sets the Windows 7 mode the WebView2 browser needs under Wine. It needs no installer, winetricks or Linux packages, so it also works in Proton and Steam or Flatpak containers. Browser screens pick it up without a restart, and **Settings > Browser > Downloaded WebView2** shows its size and deletes it again. Winetricks and the native Linux browser are still offered under **Other ways to set this up**.
 - **Settings > Browser > JPEG capture size**: 1080p (default) or 720p. 720p uses less CPU for slower machines and Wine setups where JPEG capture stutters.
 
 ## 0.8.2 - 2026-11-08

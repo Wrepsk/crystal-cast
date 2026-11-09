@@ -28,6 +28,11 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly WineWebView2SetupWindow? wineWebView2SetupWindow;
+
+    /// <summary>Downloads and deletes the WebView2 copy CrystalCast keeps for Wine.</summary>
+    internal WebView2RuntimeDownloader WebView2Downloader { get; } = new(
+        message => Log.Information("{WebView2Setup}", message),
+        WineEnvironment.IsWine);
     private readonly FirstRunGuideWindow firstRunGuideWindow;
     private readonly GenericWebIpcApprovalWindow genericWebIpcApprovalWindow;
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
@@ -37,6 +42,10 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        var webView2TrashStatus = WebView2FixedRuntime.EmptyTrash();
+        if (webView2TrashStatus != null)
+            Log.Information("{WebView2Setup}", webView2TrashStatus);
+
         try
         {
             var browserDataClearStatus = BrowserProfileManager.ApplyPendingClearRequest();
@@ -125,6 +134,7 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.Dispose();
         configWindow.Dispose();
         wineWebView2SetupWindow?.Dispose();
+        WebView2Downloader.Dispose();
         firstRunGuideWindow.Dispose();
         genericWebIpcApprovalWindow.Dispose();
         ipc.Dispose();
@@ -146,6 +156,12 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.WineWebView2SetupDismissed = false;
         Configuration.Save();
         wineWebView2SetupWindow.IsOpen = true;
+    }
+
+    /// <summary>Closes every browser screen, then deletes the downloaded WebView2 in the background.</summary>
+    internal void RemoveDownloadedWebView2()
+    {
+        WebView2Downloader.StartRemoval(renderer.ReleaseAllBrowserRuntimes);
     }
 
     internal void ShowFirstRunGuide()

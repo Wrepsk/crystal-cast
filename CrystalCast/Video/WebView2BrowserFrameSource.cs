@@ -30,6 +30,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
     private volatile bool captureEnabled;
     private volatile string browserStatus = "stopped";
     private volatile string nativeCaptureFailure = string.Empty;
+    private string? browserExecutableFolder;
     private long sequence;
     private long lastFrameUnixMs;
     private long captureWindowStartUnixMs;
@@ -261,12 +262,13 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         if (browserThread != null)
             return true;
 
-        if (!TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError))
+        if (!TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError, out var browserFolder))
         {
             browserStatus = runtimeError;
             return false;
         }
 
+        browserExecutableFolder = browserFolder;
         browserStatus = $"starting WebView2 {runtimeVersion}";
         browserThread = new BrowserThread(this);
         return true;
@@ -329,23 +331,19 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
     internal static bool TryGetWebView2Runtime(out string runtimeVersion, out string error)
     {
-        runtimeVersion = string.Empty;
-        error = string.Empty;
+        return TryGetWebView2Runtime(out runtimeVersion, out error, out _);
+    }
 
-        try
-        {
-            runtimeVersion = CoreWebView2Environment.GetAvailableBrowserVersionString();
-            if (!string.IsNullOrWhiteSpace(runtimeVersion))
-                return true;
-
-            error = "Microsoft Edge WebView2 Runtime is not installed";
-            return false;
-        }
-        catch (Exception ex)
-        {
-            error = $"Microsoft Edge WebView2 Runtime unavailable: {ex.Message}";
-            return false;
-        }
+    /// <summary>
+    /// Also returns the downloaded runtime's folder, or null for the installed runtime, to pass to
+    /// CoreWebView2Environment.CreateAsync.
+    /// </summary>
+    internal static bool TryGetWebView2Runtime(out string runtimeVersion, out string error, out string? browserExecutableFolder)
+    {
+        var found = WebView2FixedRuntime.TryFind(out var runtime, out error);
+        runtimeVersion = found ? runtime.Describe() : string.Empty;
+        browserExecutableFolder = found ? runtime.BrowserExecutableFolder : null;
+        return found;
     }
 
     private sealed class BrowserThread : IDisposable
@@ -657,7 +655,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine(owner.descriptor.WebView2AdditionalBrowserArguments));
-                environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
+                environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);

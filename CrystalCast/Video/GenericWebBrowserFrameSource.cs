@@ -33,6 +33,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private volatile bool captureEnabled;
     private volatile string browserStatus = "stopped";
     private volatile string nativeCaptureFailure = string.Empty;
+    private string? browserExecutableFolder;
     private volatile string playerStatus = "player not ready";
     private long sequence;
     private long lastFrameUnixMs;
@@ -267,12 +268,13 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         if (browserThread != null || !isValidSource)
             return;
 
-        if (!WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError))
+        if (!WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError, out var browserFolder))
         {
             browserStatus = runtimeError;
             return;
         }
 
+        browserExecutableFolder = browserFolder;
         browserStatus = $"starting WebView2 {runtimeVersion}";
         browserThread = new BrowserThread(this);
         settingsPublished = false;
@@ -752,7 +754,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required"));
-                var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
+                var environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);

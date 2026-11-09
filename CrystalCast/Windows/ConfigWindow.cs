@@ -47,6 +47,7 @@ public sealed class ConfigWindow : Window, IDisposable
     private readonly ScreenStateIpc ipc;
     private PageId currentPage = PageId.Rendering;
     private string browserDataStatus = string.Empty;
+    private bool confirmWebView2Delete;
     private string diagnosticsReport = string.Empty;
     private long diagnosticsReportUpdatedAtTick;
     private long diagnosticsCopiedAtTick;
@@ -374,6 +375,59 @@ public sealed class ConfigWindow : Window, IDisposable
     private static string JpegResolutionName(JpegCaptureResolution resolution) =>
         resolution == JpegCaptureResolution.Reduced720p ? "720p (lighter)" : "1080p";
 
+    /// <summary>Size and delete button for the WebView2 copy the Wine setup downloaded.</summary>
+    private void DrawDownloadedWebView2()
+    {
+        var downloader = plugin.WebView2Downloader;
+        var progress = downloader.Progress;
+        var sizeBytes = WebView2FixedRuntime.GetDownloadedBytes();
+        var showResult = progress.Stage is WebView2DownloadStage.Removed or WebView2DownloadStage.RemoveFailed;
+        if (sizeBytes <= 0 && progress.Stage != WebView2DownloadStage.Removing && !showResult)
+        {
+            confirmWebView2Delete = false;
+            return;
+        }
+
+        ImGui.Spacing();
+        Ui.RowLabel("Downloaded WebView2", LabelWidth, LabelGap);
+        var busy = progress.IsBusy;
+        if (sizeBytes > 0 && !confirmWebView2Delete)
+        {
+            if (Ui.Button("Delete", disabled: busy))
+                confirmWebView2Delete = true;
+        }
+        else if (sizeBytes > 0)
+        {
+            if (Ui.Button("Delete now", ButtonKind.Primary, disabled: busy))
+            {
+                confirmWebView2Delete = false;
+                plugin.RemoveDownloadedWebView2();
+            }
+
+            ImGui.SameLine(0.0f, S(8.0f));
+            if (Ui.Button("Keep it", ButtonKind.Ghost))
+                confirmWebView2Delete = false;
+        }
+
+        if (sizeBytes > 0)
+            ImGui.SameLine(0.0f, S(12.0f));
+        AlignedText(
+            progress.Stage == WebView2DownloadStage.Removing
+                ? progress.Message
+                : sizeBytes > 0 ? $"{sizeBytes / (1024 * 1024)} MB on disk" : string.Empty,
+            TextTertiary);
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        if (progress.Stage == WebView2DownloadStage.RemoveFailed)
+            Ui.ErrorText($"Delete failed: {progress.Message}");
+        else if (progress.Stage == WebView2DownloadStage.Removed)
+            Ui.Meta(progress.Message);
+        else if (confirmWebView2Delete)
+            Ui.Meta("Deleting closes all browser screens. They need WebView2 again to play; download it again from Open setup at any time.");
+        else
+            Ui.Meta("The copy of Microsoft WebView2 that CrystalCast downloaded for Wine. Delete it to free the space.");
+    }
+
     private bool DrawBrowserMedia(Configuration config)
     {
         var changed = false;
@@ -449,6 +503,8 @@ public sealed class ConfigWindow : Window, IDisposable
             ImGui.SameLine(0.0f, S(12.0f));
             AlignedText(runtimeAvailable ? $"Detected: {runtimeVersion}" : runtimeError, runtimeAvailable ? TextTertiary : Warning);
         }
+
+        DrawDownloadedWebView2();
 
         Ui.VerticalSpace(SectionGap);
         Ui.SectionHeader("Browser data", "Reset browser profiles when cookies, sign-in, or cached state cause problems.");

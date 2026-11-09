@@ -620,7 +620,7 @@ public sealed class WorldScreenManager : IDisposable
         }
     }
 
-    private void ReleaseAllBrowserRuntimes()
+    internal void ReleaseAllBrowserRuntimes()
     {
         foreach (var (screenId, instance) in browserScreens)
             TryReleaseBrowserRuntime(screenId, instance);

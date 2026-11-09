@@ -1,0 +1,14 @@
+# Test image for the WebView2 capture probe with a current WineHQ Wine (32- and 64-bit).
+# Build: docker build -t crystalcast-wv2-winehq -f experiments/webview2-gdi-capture/Dockerfile.winehq experiments/webview2-gdi-capture
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN dpkg --add-architecture i386 \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates wget curl gnupg cabextract unzip xvfb xauth dbus-x11 \
+ && mkdir -pm755 /etc/apt/keyrings \
+ && wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
+ && wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources \
+ && apt-get update \
+ && apt-get install -y --install-recommends winehq-stable \
+ && rm -rf /var/lib/apt/lists/*
+RUN usermod -l tester -d /home/tester -m ubuntu || useradd -m -u 1000 tester

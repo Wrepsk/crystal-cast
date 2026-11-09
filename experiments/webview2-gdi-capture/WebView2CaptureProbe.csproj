@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Experiment: can WebView2's window be captured without JPEG (BitBlt / PrintWindow),
+       especially under Wine? Not part of CrystalCast.sln or the plugin package. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WebView2PackageRoot>$(NuGetPackageRoot)microsoft.web.webview2\1.0.3967.48\</WebView2PackageRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(WebView2PackageRoot)lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll</HintPath>
+    </Reference>
+    <None Include="$(WebView2PackageRoot)runtimes\win-x64\native\WebView2Loader.dll" CopyToOutputDirectory="PreserveNewest" Link="WebView2Loader.dll" />
+    <Compile Include="..\..\CrystalCast\Video\WicBgraDecoder.cs" Link="Shared\WicBgraDecoder.cs" />
+    <Compile Include="..\..\CrystalCast\Video\VideoFrame.cs" Link="Shared\VideoFrame.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebView2ScreencastCapture.cs" Link="Shared\WebView2ScreencastCapture.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebView2ScreencastPolicy.cs" Link="Shared\WebView2ScreencastPolicy.cs" />
+    <Compile Include="..\..\CrystalCast\BrowserMediaEngine.cs" Link="Shared\BrowserMediaEngine.cs" />
+  </ItemGroup>
+</Project>

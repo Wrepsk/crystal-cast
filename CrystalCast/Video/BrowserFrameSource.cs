@@ -10,6 +10,7 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     private readonly int height;
     private readonly float captureFps;
     private readonly BrowserMediaEngine enginePreference;
+    private readonly JpegCaptureResolution jpegResolution;
     private readonly bool autoplay;
     private readonly IPluginLog log;
     private bool currentLoop;
@@ -32,8 +33,10 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
         bool audioEnabled,
         float volume,
         float playbackRate,
-        IPluginLog log)
+        IPluginLog log,
+        JpegCaptureResolution jpegResolution = JpegCaptureResolution.Full1080p)
     {
+        this.jpegResolution = jpegResolution;
         this.descriptor = descriptor;
         this.input = input;
         this.width = width;
@@ -246,7 +249,8 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
             currentVolume,
             currentPlaybackRate,
             captureMode,
-            log);
+            log,
+            jpegResolution);
     }
 
     private void ApplyCurrentSettings(IVideoFrameSource candidate)

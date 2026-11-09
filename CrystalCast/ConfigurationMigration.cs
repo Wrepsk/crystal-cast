@@ -59,6 +59,13 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
+        var normalizedJpegResolution = BrowserMediaEnginePolicy.Normalize(configuration.WebView2JpegCaptureResolution);
+        if (configuration.WebView2JpegCaptureResolution != normalizedJpegResolution)
+        {
+            configuration.WebView2JpegCaptureResolution = normalizedJpegResolution;
+            changed = true;
+        }
+
         var usedScreenIds = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < configuration.BrowserScreens.Count; i++)
             changed |= configuration.BrowserScreens[i].Normalize($"Browser screen {i + 1}", usedScreenIds);

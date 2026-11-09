@@ -1198,7 +1198,8 @@ public sealed class WorldScreenManager : IDisposable
                     : null,
                 approvalRequired
                     ? services.GenericWebIpcApprovals.GetApprovedStartUrl(browserScreen)
-                    : null);
+                    : null,
+                configuration.WebView2JpegCaptureResolution);
         }
 
         private bool TrySendPauseCommand(bool force)
@@ -1219,7 +1220,8 @@ public sealed class WorldScreenManager : IDisposable
         {
             return BrowserSourceProviderRegistry.BuildFrameSourceSignature(
                 browserScreen,
-                configuration.YouTubeBrowserEngine);
+                configuration.YouTubeBrowserEngine,
+                configuration.WebView2JpegCaptureResolution);
         }
 
         private void ApplyLiveSourceSettings()

@@ -28,12 +28,13 @@ internal static class BrowserSourceProviderRegistry
         BrowserMediaEngine enginePreference,
         IBrowserFrameSourceFactory factory,
         Func<string, bool>? genericWebNavigationAllowed = null,
-        string? genericWebInputOverride = null)
+        string? genericWebInputOverride = null,
+        JpegCaptureResolution jpegResolution = JpegCaptureResolution.Full1080p)
     {
         if (!Providers.TryGetValue(screen.ProviderKind, out var provider))
             return null;
 
-        var request = provider.CreateRequest(screen, enginePreference);
+        var request = provider.CreateRequest(screen, enginePreference) with { JpegResolution = jpegResolution };
         if (screen.ProviderKind == BrowserSourceProviderKind.GenericWeb)
         {
             request = request with
@@ -46,7 +47,10 @@ internal static class BrowserSourceProviderRegistry
         return factory.Create(request);
     }
 
-    public static string BuildFrameSourceSignature(BrowserScreenProfile screen, BrowserMediaEngine enginePreference)
+    public static string BuildFrameSourceSignature(
+        BrowserScreenProfile screen,
+        BrowserMediaEngine enginePreference,
+        JpegCaptureResolution jpegResolution = JpegCaptureResolution.Full1080p)
     {
         if (!Providers.TryGetValue(screen.ProviderKind, out var provider))
             return string.Join('|', ScreenSourceKind.Browser, screen.ProviderKind);
@@ -58,7 +62,8 @@ internal static class BrowserSourceProviderRegistry
             provider.GetUrl(screen),
             dimensions.Width,
             dimensions.Height,
-            enginePreference);
+            enginePreference,
+            jpegResolution);
     }
 
     public static BrowserScreenRuntimeSnapshot GetSnapshot(BrowserScreenProfile screen)

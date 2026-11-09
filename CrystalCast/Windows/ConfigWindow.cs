@@ -371,6 +371,9 @@ public sealed class ConfigWindow : Window, IDisposable
 
     // ---------------------------------------------------------------- Browser
 
+    private static string JpegResolutionName(JpegCaptureResolution resolution) =>
+        resolution == JpegCaptureResolution.Reduced720p ? "720p (lighter)" : "1080p";
+
     private bool DrawBrowserMedia(Configuration config)
     {
         var changed = false;
@@ -404,6 +407,27 @@ public sealed class ConfigWindow : Window, IDisposable
             : WineEnvironment.IsWine
                 ? "Wine detected: WebView2 JPEG capture is used unless the native Linux WebKitGTK backend is selected."
                 : "Auto uses WebView2 window capture and falls back to JPEG capture when needed.");
+
+        ImGui.Spacing();
+        var jpegResolution = config.WebView2JpegCaptureResolution;
+        Ui.RowLabel("JPEG capture size", LabelWidth, LabelGap);
+        if (Ui.BeginDropdown("##JpegCaptureSize", JpegResolutionName(jpegResolution), S(320.0f)))
+        {
+            foreach (var option in new[] { JpegCaptureResolution.Full1080p, JpegCaptureResolution.Reduced720p })
+            {
+                if (Ui.MenuItem($"{JpegResolutionName(option)}##JpegSize{(int)option}", option == jpegResolution)
+                    && option != jpegResolution)
+                {
+                    config.WebView2JpegCaptureResolution = option;
+                    changed = true;
+                }
+            }
+
+            Ui.EndDropdown();
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta("Largest frame JPEG capture sends to the game, never above the screen's browser size. 720p uses less CPU; try it if JPEG capture stutters.");
 
         if (webKitGtkSelected)
         {

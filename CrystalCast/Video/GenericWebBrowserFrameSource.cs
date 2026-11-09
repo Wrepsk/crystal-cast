@@ -16,6 +16,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
     private readonly BrowserPlaybackIntent playbackIntent;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
     private readonly WebView2CaptureMode captureMode;
+    private readonly JpegCaptureResolution jpegResolution;
     private readonly IPluginLog log;
     private readonly Func<string, bool>? isNavigationAllowed;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
@@ -53,8 +54,10 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         float playbackRate,
         WebView2CaptureMode captureMode,
         IPluginLog log,
-        Func<string, bool>? isNavigationAllowed = null)
+        Func<string, bool>? isNavigationAllowed = null,
+        JpegCaptureResolution jpegResolution = JpegCaptureResolution.Full1080p)
     {
+        this.jpegResolution = jpegResolution;
         this.input = input;
         isValidSource = GenericWebUrl.TryParseSource(input, out source);
         Width = Math.Clamp(width, 320, 3840);
@@ -463,6 +466,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
         private readonly Queue<string> pendingPlayerMessages = new();
         private readonly WebView2JpegFrameCapture jpegCapture = new();
+        private readonly WebView2ScreencastCapture screencast;
+        private readonly WebView2ScreencastSettings screencastSettings;
+        private bool screencastOutcomeLogged;
         private volatile bool shutdownRequested;
         private BrowserSynchronizationContext? synchronizationContext;
         private CoreWebView2Controller? controller;
@@ -477,6 +483,15 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         public BrowserThread(GenericWebBrowserFrameSource owner)
         {
             this.owner = owner;
+            screencastSettings = WebView2ScreencastPolicy.Resolve(
+                owner.Width,
+                owner.Height,
+                owner.jpegResolution,
+                Environment.GetEnvironmentVariable(WebView2ScreencastPolicy.OverrideVariable));
+            screencast = new WebView2ScreencastCapture(
+                owner.PublishFrame,
+                () => Interlocked.Increment(ref owner.sequence),
+                () => owner.FramesPerSecond);
             lifecycle.TryStart();
             thread = new Thread(ThreadMain)
             {
@@ -720,6 +735,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 }
 
                 lifecycle.MarkStopped();
+                screencast.Dispose();
                 jpegCapture.Dispose();
                 shutdownCancellation.Dispose();
                 context.Dispose();
@@ -903,19 +919,31 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                     var frameInterval = TimeSpan.FromSeconds(1.0 / owner.FramesPerSecond);
                     if (!owner.captureEnabled || webView == null)
                     {
+                        await screencast.PauseAsync();
                         await Task.Delay(200, cancellationToken);
                         continue;
                     }
 
+                    var captureLabel = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
+                        ? "WebView2 JPEG fallback capture"
+                        : "WebView2 JPEG capture";
+                    if (await screencast.KeepRunningAsync(webView, screencastSettings))
+                    {
+                        LogScreencastOutcome();
+                        owner.lastCaptureMilliseconds = screencast.LastDecodeMilliseconds;
+                        owner.browserStatus = $"{captureLabel} running; {screencast.Status}";
+                        await Task.Delay(200, cancellationToken);
+                        continue;
+                    }
+
+                    LogScreencastOutcome();
                     var sw = Stopwatch.StartNew();
                     try
                     {
                         await CaptureOnceAsync(webView);
                         sw.Stop();
                         owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
-                        var captureStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                            ? "WebView2 JPEG fallback capture running"
-                            : "WebView2 JPEG capture running";
+                        var captureStatus = $"{captureLabel} running with screenshots ({screencast.FailureReason})";
                         owner.browserStatus = owner.FramesPerSecond > 30.0f
                             ? $"{captureStatus}; high FPS is best effort"
                             : captureStatus;
@@ -936,6 +964,28 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+            }
+        }
+
+        private void LogScreencastOutcome()
+        {
+            if (screencastOutcomeLogged)
+                return;
+
+            screencastOutcomeLogged = true;
+            if (screencast.IsRunning)
+            {
+                owner.log.Information(
+                    "CrystalCast WebView2 JPEG capture uses the DevTools screencast ({Reason}, max {Width}x{Height}).",
+                    screencastSettings.Reason,
+                    screencastSettings.MaxWidth,
+                    screencastSettings.MaxHeight);
+            }
+            else
+            {
+                owner.log.Warning(
+                    "CrystalCast WebView2 JPEG capture uses screenshots: {Reason}",
+                    screencast.FailureReason);
             }
         }
 

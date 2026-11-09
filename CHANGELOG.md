@@ -4,6 +4,14 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- WebView2 JPEG capture (and the JPEG fallback of window capture) now receives frames from the browser's DevTools screencast instead of taking a screenshot each frame. A 60 fps video reaches about 60 fps on Windows (was about 24) and about 55 fps under Wine (was about 13). Frames are decoded off the browser thread. If the screencast can't start, capture goes back to screenshots and the screen's status says why. Set `CRYSTALCAST_WEBVIEW2_SCREENCAST` to `off`, `720` or `1080` to override this for testing.
+
+### Added
+
+- **Settings > Browser > JPEG capture size**: 1080p (default) or 720p. 720p uses less CPU for slower machines and Wine setups where JPEG capture stutters.
+
 ## 0.8.2 - 2026-11-08
 
 ### Added

@@ -18,6 +18,7 @@ internal sealed record BrowserFrameSourceRequest(
     float PlaybackRate)
 {
     public Func<string, bool>? IsNavigationAllowed { get; init; }
+    public JpegCaptureResolution JpegResolution { get; init; }
 }
 
 internal interface IBrowserFrameSourceFactory
@@ -50,7 +51,8 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
                 request.PlaybackRate,
                 BrowserPlatformPolicy.ResolveCaptureMode(request.EnginePreference, WineEnvironment.IsWine),
                 log,
-                request.IsNavigationAllowed);
+                request.IsNavigationAllowed,
+                request.JpegResolution);
         }
 
         if (request.Descriptor == null)
@@ -69,6 +71,7 @@ internal sealed class BrowserFrameSourceFactory : IBrowserFrameSourceFactory
             request.AudioEnabled,
             request.Volume,
             request.PlaybackRate,
-            log);
+            log,
+            request.JpegResolution);
     }
 }

@@ -24,5 +24,9 @@
     <Compile Include="..\..\CrystalCast\Video\WebView2ScreencastCapture.cs" Link="Shared\WebView2ScreencastCapture.cs" />
     <Compile Include="..\..\CrystalCast\Video\WebView2ScreencastPolicy.cs" Link="Shared\WebView2ScreencastPolicy.cs" />
     <Compile Include="..\..\CrystalCast\BrowserMediaEngine.cs" Link="Shared\BrowserMediaEngine.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebView2FixedRuntime.cs" Link="Shared\WebView2FixedRuntime.cs" />
+    <Compile Include="..\..\CrystalCast\Video\WebView2RuntimeDownloader.cs" Link="Shared\WebView2RuntimeDownloader.cs" />
+    <Compile Include="..\..\CrystalCast\Video\CabinetExtractor.cs" Link="Shared\CabinetExtractor.cs" />
+    <Compile Include="..\..\CrystalCast\Video\AuthenticodeVerifier.cs" Link="Shared\AuthenticodeVerifier.cs" />
   </ItemGroup>
 </Project>

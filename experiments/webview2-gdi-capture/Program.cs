@@ -78,12 +78,56 @@ requestAnimationFrame(draw);
         base.OnShown(e);
         try
         {
-            report["runtime"] = CoreWebView2Environment.GetAvailableBrowserVersionString();
+            // PROBE_BROWSER_FOLDER: use a Fixed Version runtime folder instead of the installed runtime.
+            var browserFolder = Environment.GetEnvironmentVariable("PROBE_BROWSER_FOLDER");
+            if (string.IsNullOrWhiteSpace(browserFolder))
+                browserFolder = null;
+
+            // PROBE_INSTALL=1: run the plugin's one-click WebView2 download first, then use what it found.
+            if (Environment.GetEnvironmentVariable("PROBE_INSTALL") == "1")
+            {
+                var isWine = NativeLibrary.TryLoad("ntdll.dll", out var ntdllForInstall)
+                    && NativeLibrary.TryGetExport(ntdllForInstall, "wine_get_version", out _);
+                var installLog = new List<string>();
+                using var downloader = new WebView2RuntimeDownloader(line => { lock (installLog) installLog.Add(line); }, isWine);
+                var started = Stopwatch.StartNew();
+                downloader.Start();
+                var lastStage = WebView2DownloadStage.Idle;
+                while (downloader.Progress.IsBusy)
+                {
+                    var current = downloader.Progress;
+                    if (current.Stage != lastStage)
+                    {
+                        Console.Error.WriteLine($"[install {started.Elapsed.TotalSeconds:0}s] {current.Stage}: {current.Message}");
+                        lastStage = current.Stage;
+                    }
+
+                    await Task.Delay(250);
+                }
+
+                var final = downloader.Progress;
+                report["install_stage"] = final.Stage.ToString();
+                report["install_message"] = final.Message;
+                report["install_seconds"] = Math.Round(started.Elapsed.TotalSeconds, 1);
+                lock (installLog)
+                    report["install_log"] = installLog.ToArray();
+                if (WebView2FixedRuntime.TryFind(out var found, out var findError))
+                {
+                    report["install_found"] = found.Describe();
+                    browserFolder = WebView2FixedRuntime.FindDownloadedFolder() ?? found.BrowserExecutableFolder;
+                }
+                else
+                {
+                    report["install_found"] = findError;
+                }
+            }
+            report["browser_folder"] = browserFolder ?? "(installed runtime)";
+            report["runtime"] = CoreWebView2Environment.GetAvailableBrowserVersionString(browserFolder);
             report["wine"] = NativeLibrary.TryLoad("ntdll.dll", out var ntdll) && NativeLibrary.TryGetExport(ntdll, "wine_get_version", out _);
             var userData = Path.Combine(Path.GetTempPath(), "webview2-capture-probe");
             report["browser_arguments"] = browserArguments;
             var options = new CoreWebView2EnvironmentOptions(("--autoplay-policy=no-user-gesture-required " + browserArguments).Trim());
-            var environment = await CoreWebView2Environment.CreateAsync(null, userData, options);
+            var environment = await CoreWebView2Environment.CreateAsync(browserFolder, userData, options);
             controller = await environment.CreateCoreWebView2ControllerAsync(Handle);
             controller.Bounds = new Rectangle(0, 0, browserWidth, browserHeight);
             controller.IsVisible = true;
@@ -145,6 +189,25 @@ requestAnimationFrame(draw);
             if (Environment.GetEnvironmentVariable("PROBE_MODE") == "plugin")
             {
                 report["plugin_screencast"] = await WithCpuAsync(MeasurePluginScreencastAsync);
+
+                // PROBE_REMOVE=1: delete the downloaded runtime the way the plugin does, while its
+                // browser has only just been closed.
+                if (Environment.GetEnvironmentVariable("PROBE_REMOVE") == "1")
+                {
+                    var removeLog = new List<string>();
+                    using var remover = new WebView2RuntimeDownloader(line => { lock (removeLog) removeLog.Add(line); }, false);
+                    report["remove_size_mb"] = WebView2FixedRuntime.GetDownloadedBytes() / (1024 * 1024);
+                    var removeClock = Stopwatch.StartNew();
+                    remover.StartRemoval(() => controller!.Close());
+                    while (remover.Progress.IsBusy)
+                        await Task.Delay(100);
+                    report["remove_stage"] = remover.Progress.Stage.ToString();
+                    report["remove_message"] = remover.Progress.Message;
+                    report["remove_seconds"] = Math.Round(removeClock.Elapsed.TotalSeconds, 1);
+                    report["remove_folder_gone"] = !Directory.Exists(WebView2FixedRuntime.Root);
+                    lock (removeLog)
+                        report["remove_log"] = removeLog.ToArray();
+                }
                 ExitCode = 0;
                 throw new OperationCanceledException("plugin screencast finished");
             }

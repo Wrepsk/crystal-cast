@@ -6,7 +6,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
-- IPC: `CrystalCast.Ready` and `CrystalCast.Disposed` events, and `CrystalCast.GetCapabilities` (versions, providers, limits, Wine/WebView2 status). IPC API version is now 8.
+- Per-screen playlists: a **Playlist** tab (between Audio and Placement) queues videos from any supported site to play after the current one ends, with Shuffle, Loop playlist, Play now, reorder, Skip and Clear. The Source tab's per-video loop is paused while another video is waiting.
+- IPC: `CrystalCast.Screen.Playlist.Get`, `Add`, `Remove`, `Clear`, `Skip`, `Move` and `SetOptions`. Other plugins can add videos only after the user turns on **Let other plugins add videos** for that screen (or when they hold its source lock), may remove only the videos they added, and can add at most 20 videos each. `Screen.Changed` reports playlist changes as `Playlist`. IPC API version is now 9.
+
+- IPC: `CrystalCast.Ready` and `CrystalCast.Disposed` events, and `CrystalCast.GetCapabilities` (versions, providers, limits, Wine/WebView2 status).
 - IPC: `CrystalCast.Screen.Changed` now also reports changes made inside the player (pause or play in browser controls, a video ending, next playlist item, title loaded, seeks).
 
 ### Fixed

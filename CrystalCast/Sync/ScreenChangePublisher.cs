@@ -232,7 +232,21 @@ internal sealed class ScreenChangePublisher
                 state.Visual.FadeStopMeters),
             Lock: string.Join('|',
                 screen?.SourceControlsLocked,
-                screen?.SourceControlsOwnerId));
+                screen?.SourceControlsOwnerId),
+            Playlist: BuildPlaylistFingerprint(screen));
+    }
+
+    private static string BuildPlaylistFingerprint(BrowserScreenProfile? screen)
+    {
+        if (screen == null)
+            return string.Empty;
+
+        return string.Join('|',
+            screen.PlaylistShuffle,
+            screen.PlaylistLoop,
+            screen.PlaylistAllowIpcAdds,
+            screen.PlaylistCurrentEntryId,
+            string.Join(',', screen.Playlist.Select(entry => entry.Played ? entry.EntryId + "*" : entry.EntryId)));
     }
 
     private static List<ScreenIpcChangeKind> GetFingerprintChanges(ScreenChangeFingerprint previous, ScreenChangeFingerprint next)
@@ -248,6 +262,8 @@ internal sealed class ScreenChangePublisher
             changes.Add(ScreenIpcChangeKind.Visual);
         if (!string.Equals(previous.Lock, next.Lock, StringComparison.Ordinal))
             changes.Add(ScreenIpcChangeKind.SourceLock);
+        if (!string.Equals(previous.Playlist, next.Playlist, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Playlist);
 
         return changes;
     }
@@ -257,5 +273,6 @@ internal sealed class ScreenChangePublisher
         string Source,
         string Playback,
         string Visual,
-        string Lock);
+        string Lock,
+        string Playlist);
 }

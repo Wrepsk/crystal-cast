@@ -86,7 +86,7 @@ internal sealed class BrowserPlayerState
         UpdateTelemetry(state, current.PositionMs, current.DurationMs, playbackRate, current.Title);
     }
 
-    public void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "")
+    public void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "", bool ended = false)
     {
         if (!descriptor.IsValidVideoId(currentVideoId))
             currentVideoId = source.VideoId;
@@ -104,6 +104,7 @@ internal sealed class BrowserPlayerState
                 CanonicalUrl = descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = DetectedVideoFps,
+                Ended = ended && state == ScreenPlaybackState.Stopped,
             };
         }
     }
@@ -141,7 +142,10 @@ internal sealed class BrowserPlayerState
 
         var positionMs = BrowserMessageValidator.ToBoundedMilliseconds(positionSeconds);
         var durationMs = BrowserMessageValidator.ToBoundedMilliseconds(durationSeconds);
-        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId);
+        // Every player page sends state 0 when the media ends. The YouTube page also sends "finished",
+        // because inside a playlist link it reports state 0 after every video.
+        var ended = BrowserSourceDescriptors.TryGetBool(root, "finished", stateCode == 0);
+        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, currentVideoId, ended);
         playerStatus = descriptor.FormatPlayerStatus(title, stateCode, positionSeconds, durationSeconds, root);
     }
 

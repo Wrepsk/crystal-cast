@@ -378,6 +378,22 @@ internal static class YouTubePlayerPage
       }
     }
 
+    // True once nothing more will play: the video ended, or the last video of a playlist link did.
+    // Inside a playlist link YouTube reports ENDED after every video before moving to the next.
+    function hasFinished(state) {
+      if (state !== 0) {
+        return false;
+      }
+
+      if (!isPlaylistSource() || !crystalCastConfig.playlistAutoplayNext) {
+        return true;
+      }
+
+      const playlist = player.getPlaylist ? player.getPlaylist() : null;
+      const index = player.getPlaylistIndex ? player.getPlaylistIndex() : -1;
+      return !playlist || playlist.length === 0 || index >= playlist.length - 1;
+    }
+
     function postStatus() {
       if (!playerReady || !player) {
         return;
@@ -385,6 +401,7 @@ internal static class YouTubePlayerPage
 
       try {
         const data = player.getVideoData ? player.getVideoData() : {};
+        const state = player.getPlayerState ? player.getPlayerState() : -1;
         post("status", {
           title: data && data.title ? data.title : "",
           videoId: data && (data.video_id || data.videoId) ? (data.video_id || data.videoId) : crystalCastConfig.videoId,
@@ -392,7 +409,8 @@ internal static class YouTubePlayerPage
           positionSeconds: player.getCurrentTime ? player.getCurrentTime() : 0,
           durationSeconds: player.getDuration ? player.getDuration() : 0,
           rate: player.getPlaybackRate ? player.getPlaybackRate() : crystalCastConfig.playbackRate,
-          state: player.getPlayerState ? player.getPlayerState() : -1
+          state,
+          finished: hasFinished(state)
         });
       } catch (error) {
         postScriptError("postStatus", error);

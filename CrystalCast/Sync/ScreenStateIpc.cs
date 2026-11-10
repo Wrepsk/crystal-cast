@@ -1,3 +1,4 @@
+using CrystalCast.Playlist;
 using CrystalCast.Rendering;
 using CrystalCast.Video;
 using Dalamud.Plugin.Ipc;
@@ -8,7 +9,7 @@ namespace CrystalCast.Sync;
 
 public sealed class ScreenStateIpc : IDisposable
 {
-    public const int ApiVersion = 8;
+    public const int ApiVersion = 9;
 
     /// <summary>Largest JSON argument any call accepts, in UTF-8 bytes.</summary>
     internal const int MaxPayloadBytes = 64 * 1024;
@@ -36,16 +37,30 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string> capabilitiesProvider;
     private readonly ICallGateProvider<object> readyProvider;
     private readonly ICallGateProvider<object> disposedProvider;
+    private readonly ICallGateProvider<string, string> playlistGetProvider;
+    private readonly ICallGateProvider<string, string> playlistAddProvider;
+    private readonly ICallGateProvider<string, string> playlistRemoveProvider;
+    private readonly ICallGateProvider<string, string> playlistClearProvider;
+    private readonly ICallGateProvider<string, string> playlistSkipProvider;
+    private readonly ICallGateProvider<string, string> playlistMoveProvider;
+    private readonly ICallGateProvider<string, string> playlistSetOptionsProvider;
+    private readonly ScreenPlaylistIpcService playlistService;
+    private readonly WorldScreenManager renderer;
     private readonly RemoteScreenStateStore remoteScreens = new();
     private readonly IpcMainThreadDispatcher dispatcher;
     private readonly ScreenPlaybackWatcher playbackWatcher = new();
     private long lastPlaybackWatchTick;
     private bool registered;
 
-    internal ScreenStateIpc(Configuration configuration, WorldScreenManager renderer, CrystalCastServices services)
+    internal ScreenStateIpc(
+        Configuration configuration,
+        WorldScreenManager renderer,
+        CrystalCastServices services,
+        ScreenPlaylistAdvancer playlistAdvancer)
     {
         this.configuration = configuration;
         this.services = services;
+        this.renderer = renderer;
         ownerSessionId = Guid.NewGuid().ToString("N");
         stateBuilder = new ScreenStateBuilder(
             configuration,
@@ -71,6 +86,14 @@ public sealed class ScreenStateIpc : IDisposable
         capabilitiesProvider = services.PluginInterface.GetIpcProvider<string>("CrystalCast.GetCapabilities");
         readyProvider = services.PluginInterface.GetIpcProvider<object>("CrystalCast.Ready");
         disposedProvider = services.PluginInterface.GetIpcProvider<object>("CrystalCast.Disposed");
+        playlistGetProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Get");
+        playlistAddProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Add");
+        playlistRemoveProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Remove");
+        playlistClearProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Clear");
+        playlistSkipProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Skip");
+        playlistMoveProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.Move");
+        playlistSetOptionsProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Playlist.SetOptions");
+        playlistService = new ScreenPlaylistIpcService(configuration, playlistAdvancer, PublishPlaylistAdvance, PublishPlaylistChange, services.Log);
         dispatcher = new IpcMainThreadDispatcher(services.Framework);
 
         UpdateRegistration();
@@ -127,6 +150,13 @@ public sealed class ScreenStateIpc : IDisposable
         sourceLockProvider.RegisterFunc(json => Mutate(json, mutationService.SetSourceLockJson));
         sourceStateProvider.RegisterFunc(screenId => dispatcher.Invoke(() => GetSourceStateJson(screenId), SourceStateError));
         capabilitiesProvider.RegisterFunc(() => dispatcher.Invoke(GetCapabilitiesJson, MutationError));
+        playlistGetProvider.RegisterFunc(screenId => dispatcher.Invoke(() => playlistService.GetJson(screenId), PlaylistError));
+        playlistAddProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.AddJson));
+        playlistRemoveProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.RemoveJson));
+        playlistClearProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.ClearJson));
+        playlistSkipProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.SkipJson));
+        playlistMoveProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.MoveJson));
+        playlistSetOptionsProvider.RegisterFunc(json => MutatePlaylist(json, playlistService.SetOptionsJson));
         registered = true;
         readyProvider.SendMessage();
     }
@@ -147,6 +177,17 @@ public sealed class ScreenStateIpc : IDisposable
 
         return mutationService.GetSourceStateJson(screenId);
     }
+
+    private string MutatePlaylist(string json, Func<string, string> handler)
+    {
+        if (!IpcPayloadLimit.TryCheck(json, out var error))
+            return PlaylistError(error);
+
+        return dispatcher.Invoke(() => handler(json), PlaylistError);
+    }
+
+    private static string PlaylistError(string error) =>
+        IpcJsonService.Serialize(new ScreenIpcPlaylistResponse { Success = false, Error = error });
 
     private static string MutationError(string error) => IpcJsonService.SerializeMutationError(error);
 
@@ -186,6 +227,13 @@ public sealed class ScreenStateIpc : IDisposable
         sourceLockProvider.UnregisterFunc();
         sourceStateProvider.UnregisterFunc();
         capabilitiesProvider.UnregisterFunc();
+        playlistGetProvider.UnregisterFunc();
+        playlistAddProvider.UnregisterFunc();
+        playlistRemoveProvider.UnregisterFunc();
+        playlistClearProvider.UnregisterFunc();
+        playlistSkipProvider.UnregisterFunc();
+        playlistMoveProvider.UnregisterFunc();
+        playlistSetOptionsProvider.UnregisterFunc();
         registered = false;
         playbackWatcher.Clear();
     }
@@ -259,6 +307,8 @@ public sealed class ScreenStateIpc : IDisposable
                 MaxRemoteScreens = RemoteScreenStateStore.MaxRemoteScreens,
                 MaxPayloadBytes = MaxPayloadBytes,
                 IpcScreensInUse = ScreenLimitPolicy.CountIpcScreens(configuration.BrowserScreens),
+                MaxPlaylistEntries = ScreenPlaylistPolicy.MaxEntries,
+                MaxPlaylistEntriesPerOwner = ScreenPlaylistPolicy.MaxEntriesPerIpcOwner,
             },
             Browser = new ScreenIpcBrowserCapabilities
             {
@@ -292,6 +342,23 @@ public sealed class ScreenStateIpc : IDisposable
     public string PublishLocalState()
     {
         return PublishLocalState(null, null);
+    }
+
+    /// <summary>
+    /// A screen moved to another playlist video, by ending, Skip or Play now. Reloads the player when the link
+    /// is the same (the browser only reloads on a new link) and announces the change.
+    /// </summary>
+    internal void PublishPlaylistAdvance(PlaylistAdvance advance)
+    {
+        if (advance.SameSource && FindBrowserScreen(advance.ScreenId) is { } screen)
+            renderer.TryRestartDynamicSource(screen);
+
+        PublishLocalState(advance.ScreenId, [ScreenIpcChangeKind.Source, ScreenIpcChangeKind.Playlist]);
+    }
+
+    internal void PublishPlaylistChange(string screenId)
+    {
+        PublishLocalState(screenId, [ScreenIpcChangeKind.Playlist]);
     }
 
     private string PublishLocalState(string? changedScreenId, IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)

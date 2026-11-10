@@ -1,3 +1,5 @@
+using CrystalCast.Playlist;
+
 namespace CrystalCast.Video;
 
 internal static class BrowserSourceProviderRegistry
@@ -34,7 +36,13 @@ internal static class BrowserSourceProviderRegistry
         if (!Providers.TryGetValue(screen.ProviderKind, out var provider))
             return null;
 
-        var request = provider.CreateRequest(screen, enginePreference) with { JpegResolution = jpegResolution };
+        var request = provider.CreateRequest(screen, enginePreference);
+        request = request with
+        {
+            JpegResolution = jpegResolution,
+            // With a playlist waiting, the video has to end so the next one can start.
+            Loop = request.Loop && !ScreenPlaylistPolicy.OverridesVideoLoop(screen),
+        };
         if (screen.ProviderKind == BrowserSourceProviderKind.GenericWeb)
         {
             request = request with
@@ -69,12 +77,43 @@ internal static class BrowserSourceProviderRegistry
     public static BrowserScreenRuntimeSnapshot GetSnapshot(BrowserScreenProfile screen)
     {
         var provider = GetProvider(screen.ProviderKind);
+        var runtime = provider.GetRuntimeSettings(screen);
+        if (runtime.Loop && ScreenPlaylistPolicy.OverridesVideoLoop(screen))
+            runtime = runtime with { Loop = false };
+
         return new BrowserScreenRuntimeSnapshot(
             provider.GetUrl(screen),
             provider.GetDimensions(screen),
-            provider.GetRuntimeSettings(screen),
+            runtime,
             provider.GetCaptureSettings(screen));
     }
+
+    /// <summary>Sets the link for <paramref name="provider"/> without changing the screen's other settings.</summary>
+    public static void SetUrl(BrowserScreenProfile screen, BrowserSourceProviderKind provider, string url)
+    {
+        switch (provider)
+        {
+            case BrowserSourceProviderKind.YouTube:
+                screen.YouTubeUrl = url;
+                break;
+            case BrowserSourceProviderKind.Twitch:
+                screen.TwitchUrl = url;
+                break;
+            case BrowserSourceProviderKind.Dailymotion:
+                screen.DailymotionUrl = url;
+                break;
+            case BrowserSourceProviderKind.Vimeo:
+                screen.VimeoUrl = url;
+                break;
+            case BrowserSourceProviderKind.GenericWeb:
+                screen.GenericWebUrl = url;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unsupported browser source provider.");
+        }
+    }
+
+    public static string GetUrl(BrowserScreenProfile screen) => GetProvider(screen.ProviderKind).GetUrl(screen);
 
     public static BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen) => GetSnapshot(screen).Dimensions;
 

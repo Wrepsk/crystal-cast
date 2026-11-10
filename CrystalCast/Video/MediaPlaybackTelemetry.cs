@@ -11,6 +11,12 @@ public sealed class MediaPlaybackTelemetry
     public string CanonicalUrl { get; init; } = string.Empty;
     public long HostTimestampUnixMs { get; init; }
     public float DetectedVideoFps { get; init; }
+
+    /// <summary>
+    /// True when the media played to its end and nothing more will play (a stream going offline counts).
+    /// Playback that hasn't started yet is <see cref="ScreenPlaybackState.Stopped"/> without this.
+    /// </summary>
+    public bool Ended { get; init; }
 }
 
 public interface IMediaPlaybackTelemetrySource

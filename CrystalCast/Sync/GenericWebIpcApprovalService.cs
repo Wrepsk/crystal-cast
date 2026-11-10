@@ -207,7 +207,7 @@ internal sealed class GenericWebIpcApprovalService : IDisposable
 
     private static bool RequiresApproval(BrowserScreenProfile screen)
     {
-        return screen.CreatedByIpc && screen.ProviderKind == BrowserSourceProviderKind.GenericWeb;
+        return screen.RequiresGenericWebIpcApproval;
     }
 
     private GenericWebIpcAccess EvaluateLocked(

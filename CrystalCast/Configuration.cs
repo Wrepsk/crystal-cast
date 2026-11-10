@@ -249,6 +249,16 @@ public sealed class BrowserScreenProfile
     public string Name { get; set; } = "Browser screen";
     public bool Enabled { get; set; } = true;
     public bool CreatedByIpc { get; set; }
+
+    /// <summary>
+    /// True when an IPC call set <see cref="GenericWebUrl"/> on this screen, even one the user created.
+    /// Such pages need the user's approval like IPC-created screens, until the user types an address.
+    /// </summary>
+    public bool GenericWebUrlFromIpc { get; set; }
+
+    /// <summary>Whether this screen's Generic Web page must be approved before it loads.</summary>
+    internal bool RequiresGenericWebIpcApproval =>
+        ProviderKind == BrowserSourceProviderKind.GenericWeb && (CreatedByIpc || GenericWebUrlFromIpc);
     public string IpcOwnerId { get; set; } = string.Empty;
     public bool SourceControlsLocked { get; set; }
     public string SourceControlsOwnerId { get; set; } = string.Empty;
@@ -411,6 +421,7 @@ public sealed class BrowserScreenProfile
             VimeoVolume = VimeoVolume,
             VimeoPlaybackRate = VimeoPlaybackRate,
             GenericWebUrl = GenericWebUrl,
+            GenericWebUrlFromIpc = GenericWebUrlFromIpc,
             GenericWebBrowserWidth = GenericWebBrowserWidth,
             GenericWebBrowserHeight = GenericWebBrowserHeight,
             GenericWebCaptureFps = GenericWebCaptureFps,

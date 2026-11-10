@@ -1,13 +1,20 @@
 using CrystalCast.Rendering;
+using CrystalCast.Video;
 using Dalamud.Plugin.Ipc;
+using Dalamud.Plugin.Services;
 using System.Text;
 
 namespace CrystalCast.Sync;
 
 public sealed class ScreenStateIpc : IDisposable
 {
-    public const int ApiVersion = 7;
-    private const int MaxStatePayloadBytes = 64 * 1024;
+    public const int ApiVersion = 8;
+
+    /// <summary>Largest JSON argument any call accepts, in UTF-8 bytes.</summary>
+    internal const int MaxPayloadBytes = 64 * 1024;
+
+    /// <summary>How often the player's own state is checked for <c>CrystalCast.Screen.Changed</c>.</summary>
+    internal const int PlaybackWatchIntervalMs = 250;
 
     private readonly Configuration configuration;
     private readonly CrystalCastServices services;
@@ -26,7 +33,13 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly ICallGateProvider<string, string> updateSourceProvider;
     private readonly ICallGateProvider<string, string> sourceLockProvider;
     private readonly ICallGateProvider<string, string> sourceStateProvider;
+    private readonly ICallGateProvider<string> capabilitiesProvider;
+    private readonly ICallGateProvider<object> readyProvider;
+    private readonly ICallGateProvider<object> disposedProvider;
     private readonly RemoteScreenStateStore remoteScreens = new();
+    private readonly IpcMainThreadDispatcher dispatcher;
+    private readonly ScreenPlaybackWatcher playbackWatcher = new();
+    private long lastPlaybackWatchTick;
     private bool registered;
 
     internal ScreenStateIpc(Configuration configuration, WorldScreenManager renderer, CrystalCastServices services)
@@ -55,8 +68,13 @@ public sealed class ScreenStateIpc : IDisposable
         updateSourceProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.UpdateSource");
         sourceLockProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.SetSourceLock");
         sourceStateProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.GetSourceState");
+        capabilitiesProvider = services.PluginInterface.GetIpcProvider<string>("CrystalCast.GetCapabilities");
+        readyProvider = services.PluginInterface.GetIpcProvider<object>("CrystalCast.Ready");
+        disposedProvider = services.PluginInterface.GetIpcProvider<object>("CrystalCast.Disposed");
+        dispatcher = new IpcMainThreadDispatcher(services.Framework);
 
         UpdateRegistration();
+        services.Framework.Update += OnFrameworkUpdate;
     }
 
     public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.GetSnapshot();
@@ -97,23 +115,65 @@ public sealed class ScreenStateIpc : IDisposable
         if (registered)
             return;
 
+        // Every handler runs on the game's main thread; see IpcMainThreadDispatcher.
         apiVersionProvider.RegisterFunc(() => ApiVersion);
-        snapshotProvider.RegisterFunc(GetSnapshotJson);
-        applyStateProvider.RegisterFunc(ApplyStateJson);
-        applyStateDetailedProvider.RegisterFunc(ApplyStateDetailedJson);
-        removeProvider.RegisterFunc(Remove);
-        createScreenProvider.RegisterFunc(mutationService.CreateScreenJson);
-        updateScreenProvider.RegisterFunc(mutationService.UpdateScreenJson);
-        updateSourceProvider.RegisterFunc(mutationService.UpdateSourceJson);
-        sourceLockProvider.RegisterFunc(mutationService.SetSourceLockJson);
-        sourceStateProvider.RegisterFunc(mutationService.GetSourceStateJson);
+        snapshotProvider.RegisterFunc(() => dispatcher.Invoke(GetSnapshotJson, MutationError));
+        applyStateProvider.RegisterFunc(json => dispatcher.Invoke(() => ApplyStateJson(json), _ => false));
+        applyStateDetailedProvider.RegisterFunc(json => dispatcher.Invoke(() => ApplyStateDetailedJson(json), ApplyStateError));
+        removeProvider.RegisterFunc(screenId => dispatcher.Invoke(() => Remove(screenId), _ => false));
+        createScreenProvider.RegisterFunc(json => Mutate(json, mutationService.CreateScreenJson));
+        updateScreenProvider.RegisterFunc(json => Mutate(json, mutationService.UpdateScreenJson));
+        updateSourceProvider.RegisterFunc(json => Mutate(json, mutationService.UpdateSourceJson));
+        sourceLockProvider.RegisterFunc(json => Mutate(json, mutationService.SetSourceLockJson));
+        sourceStateProvider.RegisterFunc(screenId => dispatcher.Invoke(() => GetSourceStateJson(screenId), SourceStateError));
+        capabilitiesProvider.RegisterFunc(() => dispatcher.Invoke(GetCapabilitiesJson, MutationError));
         registered = true;
+        readyProvider.SendMessage();
     }
+
+    /// <summary>Size check, then the handler on the main thread.</summary>
+    private string Mutate(string json, Func<string, string> handler)
+    {
+        if (!IpcPayloadLimit.TryCheck(json, out var error))
+            return IpcJsonService.SerializeMutationError(error);
+
+        return dispatcher.Invoke(() => handler(json), MutationError);
+    }
+
+    private string GetSourceStateJson(string screenId)
+    {
+        if (!IpcPayloadLimit.TryCheckScreenId(screenId, out var error))
+            return SourceStateError(error);
+
+        return mutationService.GetSourceStateJson(screenId);
+    }
+
+    private static string MutationError(string error) => IpcJsonService.SerializeMutationError(error);
+
+    private static string SourceStateError(string error) =>
+        IpcJsonService.Serialize(new ScreenIpcSourceStateResponse { Success = false, Error = error });
+
+    private static string ApplyStateError(string error) =>
+        IpcJsonService.Serialize(new ScreenIpcApplyStateResponse
+        {
+            Success = false,
+            Result = ScreenIpcApplyStateResult.RejectedInvalid,
+            Error = error,
+        });
 
     private void Unregister()
     {
         if (!registered)
             return;
+
+        try
+        {
+            disposedProvider.SendMessage();
+        }
+        catch (Exception ex)
+        {
+            services.Log.Warning(ex, "A CrystalCast.Disposed subscriber failed.");
+        }
 
         apiVersionProvider.UnregisterFunc();
         snapshotProvider.UnregisterFunc();
@@ -125,7 +185,93 @@ public sealed class ScreenStateIpc : IDisposable
         updateSourceProvider.UnregisterFunc();
         sourceLockProvider.UnregisterFunc();
         sourceStateProvider.UnregisterFunc();
+        capabilitiesProvider.UnregisterFunc();
         registered = false;
+        playbackWatcher.Clear();
+    }
+
+    /// <summary>
+    /// Sends <c>CrystalCast.Screen.Changed</c> for changes made inside the player itself, which no settings
+    /// save or IPC call announces: pausing in browser controls, a video ending, the next playlist item, a
+    /// title loading, or a seek.
+    /// </summary>
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        var now = Environment.TickCount64;
+        if (!registered || now - lastPlaybackWatchTick < PlaybackWatchIntervalMs)
+            return;
+
+        lastPlaybackWatchTick = now;
+        try
+        {
+            WatchPlayback();
+        }
+        catch (Exception ex)
+        {
+            services.Log.Debug(ex, "Checking CrystalCast screens for player changes failed.");
+        }
+    }
+
+    private void WatchPlayback()
+    {
+        if (!configuration.Enabled)
+        {
+            playbackWatcher.Clear();
+            return;
+        }
+
+        var nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var screen in ScreenLimitPolicy.GetAllowedScreens(configuration.BrowserScreens).Where(screen => screen.Enabled))
+        {
+            if (!stateBuilder.TryBuildBrowserScreenState(screen, out var state))
+                continue;
+
+            seen.Add(screen.ScreenId);
+            var changes = playbackWatcher.Observe(state, nowUnixMs);
+            if (changes.Count == 0)
+                continue;
+
+            screen.LocalSequence++;
+            state.Sequence = screen.LocalSequence;
+            changePublisher.SendObservedChanges(state, changes);
+        }
+
+        playbackWatcher.Retain(seen);
+    }
+
+    private string GetCapabilitiesJson()
+    {
+        var webView2Available = WebView2BrowserFrameSource.TryGetWebView2Runtime(out var webView2Version, out var webView2Error);
+        var engine = configuration.YouTubeBrowserEngine;
+        var capabilities = new ScreenIpcCapabilities
+        {
+            ApiVersion = ApiVersion,
+            PluginVersion = typeof(ScreenStateIpc).Assembly.GetName().Version?.ToString() ?? string.Empty,
+            Enabled = configuration.Enabled,
+            Providers = BrowserSourceIpcAdapters.All.Select(adapter => adapter.ProviderKind.ToString()).ToArray(),
+            Limits = new ScreenIpcLimits
+            {
+                MaxUserScreens = Configuration.MaxBrowserScreens,
+                MaxIpcScreens = Configuration.MaxIpcBrowserScreens,
+                MaxScreens = Configuration.MaxRenderableBrowserScreens,
+                MaxActiveScreens = Configuration.MaxActiveBrowserScreens,
+                MaxRemoteScreens = RemoteScreenStateStore.MaxRemoteScreens,
+                MaxPayloadBytes = MaxPayloadBytes,
+                IpcScreensInUse = ScreenLimitPolicy.CountIpcScreens(configuration.BrowserScreens),
+            },
+            Browser = new ScreenIpcBrowserCapabilities
+            {
+                IsWine = WineEnvironment.IsWine,
+                Backend = engine.ToString(),
+                CaptureMode = BrowserPlatformPolicy.ResolveCaptureMode(engine, WineEnvironment.IsWine).ToString(),
+                NativeLinuxBrowserForProviders = BrowserPlatformPolicy.UsesWebKitGtk(engine, WineEnvironment.IsWine, BrowserSourceProviderKind.YouTube),
+                WebView2Available = webView2Available,
+                WebView2Version = webView2Available ? webView2Version : string.Empty,
+                WebView2Error = webView2Available ? string.Empty : webView2Error,
+            },
+        };
+        return IpcJsonService.Serialize(capabilities);
     }
 
     private void SendUnavailableForKnownLocalScreens()
@@ -218,7 +364,9 @@ public sealed class ScreenStateIpc : IDisposable
 
     public void Dispose()
     {
+        services.Framework.Update -= OnFrameworkUpdate;
         Unregister();
+        dispatcher.Dispose();
         remoteScreens.Clear();
         changePublisher.Clear();
     }
@@ -255,15 +403,13 @@ public sealed class ScreenStateIpc : IDisposable
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(json)
-                || json.Length > MaxStatePayloadBytes
-                || Encoding.UTF8.GetByteCount(json) > MaxStatePayloadBytes)
+            if (string.IsNullOrWhiteSpace(json) || !IpcPayloadLimit.TryCheck(json, out _))
             {
                 return new ScreenIpcApplyStateResponse
                 {
                     Success = false,
                     Result = ScreenIpcApplyStateResult.RejectedInvalid,
-                    Error = $"State payload must be at most {MaxStatePayloadBytes} UTF-8 bytes.",
+                    Error = $"State payload must be at most {MaxPayloadBytes} UTF-8 bytes.",
                 };
             }
 
@@ -304,7 +450,7 @@ public sealed class ScreenStateIpc : IDisposable
     private bool Remove(string screenId)
     {
         screenId = IpcJsonService.NormalizeText(screenId);
-        if (string.IsNullOrWhiteSpace(screenId))
+        if (string.IsNullOrWhiteSpace(screenId) || !IpcPayloadLimit.TryCheckScreenId(screenId, out _))
             return false;
 
         if (mutationService.Remove(screenId))

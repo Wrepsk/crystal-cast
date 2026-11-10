@@ -80,6 +80,21 @@ internal sealed class ScreenChangePublisher
         return false;
     }
 
+    /// <summary>
+    /// Sends what <see cref="ScreenPlaybackWatcher"/> saw change inside the player. Only screens already
+    /// announced get events; announcing new screens stays with the regular publish.
+    /// </summary>
+    public bool SendObservedChanges(ScreenStateEnvelope state, IReadOnlyCollection<ScreenIpcChangeKind> observedChanges)
+    {
+        if (observedChanges.Count == 0 || !localScreenFingerprints.ContainsKey(state.ScreenId))
+            return false;
+
+        var screen = FindBrowserScreen(state.ScreenId);
+        localScreenFingerprints[state.ScreenId] = BuildFingerprint(state, screen);
+        SendScreenChanged(state, screen, observedChanges);
+        return true;
+    }
+
     public void SendUnavailableEventsForMissingLocalScreens(HashSet<string> currentScreenIds)
     {
         foreach (var screenId in knownLocalScreenIds.Except(currentScreenIds, StringComparer.Ordinal).ToList())

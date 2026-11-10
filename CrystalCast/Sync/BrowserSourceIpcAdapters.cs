@@ -445,7 +445,11 @@ internal static class BrowserSourceIpcAdapters
             GetMutationPatch = request => request.GenericWeb,
             GetSourceUpdatePatch = request => request.GenericWeb,
             GetUrl = screen => screen.GenericWebUrl,
-            SetUrl = (screen, value) => screen.GenericWebUrl = value,
+            SetUrl = (screen, value) =>
+            {
+                screen.GenericWebUrl = value;
+                screen.GenericWebUrlFromIpc = true;
+            },
             GetAutoplay = screen => screen.GenericWebAutoplay,
             SetAutoplay = (screen, value) => screen.GenericWebAutoplay = value,
             GetLoop = screen => screen.LoopGenericWeb,

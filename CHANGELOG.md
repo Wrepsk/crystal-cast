@@ -4,6 +4,17 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- IPC: `CrystalCast.Ready` and `CrystalCast.Disposed` events, and `CrystalCast.GetCapabilities` (versions, providers, limits, Wine/WebView2 status). IPC API version is now 8.
+- IPC: `CrystalCast.Screen.Changed` now also reports changes made inside the player (pause or play in browser controls, a video ending, next playlist item, title loaded, seeks).
+
+### Fixed
+
+- IPC could change a user-created screen to a Generic Web address that then loaded without the approval prompt. IPC-set Generic Web addresses now need approval on every screen.
+- IPC calls from other plugins' background threads could change screens while the game was drawing them. Every call now runs on the game's main thread.
+- `Create`, `Update`, `UpdateSource`, `SetSourceLock` and `GetSourceState` now have the same 64 KiB size limit as `ApplyState`.
+
 ## 0.8.3 - 2026-11-10
 
 ### Changed

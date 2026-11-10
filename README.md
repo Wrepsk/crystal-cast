@@ -102,6 +102,8 @@ If WebView2 is missing or unsupported for a source, CrystalCast reports the fail
 CrystalCast exposes state-only IPC for media-screen synchronization:
 
 - `CrystalCast.ApiVersion`
+- `CrystalCast.GetCapabilities`
+- `CrystalCast.Ready` / `CrystalCast.Disposed` (events)
 - `CrystalCast.Screen.GetSnapshot`
 - `CrystalCast.Screen.ApplyState`
 - `CrystalCast.Screen.ApplyStateDetailed`
@@ -116,17 +118,23 @@ CrystalCast exposes state-only IPC for media-screen synchronization:
 
 The IPC payload intentionally exchanges screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. Received states are retained for snapshot consumers; CrystalCast does not automatically render remote states. It does not sync raw pixels or audio.
 
-API version 7 validates browser-only remote states, limits each payload to 64 KiB, stores at most 256 remote screens keyed by owner session and screen ID, and expires entries five minutes after their last accepted receipt. `ApplyState` remains a compatibility boolean API. `ApplyStateDetailed` accepts the same JSON state and returns a JSON result distinguishing `Applied`, `IgnoredDuplicate`, `IgnoredStale`, `IgnoredSelf`, `RejectedInvalid`, and `RejectedCapacity`.
+API version 8 runs every call on the game's main thread, so other plugins may call from any thread: calls from other threads wait up to 5 seconds for it and otherwise return an error. Every JSON argument is limited to 64 KiB and screen IDs to 256 characters.
+
+`CrystalCast.Ready` is sent when the IPC becomes available (plugin load, or IPC switched on in settings) and `CrystalCast.Disposed` before it goes away, so integrations can connect without polling `ApiVersion`. `CrystalCast.GetCapabilities` returns JSON with the API and plugin versions, supported providers, screen and payload limits, and the browser situation: Wine, configured backend, capture mode, and whether WebView2 is available (with its version or the reason it is not).
+
+The remote-state store validates browser-only remote states, stores at most 256 remote screens keyed by owner session and screen ID, and expires entries five minutes after their last accepted receipt. `ApplyState` remains a compatibility boolean API. `ApplyStateDetailed` accepts the same JSON state and returns a JSON result distinguishing `Applied`, `IgnoredDuplicate`, `IgnoredStale`, `IgnoredSelf`, `RejectedInvalid`, and `RejectedCapacity`.
 
 `CrystalCast.Screen.Create`, `CrystalCast.Screen.Update`, `CrystalCast.Screen.UpdateSource`, and `CrystalCast.Screen.SetSourceLock` accept camel-case JSON strings and return a JSON result with `success`, `error`, `screenId`, and a screen summary when applicable. IPC-created browser screens are marked separately from user-created screens: the normal UI creation limit remains 8 screens, IPC can create up to 56 screens, and the combined render cap is 64.
 
 `Create`/`Update` support `name`, `ownerId`, `enabled`, `activate`, `sourceControlsLocked`, `sourceControlsOwnerId`, `placement`, `provider`, `youtube`, `twitch`, `dailymotion`, `vimeo`, and `genericWeb` settings. `UpdateSource` supports `screenId`, `ownerId`, `activate`, `provider`, `youtube`, `twitch`, `dailymotion`, `vimeo`, and `genericWeb` for source-only updates. Source locks protect owner-controlled source and placement fields such as URL, play/pause, seek/progress, loop, autoplay, playback rate, world position, rotation, size, and visual placement from the local UI only; IPC updates remain authoritative. Audio, spatial-audio, browser resolution, and capture FPS remain locally adjustable.
 
+A Generic Web address set through IPC needs the user's approval before it loads, on any screen, not only on IPC-created ones. It stays that way until the user types an address for that screen.
+
 `ownerId` identifies the external integration or sync owner associated with a screen. It is coordination metadata and is not a security boundary. `sourceControlsOwnerId` is displayed in the UI when source controls are locked.
 
 `CrystalCast.Screen.GetSourceState` accepts a screen ID and returns the current provider and source-specific state. For browser screens this includes the configured URL, canonical URL/source identity, title, playback state, position, duration, rate, and host timestamp when available.
 
-`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, IPC-created-screen, or screen-availability changes. The event includes `changes` and the current screen state envelope. When a previously visible local screen is disabled, deleted, or made unavailable by disabling CrystalCast, `changes` contains `Unavailable` and `state` is `null` so sync consumers can refresh snapshots and remove stale remote screens.
+`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, IPC-created-screen, or screen-availability changes. Changes made inside the player itself are included as well: pausing in browser controls, a video ending, the next playlist item, a title loading, and seeks (a position more than 2 seconds from where playback should be). These are checked four times a second; normal playback progress does not send events. The event includes `changes` and the current screen state envelope. When a previously visible local screen is disabled, deleted, or made unavailable by disabling CrystalCast, `changes` contains `Unavailable` and `state` is `null` so sync consumers can refresh snapshots and remove stale remote screens.
 
 ## Safety and scope
 

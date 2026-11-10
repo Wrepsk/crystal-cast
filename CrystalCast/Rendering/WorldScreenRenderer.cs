@@ -1144,8 +1144,7 @@ public sealed class WorldScreenManager : IDisposable
                 return;
             }
 
-            var approvalRequired = browserScreen.CreatedByIpc
-                && browserScreen.ProviderKind == BrowserSourceProviderKind.GenericWeb;
+            var approvalRequired = browserScreen.RequiresGenericWebIpcApproval;
             var access = approvalRequired
                 ? services.GenericWebIpcApprovals.EvaluateInitial(browserScreen)
                 : GenericWebIpcAccess.Allowed;

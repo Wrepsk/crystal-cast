@@ -502,7 +502,11 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             LoopLabel = "Loop media",
             RequireDurationForSeek = true,
             GetUrl = screen => screen.GenericWebUrl,
-            SetUrl = (screen, value) => screen.GenericWebUrl = value,
+            SetUrl = (screen, value) =>
+            {
+                screen.GenericWebUrl = value;
+                screen.GenericWebUrlFromIpc = false;
+            },
             GetBrowserWidth = screen => screen.GenericWebBrowserWidth,
             GetBrowserHeight = screen => screen.GenericWebBrowserHeight,
             SetBrowserResolution = (screen, width, height) =>

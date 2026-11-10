@@ -286,6 +286,44 @@ public sealed class GenericWebSourceStateDto
     public long HostTimestampUnixMs { get; set; }
 }
 
+/// <summary>Answer of <c>CrystalCast.GetCapabilities</c>.</summary>
+public sealed class ScreenIpcCapabilities
+{
+    public int SchemaVersion { get; set; } = 1;
+    public int ApiVersion { get; set; }
+    public string PluginVersion { get; set; } = string.Empty;
+
+    /// <summary>Whether CrystalCast's screens are switched on; IPC calls work either way.</summary>
+    public bool Enabled { get; set; }
+
+    public string[] Providers { get; set; } = [];
+    public ScreenIpcLimits Limits { get; set; } = new();
+    public ScreenIpcBrowserCapabilities Browser { get; set; } = new();
+}
+
+public sealed class ScreenIpcLimits
+{
+    public int MaxUserScreens { get; set; }
+    public int MaxIpcScreens { get; set; }
+    public int MaxScreens { get; set; }
+    public int MaxActiveScreens { get; set; }
+    public int MaxRemoteScreens { get; set; }
+    public int MaxPayloadBytes { get; set; }
+    public int IpcScreensInUse { get; set; }
+}
+
+/// <summary>Whether this player can show browser screens, and with what.</summary>
+public sealed class ScreenIpcBrowserCapabilities
+{
+    public bool IsWine { get; set; }
+    public string Backend { get; set; } = string.Empty;
+    public string CaptureMode { get; set; } = string.Empty;
+    public bool NativeLinuxBrowserForProviders { get; set; }
+    public bool WebView2Available { get; set; }
+    public string WebView2Version { get; set; } = string.Empty;
+    public string WebView2Error { get; set; } = string.Empty;
+}
+
 public enum ScreenIpcChangeKind
 {
     Created = 1,

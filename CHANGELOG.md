@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.1 - 2026-11-11
+
 ### Changed
 
 - **Settings > Browser > JPEG capture size** now also offers 480p, 1440p and the screen's own resolution up to 4K, besides 720p and 1080p. Frames never exceed the screen's resolution, so the larger sizes only help screens set above 1080p.

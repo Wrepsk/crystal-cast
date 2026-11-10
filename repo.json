@@ -1,0 +1,16 @@
+[
+  {
+    "Author": "Wrepsk",
+    "Name": "Crystal Cast",
+    "InternalName": "CrystalCast",
+    "AssemblyVersion": "0.9.0.0",
+    "Description": "Renders a local-only world-space image/video screen. Use /crystalcast to configure placement, source, and sync IPC state.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/Wrepsk/crystal-cast",
+    "DalamudApiLevel": 15,
+    "IconUrl": "",
+    "Punchline": "World-space video screens.",
+    "DownloadLinkInstall": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.0/CrystalCast-0.9.0.zip",
+    "DownloadLinkUpdate": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.0/CrystalCast-0.9.0.zip"
+  }
+]

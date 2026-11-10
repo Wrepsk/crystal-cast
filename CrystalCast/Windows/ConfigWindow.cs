@@ -359,8 +359,23 @@ public sealed class ConfigWindow : Window, IDisposable
 
     // ---------------------------------------------------------------- Browser
 
-    private static string JpegResolutionName(JpegCaptureResolution resolution) =>
-        resolution == JpegCaptureResolution.Reduced720p ? "720p (lighter)" : "1080p";
+    private static readonly JpegCaptureResolution[] JpegResolutionOptions =
+    [
+        JpegCaptureResolution.Low480p,
+        JpegCaptureResolution.Reduced720p,
+        JpegCaptureResolution.Full1080p,
+        JpegCaptureResolution.High1440p,
+        JpegCaptureResolution.ScreenSize,
+    ];
+
+    private static string JpegResolutionName(JpegCaptureResolution resolution) => resolution switch
+    {
+        JpegCaptureResolution.Low480p => "480p (lightest)",
+        JpegCaptureResolution.Reduced720p => "720p (lighter)",
+        JpegCaptureResolution.High1440p => "1440p (heavier)",
+        JpegCaptureResolution.ScreenSize => "Screen size, up to 4K (heaviest)",
+        _ => "1080p",
+    };
 
     /// <summary>Size and delete button for the WebView2 copy the Wine setup downloaded.</summary>
     private void DrawDownloadedWebView2()
@@ -454,7 +469,7 @@ public sealed class ConfigWindow : Window, IDisposable
         Ui.RowLabel("JPEG capture size", LabelWidth, LabelGap);
         if (Ui.BeginDropdown("##JpegCaptureSize", JpegResolutionName(jpegResolution), S(320.0f)))
         {
-            foreach (var option in new[] { JpegCaptureResolution.Full1080p, JpegCaptureResolution.Reduced720p })
+            foreach (var option in JpegResolutionOptions)
             {
                 if (Ui.MenuItem($"{JpegResolutionName(option)}##JpegSize{(int)option}", option == jpegResolution)
                     && option != jpegResolution)
@@ -468,7 +483,9 @@ public sealed class ConfigWindow : Window, IDisposable
         }
 
         Ui.RowIndent(LabelWidth, LabelGap);
-        Ui.Meta("Largest frame JPEG capture sends to the game, never above the screen's browser size. 720p uses less CPU; try it if JPEG capture stutters.");
+        Ui.Meta(jpegResolution is JpegCaptureResolution.High1440p or JpegCaptureResolution.ScreenSize
+            ? "Largest frame JPEG capture sends to the game, never above the screen's resolution. Only screens set above 1080p get sharper, and each frame costs much more CPU, especially on Linux; expect a lower frame rate there."
+            : "Largest frame JPEG capture sends to the game, never above the screen's resolution. Smaller sizes use less CPU; try 720p or 480p if JPEG capture stutters.");
 
         if (webKitGtkSelected)
         {

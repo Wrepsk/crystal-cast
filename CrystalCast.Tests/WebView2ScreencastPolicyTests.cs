@@ -27,6 +27,39 @@ public sealed class WebView2ScreencastPolicyTests
         Assert.Contains("720p setting", settings.Reason, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(JpegCaptureResolution.Low480p, 854, 480)]
+    [InlineData(JpegCaptureResolution.Reduced720p, 1280, 720)]
+    [InlineData(JpegCaptureResolution.Full1080p, 1920, 1080)]
+    [InlineData(JpegCaptureResolution.High1440p, 2560, 1440)]
+    [InlineData(JpegCaptureResolution.ScreenSize, 3840, 2160)]
+    public void EverySizeCapsA4KScreen(JpegCaptureResolution resolution, int expectedWidth, int expectedHeight)
+    {
+        var settings = WebView2ScreencastPolicy.Resolve(3840, 2160, resolution, overrideValue: null);
+
+        Assert.Equal(expectedWidth, settings.MaxWidth);
+        Assert.Equal(expectedHeight, settings.MaxHeight);
+    }
+
+    [Theory]
+    [InlineData(JpegCaptureResolution.High1440p)]
+    [InlineData(JpegCaptureResolution.ScreenSize)]
+    public void LargerSizesNeverExceedTheScreen(JpegCaptureResolution resolution)
+    {
+        var settings = WebView2ScreencastPolicy.Resolve(1280, 720, resolution, overrideValue: null);
+
+        Assert.Equal(1280, settings.MaxWidth);
+        Assert.Equal(720, settings.MaxHeight);
+    }
+
+    [Fact]
+    public void SavedNumbersStayTheSame()
+    {
+        // Saved configurations store these numbers.
+        Assert.Equal(0, (int)JpegCaptureResolution.Full1080p);
+        Assert.Equal(1, (int)JpegCaptureResolution.Reduced720p);
+    }
+
     [Fact]
     public void SmallerScreensKeepTheirOwnSize()
     {
@@ -51,6 +84,8 @@ public sealed class WebView2ScreencastPolicyTests
     [Theory]
     [InlineData("1080", JpegCaptureResolution.Reduced720p, 1080)]
     [InlineData("720", JpegCaptureResolution.Full1080p, 720)]
+    [InlineData("480", JpegCaptureResolution.Full1080p, 480)]
+    [InlineData("full", JpegCaptureResolution.Low480p, 1080)]
     public void OverrideWinsOverTheSetting(string value, JpegCaptureResolution setting, int expectedHeight)
     {
         var settings = WebView2ScreencastPolicy.Resolve(1920, 1080, setting, value);
@@ -72,6 +107,7 @@ public sealed class WebView2ScreencastPolicyTests
     {
         Assert.Equal(JpegCaptureResolution.Full1080p, BrowserMediaEnginePolicy.Normalize((JpegCaptureResolution)42));
         Assert.Equal(JpegCaptureResolution.Reduced720p, BrowserMediaEnginePolicy.Normalize(JpegCaptureResolution.Reduced720p));
+        Assert.Equal(JpegCaptureResolution.ScreenSize, BrowserMediaEnginePolicy.Normalize(JpegCaptureResolution.ScreenSize));
     }
 
     [Fact]

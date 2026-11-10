@@ -62,7 +62,7 @@ CrystalCast supports two WebView2 capture paths:
 
 In Auto mode on Windows, CrystalCast prefers WebView2 window capture and falls back to WebView2 JPEG capture when Windows Graphics Capture is unavailable.
 
-WebView2 JPEG capture receives JPEG frames from the browser's DevTools screencast (up to 1080p, or 720p with **Settings > Browser > JPEG capture size**) and falls back to browser screenshots if the screencast cannot start. It is not a raw frame or texture feed, so it can have lower quality or higher CPU use than window capture. WebView2 window capture uses Windows Graphics Capture, synchronizes its shared D3D texture with keyed mutexes, and falls back to JPEG capture if the OS, capture session, or graphics device becomes unavailable.
+WebView2 JPEG capture receives JPEG frames from the browser's DevTools screencast (up to 1080p by default; **Settings > Browser > JPEG capture size** offers 480p, 720p, 1440p or the screen's own resolution up to 4K) and falls back to browser screenshots if the screencast cannot start. It is not a raw frame or texture feed, so it can have lower quality or higher CPU use than window capture. WebView2 window capture uses Windows Graphics Capture, synchronizes its shared D3D texture with keyed mutexes, and falls back to JPEG capture if the OS, capture session, or graphics device becomes unavailable.
 
 ### Experimental Wine support
 

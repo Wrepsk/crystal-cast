@@ -6,6 +6,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Changed
 
+- **Settings > Browser > JPEG capture size** now also offers 480p, 1440p and the screen's own resolution up to 4K, besides 720p and 1080p. Frames never exceed the screen's resolution, so the larger sizes only help screens set above 1080p.
 - The **Let other plugins add videos** switch is no longer shown on screens created through IPC. On those screens the plugin that created the screen (its `ownerId`) and the source-lock owner can add videos, skip, reorder, clear and change Shuffle and Loop playlist.
 - **Scene composite** is now the default output layer on Linux (Wine) as on Windows, after it was confirmed to work there. The **Try experimental scene composite** switch is gone. Wine configurations saved with the old native-overlay default move to Scene composite once; picking Native overlay afterwards sticks. A scene-composite callback failure now selects native overlay until you switch layers on every platform, not only under Wine.
 

@@ -6,11 +6,14 @@ internal readonly record struct WebView2ScreencastSettings(bool Enabled, int Max
 /// <summary>
 /// Picks the screencast frame size for WebView2's JPEG capture mode. Chromium scales each frame to fit
 /// the limits, so this only caps the JPEG size; the browser still lays the page out at the screen size.
-/// 1080p is the default everywhere; 720p halves the encode and decode work for slower machines.
+/// 1080p is the default everywhere. Smaller limits cut the encode and decode work for slower machines;
+/// larger ones only matter for screens set above 1080p, and cost CPU in proportion to the pixels.
 /// </summary>
 internal static class WebView2ScreencastPolicy
 {
-    /// <summary>Test switch: "off" (or "0") uses screenshots, "720" or "1080" overrides the setting.</summary>
+    /// <summary>
+    /// Test switch: "off" (or "0") uses screenshots; "480", "720", "1080", "1440" or "full" overrides the setting.
+    /// </summary>
     public const string OverrideVariable = "CRYSTALCAST_WEBVIEW2_SCREENCAST";
 
     public const int Quality = 80;
@@ -21,13 +24,20 @@ internal static class WebView2ScreencastPolicy
         if (value is "0" or "off" or "false" or "no")
             return new WebView2ScreencastSettings(false, 0, 0, Quality, $"{OverrideVariable}={overrideValue!.Trim()}");
 
-        var (capWidth, capHeight, reason) = value switch
+        JpegCaptureResolution? overridden = value switch
         {
-            "720" or "720p" => (1280, 720, $"{OverrideVariable}={overrideValue!.Trim()}"),
-            "1080" or "1080p" => (1920, 1080, $"{OverrideVariable}={overrideValue!.Trim()}"),
-            _ when resolution == JpegCaptureResolution.Reduced720p => (1280, 720, "720p setting"),
-            _ => (1920, 1080, "1080p setting"),
+            "480" or "480p" => JpegCaptureResolution.Low480p,
+            "720" or "720p" => JpegCaptureResolution.Reduced720p,
+            "1080" or "1080p" => JpegCaptureResolution.Full1080p,
+            "1440" or "1440p" => JpegCaptureResolution.High1440p,
+            "full" or "max" or "screen" => JpegCaptureResolution.ScreenSize,
+            _ => null,
         };
+        var chosen = overridden ?? BrowserMediaEnginePolicy.Normalize(resolution);
+        var (capWidth, capHeight) = GetLimit(chosen);
+        var reason = overridden != null
+            ? $"{OverrideVariable}={overrideValue!.Trim()}"
+            : $"{Describe(chosen)} setting";
 
         return new WebView2ScreencastSettings(
             true,
@@ -36,6 +46,25 @@ internal static class WebView2ScreencastPolicy
             Quality,
             reason);
     }
+
+    /// <summary>The largest frame for each setting; screen size means the 4K maximum screens allow.</summary>
+    public static (int Width, int Height) GetLimit(JpegCaptureResolution resolution) => resolution switch
+    {
+        JpegCaptureResolution.Low480p => (854, 480),
+        JpegCaptureResolution.Reduced720p => (1280, 720),
+        JpegCaptureResolution.High1440p => (2560, 1440),
+        JpegCaptureResolution.ScreenSize => (3840, 2160),
+        _ => (1920, 1080),
+    };
+
+    private static string Describe(JpegCaptureResolution resolution) => resolution switch
+    {
+        JpegCaptureResolution.Low480p => "480p",
+        JpegCaptureResolution.Reduced720p => "720p",
+        JpegCaptureResolution.High1440p => "1440p",
+        JpegCaptureResolution.ScreenSize => "screen size",
+        _ => "1080p",
+    };
 }
 
 /// <summary>

@@ -124,3 +124,54 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub release publication failed."
           }
+
+  update-plugin-repo:
+    # Points the Dalamud plugin repository (repo.json on the "repo" branch) at the release just published.
+    name: Update repo.json
+    runs-on: ubuntu-24.04
+    needs: release
+    concurrency:
+      group: plugin-repo
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out repo branch
+        uses: actions/checkout@v5
+        with:
+          ref: repo
+
+      - name: Update version and download links
+        env:
+          TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          # Dalamud wants four parts: 0.9.0 -> 0.9.0.0.
+          version="$TAG"
+          while [ "$(printf '%s' "$version" | tr -cd '.' | wc -c)" -lt 3 ]; do version="$version.0"; done
+
+          # Re-running an older tag must not move the repository back to it.
+          current=$(jq -r '.[0].AssemblyVersion' repo.json)
+          newest=$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)
+          if [ "$newest" != "$version" ]; then
+            echo "repo.json already has $current, newer than $version; leaving it."
+            exit 0
+          fi
+
+          link="https://github.com/$REPOSITORY/releases/download/$TAG/CrystalCast-$TAG.zip"
+          jq --arg version "$version" --arg link "$link" \
+            'map(if .InternalName == "CrystalCast"
+                 then .AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link
+                 else . end)' \
+            repo.json > repo.json.new
+          mv repo.json.new repo.json
+
+          if git diff --quiet; then
+            echo "repo.json already points at $TAG."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Point repo.json at $TAG"
+          git push origin HEAD:repo

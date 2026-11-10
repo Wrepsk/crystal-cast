@@ -37,6 +37,12 @@ public sealed class WorldScreenManager : IDisposable
     public string LastGraphicsError { get; private set; } = "none recorded";
     public string SceneCompositeStatus => renderBackend?.SceneCompositeStatus ?? "CrystalRenderer is not initialized";
     public ScreenOutputMode? EffectiveOutputMode { get; private set; }
+
+    /// <summary>
+    /// True while screens are hidden because no output layer can draw them: native overlay was needed and
+    /// isn't available. CrystalCast doesn't fall back to drawing screens through ImGui.
+    /// </summary>
+    public bool IsOutputUnavailable { get; private set; }
     public string? SceneCompositeFallbackReason => renderOutputPolicy.FallbackReason;
     public string SourceStatus => ActiveInstance?.SourceStatus ?? "no dynamic source";
     public string AudioStatus => ActiveInstance?.AudioStatus ?? "audio stopped";
@@ -118,8 +124,7 @@ public sealed class WorldScreenManager : IDisposable
             catch (Exception ex)
             {
                 // The callback may leave resources unusable even without a device-loss HRESULT.
-                if (WineEnvironment.IsWine && configuration.EnableWineSceneComposite
-                    && !NativeGraphicsError.IsDeviceLost(ex))
+                if (!NativeGraphicsError.IsDeviceLost(ex))
                     renderOutputPolicy.ReportSceneCompositeFailure();
                 HandleGraphicsFailure(ex);
                 return;
@@ -399,6 +404,7 @@ public sealed class WorldScreenManager : IDisposable
             });
             Status = "CrystalRenderer ready";
             EffectiveOutputMode = null;
+            IsOutputUnavailable = false;
             renderOutputPolicy.ResetAfterGraphicsInitialization();
         }
         catch (Exception ex)
@@ -436,6 +442,7 @@ public sealed class WorldScreenManager : IDisposable
     private void HandleGraphicsFailure(Exception exception)
     {
         EffectiveOutputMode = null;
+        IsOutputUnavailable = false;
         var failure = NativeGraphicsError.IsDeviceLost(exception) ? "graphics device lost" : "render callback failed";
         LastDrawStatus = $"{failure}; retrying: {exception.GetBaseException().Message}";
         Status = failure;
@@ -527,7 +534,15 @@ public sealed class WorldScreenManager : IDisposable
             return;
         }
 
-        using var renderFrame = renderBackend?.BeginFrame(output);
+        if (output is not { } layer)
+        {
+            renderBackend?.CancelSceneComposite("no output layer available");
+            renderBackend?.HideNativeOverlay();
+            LastDrawStatus = "screens hidden: Dalamud's native overlay isn't available";
+            return;
+        }
+
+        using var renderFrame = renderBackend?.BeginFrame(layer);
 
         if (renderFrame == null)
         {
@@ -567,9 +582,9 @@ public sealed class WorldScreenManager : IDisposable
             throw;
         }
 
-        LastDrawStatus = $"{DescribeDrawMode(output)} drawn {drawnCount}/{prepared.Count} prepared screen{(prepared.Count == 1 ? string.Empty : "s")}";
+        LastDrawStatus = $"{DescribeDrawMode(layer)} drawn {drawnCount}/{prepared.Count} prepared screen{(prepared.Count == 1 ? string.Empty : "s")}";
         if (renderOutputPolicy.FallbackReason is { } reason)
-            LastDrawStatus += $"; {DescribeDrawMode(output)} fallback: {reason}";
+            LastDrawStatus += $"; {DescribeDrawMode(layer)} fallback: {reason}";
     }
 
     private void SyncBrowserScreens()
@@ -638,27 +653,28 @@ public sealed class WorldScreenManager : IDisposable
         }
     }
 
-    private RenderOutput GetRenderOutput()
+    /// <summary>
+    /// The layer to draw on: scene composite, or the native overlay (also the scene-composite fallback).
+    /// Null when the native overlay is needed but missing; screens are then hidden rather than drawn through
+    /// ImGui, which doesn't layer correctly with the game.
+    /// </summary>
+    private RenderOutput? GetRenderOutput()
     {
-        var mode = renderOutputPolicy.Resolve(configuration.OutputMode, WineEnvironment.IsWine,
+        var mode = renderOutputPolicy.Resolve(configuration.OutputMode,
             (renderBackend?.IsSceneCompositeHookUnavailable ?? true),
-            (renderBackend?.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout) == true),
-            configuration.EnableWineSceneComposite);
+            (renderBackend?.IsSceneCompositeStalled(RenderOutputPolicy.StallTimeout) == true));
         if (mode != ScreenOutputMode.SceneComposite)
             renderBackend?.CancelSceneComposite(renderOutputPolicy.FallbackReason ?? "output layer changed");
-        var output = mode switch
-        {
-            ScreenOutputMode.NativeOverlay => (renderBackend?.IsNativeOverlayAvailable == true)
-                ? RenderOutput.NativeOverlay : RenderOutput.ImGuiOverlay,
-            ScreenOutputMode.SceneComposite => RenderOutput.SceneComposite,
-            _ => RenderOutput.ImGuiOverlay,
-        };
+        RenderOutput? output = mode == ScreenOutputMode.SceneComposite
+            ? RenderOutput.SceneComposite
+            : renderBackend?.IsNativeOverlayAvailable == true ? RenderOutput.NativeOverlay : null;
         EffectiveOutputMode = output switch
         {
             RenderOutput.SceneComposite => ScreenOutputMode.SceneComposite,
             RenderOutput.NativeOverlay => ScreenOutputMode.NativeOverlay,
-            _ => ScreenOutputMode.ImGuiOverlay,
+            _ => null,
         };
+        IsOutputUnavailable = output == null;
         return output;
     }
 
@@ -668,7 +684,6 @@ public sealed class WorldScreenManager : IDisposable
         {
             RenderOutput.SceneComposite => "scene composite",
             RenderOutput.NativeOverlay => "native overlay",
-            RenderOutput.ImGuiOverlay => "ImGui overlay",
             _ => "manual",
         };
     }

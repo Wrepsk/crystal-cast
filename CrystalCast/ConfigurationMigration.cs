@@ -1,8 +1,12 @@
+using CrystalCast.Video;
+
 namespace CrystalCast;
 
 internal static class ConfigurationMigration
 {
-    public static bool Normalize(Configuration configuration)
+    public static bool Normalize(Configuration configuration) => Normalize(configuration, WineEnvironment.IsWine);
+
+    internal static bool Normalize(Configuration configuration, bool isWine)
     {
         var changed = false;
         var migratingFromLocalVideo = (int)configuration.SourceKind == 2;
@@ -42,6 +46,16 @@ internal static class ConfigurationMigration
                 configuration.BrowserScreens.Add(configuration.CreateBrowserScreenFromLegacySettings("Browser screen 1"));
 
             configuration.BrowserScreensInitialized = true;
+            changed = true;
+        }
+
+        // Native overlay was the only default under Wine until scene composite was confirmed to work there.
+        if (!configuration.WineSceneCompositeDefaultApplied && isWine)
+        {
+            if (configuration.OutputMode == ScreenOutputMode.NativeOverlay)
+                configuration.OutputMode = ScreenOutputMode.SceneComposite;
+
+            configuration.WineSceneCompositeDefaultApplied = true;
             changed = true;
         }
 

@@ -3,18 +3,34 @@ namespace CrystalCast.Tests;
 public sealed class ConfigurationTests
 {
     [Fact]
-    public void ExistingSceneOutputRequiresSeparateWineOptIn()
+    public void ExistingSceneOutputIsKept()
     {
         var configuration = System.Text.Json.JsonSerializer.Deserialize<Configuration>("{\"Version\":3,\"OutputMode\":2}")!;
         configuration.Normalize();
         Assert.Equal(ScreenOutputMode.SceneComposite, configuration.OutputMode);
-        Assert.False(configuration.EnableWineSceneComposite);
+    }
 
-        configuration.EnableWineSceneComposite = true;
-        var restored = System.Text.Json.JsonSerializer.Deserialize<Configuration>(
-            System.Text.Json.JsonSerializer.Serialize(configuration))!;
-        restored.Normalize();
-        Assert.True(restored.EnableWineSceneComposite);
+    [Fact]
+    public void WineConfigurationsMoveToSceneCompositeOnce()
+    {
+        var configuration = new Configuration { OutputMode = ScreenOutputMode.NativeOverlay };
+        Assert.True(ConfigurationMigration.Normalize(configuration, isWine: true));
+        Assert.Equal(ScreenOutputMode.SceneComposite, configuration.OutputMode);
+        Assert.True(configuration.WineSceneCompositeDefaultApplied);
+
+        // Choosing native overlay afterwards sticks.
+        configuration.OutputMode = ScreenOutputMode.NativeOverlay;
+        ConfigurationMigration.Normalize(configuration, isWine: true);
+        Assert.Equal(ScreenOutputMode.NativeOverlay, configuration.OutputMode);
+    }
+
+    [Fact]
+    public void WindowsKeepsANativeOverlayChoice()
+    {
+        var configuration = new Configuration { OutputMode = ScreenOutputMode.NativeOverlay };
+        ConfigurationMigration.Normalize(configuration, isWine: false);
+        Assert.Equal(ScreenOutputMode.NativeOverlay, configuration.OutputMode);
+        Assert.False(configuration.WineSceneCompositeDefaultApplied);
     }
 
     [Fact]
@@ -172,6 +188,7 @@ public sealed class ConfigurationTests
     }
 
     [Theory]
+    [InlineData(0)]
     [InlineData(3)]
     [InlineData(99)]
     public void NormalizeRepairsLegacyOrInvalidOutputModes(int serializedValue)

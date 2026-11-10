@@ -7,11 +7,16 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 ### Changed
 
 - The **Let other plugins add videos** switch is no longer shown on screens created through IPC. On those screens the plugin that created the screen (its `ownerId`) and the source-lock owner can add videos, skip, reorder, clear and change Shuffle and Loop playlist.
+- **Scene composite** is now the default output layer on Linux (Wine) as on Windows, after it was confirmed to work there. The **Try experimental scene composite** switch is gone. Wine configurations saved with the old native-overlay default move to Scene composite once; picking Native overlay afterwards sticks. A scene-composite callback failure now selects native overlay until you switch layers on every platform, not only under Wine.
 
 ### Added
 
 - On screens created through IPC the Playlist tab is read-only for the user: adding, Shuffle, Loop playlist, Skip, Clear, Play now, reordering and removing are all blocked.
 - IPC: `playlistAllowUserAdds` on `Screen.Create` and `Screen.Update` for screens created through IPC. Off by default; when on, the user can add videos to that screen, and nothing else. The playlist state reports it as `allowUserAdds`, and `allowIpcAdds` is now always false on those screens.
+
+### Removed
+
+- The **ImGui overlay** output layer is no longer offered in Settings > Rendering; it caused problems when selected. A saved ImGui overlay choice moves to the default, scene composite. CrystalCast also no longer falls back to drawing through ImGui when Dalamud's native overlay isn't available; screens are hidden instead, and Settings > Rendering and the diagnostics say why.
 
 ## 0.9.0 - 2026-11-10
 

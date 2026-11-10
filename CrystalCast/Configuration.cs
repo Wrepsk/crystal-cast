@@ -43,7 +43,12 @@ public class Configuration : IPluginConfiguration
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
     public ScreenOutputMode OutputMode { get; set; } = DefaultOutputMode;
-    public bool EnableWineSceneComposite { get; set; }
+
+    /// <summary>
+    /// Wine used to default to native overlay; set once a Wine configuration has been moved to scene
+    /// composite, so a later native overlay choice sticks.
+    /// </summary>
+    public bool WineSceneCompositeDefaultApplied { get; set; }
     public bool ShowDebugMarker { get; set; }
     public bool EnableGpuDiagnostics { get; set; }
     public bool PlacementGizmoEnabled { get; set; }
@@ -75,8 +80,7 @@ public class Configuration : IPluginConfiguration
     public List<ScreenPlacementPreset> PlacementPresets { get; set; } = [];
     public string ActivePlacementPresetId { get; set; } = string.Empty;
 
-    public static ScreenOutputMode DefaultOutputMode => Rendering.RenderOutputPolicy.GetDefault(
-        OperatingSystem.IsWindows(), WineEnvironment.IsWine);
+    public static ScreenOutputMode DefaultOutputMode => Rendering.RenderOutputPolicy.GetDefault();
 
     public bool Normalize()
     {

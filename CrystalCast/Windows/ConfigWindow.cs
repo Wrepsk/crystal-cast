@@ -20,7 +20,6 @@ public sealed class ConfigWindow : Window, IDisposable
     [
         (ScreenOutputMode.SceneComposite, "Scene composite"),
         (ScreenOutputMode.NativeOverlay, "Native overlay"),
-        (ScreenOutputMode.ImGuiOverlay, "ImGui overlay"),
     ];
 
     private static readonly (BrowserMediaEngine Engine, string Name)[] BrowserEngines =
@@ -218,22 +217,13 @@ public sealed class ConfigWindow : Window, IDisposable
         Ui.VerticalSpace(14.0f);
         Ui.Label(GetOutputModeDescription(config.OutputMode), wrap: true);
 
-        if (WineEnvironment.IsWine && config.OutputMode == ScreenOutputMode.SceneComposite)
+        if (renderer.IsOutputUnavailable)
         {
             ImGui.Spacing();
-            var enableWineSceneComposite = config.EnableWineSceneComposite;
-            Ui.RowLabel("Under Wine", LabelWidth, LabelGap);
-            if (Ui.SwitchLabeled("##WineSceneComposite", "Try experimental scene composite", ref enableWineSceneComposite))
-            {
-                config.EnableWineSceneComposite = enableWineSceneComposite;
-                changed = true;
-            }
-
-            Ui.RowIndent(LabelWidth, LabelGap);
-            Ui.Meta("Unverified on Linux. Falls back to overlay output if scene compositing fails or stops responding.");
+            Ui.Banner("OutputUnavailable", BannerKind.Error, "Screens are hidden",
+                "Dalamud's native overlay isn't available, and CrystalCast doesn't draw screens through ImGui. Reload the plugin to retry, or pick Scene composite.");
         }
-
-        if (config.OutputMode == ScreenOutputMode.SceneComposite && renderer.SceneCompositeFallbackReason is { } fallback)
+        else if (config.OutputMode == ScreenOutputMode.SceneComposite && renderer.SceneCompositeFallbackReason is { } fallback)
         {
             ImGui.Spacing();
             Ui.Banner("SceneFallback", BannerKind.Warning, "Using overlay output", $"{fallback}. Switch output layers and back to retry.");
@@ -362,11 +352,8 @@ public sealed class ConfigWindow : Window, IDisposable
     {
         return outputMode switch
         {
-            ScreenOutputMode.SceneComposite => WineEnvironment.IsWine
-                ? "Draws into the game scene before native UI. Requires the experimental option below."
-                : "Draws into the game scene before native UI, behind nameplates.",
-            ScreenOutputMode.NativeOverlay => "Uses Dalamud's native overlay path: behind everything except nameplates.",
-            _ => "Compatibility path drawn through the plugin UI layer, in front of all UI.",
+            ScreenOutputMode.SceneComposite => "Draws into the game scene before native UI, behind nameplates.",
+            _ => "Uses Dalamud's native overlay path: behind everything except nameplates.",
         };
     }
 

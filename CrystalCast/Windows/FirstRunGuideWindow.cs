@@ -198,7 +198,6 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
             "Choose how the screen is layered",
             "Scene composite places the screen behind everything, including object and player nameplates.",
             "Native overlay places the screen behind everything except nameplates.",
-            "ImGui overlay places the screen in front of all UI elements.",
             "If a screen is invisible or does not render correctly, try a different output layer in Settings > Rendering.");
 
         Ui.Card(

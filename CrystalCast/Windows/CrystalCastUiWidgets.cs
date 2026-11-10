@@ -1159,8 +1159,7 @@ internal static class CrystalCastUiWidgets
         var (crystalTop, uiTop) = mode switch
         {
             ScreenOutputMode.SceneComposite => (28.0f, 8.0f),
-            ScreenOutputMode.NativeOverlay => (18.0f, 14.0f),
-            _ => (4.0f, 26.0f),
+            _ => (18.0f, 14.0f),
         };
 
         var ui = Layer(uiTop);
@@ -1180,16 +1179,8 @@ internal static class CrystalCastUiWidgets
                 DashedLine(dl, ui[i], ui[(i + 1) % 4], U32(WithAlpha(TextTertiary, alpha)), S(3.0f), S(3.0f));
         }
 
-        if (mode == ScreenOutputMode.ImGuiOverlay)
-        {
-            DrawUi();
-            DrawCrystal();
-        }
-        else
-        {
-            DrawCrystal();
-            DrawUi();
-        }
+        DrawCrystal();
+        DrawUi();
     }
 
     // ---------------------------------------------------------------- helper-window layout

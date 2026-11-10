@@ -48,9 +48,9 @@ internal static class DiagnosticsReportBuilder
         Append(report, "Game viewport", $"{graphics.ViewportWidth} x {graphics.ViewportHeight}");
         Append(report, "Graphics query", graphics.Status);
         Append(report, "Configured output layer", DescribeOutputMode(configuration.OutputMode));
-        Append(report, "Experimental Wine scene composite", YesNo(configuration.EnableWineSceneComposite));
         Append(report, "Effective output layer", renderer.EffectiveOutputMode is { } effectiveOutput
-            ? DescribeOutputMode(effectiveOutput) : "not selected");
+            ? DescribeOutputMode(effectiveOutput)
+            : renderer.IsOutputUnavailable ? "none: native overlay unavailable, screens hidden" : "not selected");
         Append(report, "Scene composite fallback", renderer.SceneCompositeFallbackReason ?? "none");
         Append(report, "Configured browser backend", configuration.YouTubeBrowserEngine);
         Append(report, "Resolved capture mode", BrowserPlatformPolicy.UsesWebKitGtk(configuration.YouTubeBrowserEngine, WineEnvironment.IsWine, BrowserSourceProviderKind.YouTube)
@@ -117,7 +117,7 @@ internal static class DiagnosticsReportBuilder
     {
         return outputMode switch
         {
-            ScreenOutputMode.ImGuiOverlay => "ImGui overlay",
+            ScreenOutputMode.ImGuiOverlay => "ImGui overlay (removed)",
             ScreenOutputMode.NativeOverlay => "Native overlay",
             ScreenOutputMode.SceneComposite => "Scene composite",
             _ => $"unknown ({(int)outputMode})",

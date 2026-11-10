@@ -19,6 +19,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 - The **ImGui overlay** output layer is no longer offered in Settings > Rendering; it caused problems when selected. A saved ImGui overlay choice moves to the default, scene composite. CrystalCast also no longer falls back to drawing through ImGui when Dalamud's native overlay isn't available; screens are hidden instead, and Settings > Rendering and the diagnostics say why.
 
+### Fixed
+
+- A browser could keep playing audio after its screen changed browser backend, with no screen showing it, and it survived turning the plugin off. The browser thread could miss the request to close when it arrived while the browser was busy, which is most of the time during playback. Screens now always close their browser, even one still starting, and turning the plugin off in Dalamud ends any CrystalCast browser that is still running.
+
 ## 0.9.0 - 2026-11-10
 
 ### Added

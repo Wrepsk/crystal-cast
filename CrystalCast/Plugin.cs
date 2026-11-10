@@ -145,10 +145,29 @@ public sealed class Plugin : IDalamudPlugin
         ipc.Dispose();
         playlistMetadata.Dispose();
         renderer.Dispose();
+        EndLeftoverBrowsers();
         genericWebIpcApprovals.Dispose();
         CrystalCastUiTheme.Fonts = null;
         fonts.Dispose();
         Configuration.FlushPendingSave();
+    }
+
+    /// <summary>
+    /// Screens close their browsers as they shut down. Any CrystalCast browser still running after a short wait
+    /// was missed, and would otherwise keep playing with the plugin off.
+    /// </summary>
+    private static void EndLeftoverBrowsers()
+    {
+        try
+        {
+            var ended = WebView2ProcessTracker.EndRemaining(TimeSpan.FromSeconds(1.5));
+            if (ended > 0)
+                Log.Information("Ended {Count} CrystalCast WebView2 browser process(es) still running at unload.", ended);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not check for leftover CrystalCast WebView2 browser processes.");
+        }
     }
 
     public void ToggleMainUi() => mainWindow.Toggle();

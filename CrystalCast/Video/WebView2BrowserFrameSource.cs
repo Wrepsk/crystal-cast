@@ -262,6 +262,10 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
         if (browserThread != null)
             return true;
 
+        // A disposed source must never start a new browser: nothing would be left to close it.
+        if (disposed)
+            return false;
+
         if (!TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError, out var browserFolder))
         {
             browserStatus = runtimeError;
@@ -567,6 +571,34 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             }
         }
 
+        private static void BestEffort(Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch
+            {
+                // Best-effort browser cleanup during plugin unload/source changes.
+            }
+        }
+
+        private static void TrackBrowserProcesses(CoreWebView2Environment environment)
+        {
+            try
+            {
+                foreach (var info in environment.GetProcessInfos())
+                {
+                    if (info.Kind == CoreWebView2ProcessKind.Browser)
+                        WebView2ProcessTracker.Track(info.ProcessId);
+                }
+            }
+            catch
+            {
+                // Older runtimes lack process info; the browser id is recorded again once the view exists.
+            }
+        }
+
         private void ThreadMain()
         {
             var context = new BrowserSynchronizationContext();
@@ -579,19 +611,24 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 if (lifecycle.CanAcceptCommands)
                     initializationTask = InitializeAsync(shutdownCancellation.Token);
                 DrainPostedActions();
-                while (!shutdownRequested)
+                // Only ever set the flag here: writing a copy back would erase a shutdown that Dispose
+                // requested while the messages were being pumped, and the browser would keep playing forever.
+                while (!shutdownRequested && !shutdownCancellation.IsCancellationRequested)
                 {
-                    var shouldQuit = shutdownRequested;
-                    BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
-                    shutdownRequested = shouldQuit;
+                    var quitMessage = false;
+                    BrowserNativeMessagePump.PumpMessages(ref quitMessage);
+                    if (quitMessage)
+                        shutdownRequested = true;
                     context.ExecutePending();
                     hostWindow?.PollInteractionFocus();
                     BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 50);
                 }
 
-                var cleanupDeadline = Environment.TickCount64 + 3000;
+                // A browser that is still starting gets more time: once it arrives, the startup code sees the
+                // shutdown and the cleanup below closes it. Leaving earlier would strand it with nobody to close it.
+                var cleanupStart = Environment.TickCount64;
                 while ((initializationTask is { IsCompleted: false } || captureLoopTask is { IsCompleted: false })
-                    && Environment.TickCount64 < cleanupDeadline)
+                    && Environment.TickCount64 - cleanupStart < (initializationTask is { IsCompleted: false } ? 15000 : 3000))
                 {
                     var shouldQuit = false;
                     BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
@@ -605,7 +642,9 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             }
             finally
             {
-                try
+                // Each step on its own, closing the browser first: a failure in one step must never leave a
+                // browser running with nobody to close it.
+                BestEffort(() =>
                 {
                     if (webView != null)
                     {
@@ -618,19 +657,18 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                         webView.PermissionRequested -= OnPermissionRequested;
                         webView.DownloadStarting -= OnDownloadStarting;
                     }
-                    webView = null;
-                    DisposeWindowCaptureSession();
-                    controller?.Close();
-                    controller = null;
+                });
+                webView = null;
+                BestEffort(() => controller?.Close());
+                controller = null;
+                BestEffort(DisposeWindowCaptureSession);
+                BestEffort(() =>
+                {
                     if (hostWindow != null)
                         hostWindow.InteractionDismissed -= OnInteractionDismissed;
                     hostWindow?.Dispose();
-                    hostWindow = null;
-                }
-                catch
-                {
-                    // Best-effort browser cleanup during plugin unload/source changes.
-                }
+                });
+                hostWindow = null;
 
                 environment = null;
                 lifecycle.MarkStopped();
@@ -656,6 +694,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine(owner.descriptor.WebView2AdditionalBrowserArguments));
                 environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
+                TrackBrowserProcesses(environment);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
@@ -666,6 +705,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 hostWindow.ShowForCapture();
 
                 webView = controller.CoreWebView2;
+                WebView2ProcessTracker.Track((int)webView.BrowserProcessId);
                 ConfigureWebView(webView);
                 ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;

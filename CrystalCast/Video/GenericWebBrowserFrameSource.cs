@@ -265,7 +265,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     private void EnsureBrowserThread()
     {
-        if (browserThread != null || !isValidSource)
+        // A disposed source must never start a new browser: nothing would be left to close it.
+        if (browserThread != null || !isValidSource || disposed)
             return;
 
         if (!WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError, out var browserFolder))
@@ -674,6 +675,34 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             }
         }
 
+        private static void BestEffort(Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch
+            {
+                // Best-effort browser cleanup during plugin unload/source changes.
+            }
+        }
+
+        private static void TrackBrowserProcesses(CoreWebView2Environment environment)
+        {
+            try
+            {
+                foreach (var info in environment.GetProcessInfos())
+                {
+                    if (info.Kind == CoreWebView2ProcessKind.Browser)
+                        WebView2ProcessTracker.Track(info.ProcessId);
+                }
+            }
+            catch
+            {
+                // Older runtimes lack process info; the browser id is recorded again once the view exists.
+            }
+        }
+
         private void ThreadMain()
         {
             var context = new BrowserSynchronizationContext();
@@ -686,19 +715,24 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 if (lifecycle.CanAcceptCommands)
                     initializationTask = InitializeAsync(shutdownCancellation.Token);
                 DrainPostedActions();
-                while (!shutdownRequested)
+                // Only ever set the flag here: writing a copy back would erase a shutdown that Dispose
+                // requested while the messages were being pumped, and the browser would keep playing forever.
+                while (!shutdownRequested && !shutdownCancellation.IsCancellationRequested)
                 {
-                    var shouldQuit = shutdownRequested;
-                    BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
-                    shutdownRequested = shouldQuit;
+                    var quitMessage = false;
+                    BrowserNativeMessagePump.PumpMessages(ref quitMessage);
+                    if (quitMessage)
+                        shutdownRequested = true;
                     context.ExecutePending();
                     hostWindow?.PollInteractionFocus();
                     BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 50);
                 }
 
-                var cleanupDeadline = Environment.TickCount64 + 3000;
+                // A browser that is still starting gets more time: once it arrives, the startup code sees the
+                // shutdown and the cleanup below closes it. Leaving earlier would strand it with nobody to close it.
+                var cleanupStart = Environment.TickCount64;
                 while ((initializationTask is { IsCompleted: false } || captureLoopTask is { IsCompleted: false })
-                    && Environment.TickCount64 < cleanupDeadline)
+                    && Environment.TickCount64 - cleanupStart < (initializationTask is { IsCompleted: false } ? 15000 : 3000))
                 {
                     var shouldQuit = false;
                     BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
@@ -712,7 +746,9 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             }
             finally
             {
-                try
+                // Each step on its own, closing the browser first: a failure in one step must never leave a
+                // browser running with nobody to close it.
+                BestEffort(() =>
                 {
                     if (webView != null)
                     {
@@ -724,18 +760,18 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                         webView.PermissionRequested -= OnPermissionRequested;
                         webView.DownloadStarting -= OnDownloadStarting;
                     }
-                    webView = null;
-                    DisposeWindowCaptureSession();
-                    controller?.Close();
-                    controller = null;
+                });
+                webView = null;
+                BestEffort(() => controller?.Close());
+                controller = null;
+                BestEffort(DisposeWindowCaptureSession);
+                BestEffort(() =>
+                {
                     if (hostWindow != null)
                         hostWindow.InteractionDismissed -= OnInteractionDismissed;
                     hostWindow?.Dispose();
-                    hostWindow = null;
-                }
-                catch
-                {
-                }
+                });
+                hostWindow = null;
 
                 lifecycle.MarkStopped();
                 screencast.Dispose();
@@ -756,6 +792,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required"));
                 var environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
+                TrackBrowserProcesses(environment);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
@@ -769,6 +806,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 hostWindow.ShowForCapture();
 
                 webView = controller.CoreWebView2;
+                WebView2ProcessTracker.Track((int)webView.BrowserProcessId);
                 ConfigureWebView(webView);
                 ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;

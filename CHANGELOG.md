@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.0 - 2026-11-10
+
 ### Added
 
 - Per-screen playlists: a **Playlist** tab (between Audio and Placement) queues videos from any supported site to play after the current one ends, with Shuffle, Loop playlist, Play now, reorder, Skip and Clear. The Source tab's per-video loop is paused while another video is waiting. Entries show the title, channel, length and thumbnail, from YouTube, Vimeo and Dailymotion's oEmbed endpoints, Twitch channels show their name, live preview and Live/Offline; Twitch VODs and web pages take their title from playback.

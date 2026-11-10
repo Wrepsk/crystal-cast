@@ -16,7 +16,7 @@
     "LoadSync": false,
     "CanUnloadAsync": false,
     "LoadPriority": 0,
-    "IconUrl": "https://raw.githubusercontent.com/Wrepsk/repo/main/CrystalCast/images/icon.png",
+    "IconUrl": "https://raw.githubusercontent.com/Wrepsk/crystal-cast/repo/Icon/icon.png",
     "Punchline": "World-space browser media screens for FFXIV.",
     "AcceptsFeedback": true
 }

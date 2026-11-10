@@ -34,6 +34,17 @@ internal static class IpcJsonService
         });
     }
 
+    public static string SerializeHiddenByUserError(string screenId)
+    {
+        return Serialize(new ScreenIpcMutationResponse
+        {
+            Success = false,
+            HiddenByUser = true,
+            Error = $"The user deleted screen '{NormalizeText(screenId)}' and chose to keep it hidden this session.",
+            ScreenId = NormalizeText(screenId),
+        });
+    }
+
     public static string SerializeMutationError(string error, string screenId = "")
     {
         return Serialize(new ScreenIpcMutationResponse

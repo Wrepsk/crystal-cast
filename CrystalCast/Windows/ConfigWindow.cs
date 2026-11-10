@@ -51,6 +51,7 @@ public sealed class ConfigWindow : Window, IDisposable
     private long diagnosticsReportUpdatedAtTick;
     private long diagnosticsCopiedAtTick;
     private long ipcDomainMemoryClearedAtTick;
+    private long ipcHiddenScreensClearedAtTick;
 
     public ConfigWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc)
         : base("CrystalCast Settings###CrystalCastConfig", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
@@ -621,6 +622,30 @@ public sealed class ConfigWindow : Window, IDisposable
                 ? "Endpoints are registered and available to integrations."
                 : "IPC-created screens are removed while integrations are off.",
             TextTertiary);
+
+        Ui.VerticalSpace(SectionGap);
+        Ui.SectionHeader("Hidden screens", "Screens from other plugins you deleted and chose to keep hidden until the game restarts.");
+        var hiddenCount = ipc.HiddenScreenCount;
+        Ui.RowLabel("This session", LabelWidth, LabelGap);
+        if (Ui.Button("Show them again##ShowHiddenIpcScreens", disabled: hiddenCount == 0))
+        {
+            ipc.ShowHiddenScreens();
+            ipcHiddenScreensClearedAtTick = Environment.TickCount64;
+        }
+
+        ImGui.SameLine(0.0f, S(12.0f));
+        AlignedText(hiddenCount switch
+            {
+                0 => "No screens hidden.",
+                1 => "1 screen hidden.",
+                _ => $"{hiddenCount} screens hidden.",
+            },
+            TextTertiary);
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(ipcHiddenScreensClearedAtTick > 0 && Environment.TickCount64 - ipcHiddenScreensClearedAtTick < 3000
+            ? "Hidden screens cleared. They come back the next time their plugin sends them."
+            : "Each screen comes back the next time the plugin that made it sends it.");
 
         Ui.VerticalSpace(SectionGap);
         Ui.SectionHeader("Generic Web domain memory", "Clear temporary trusted and blocked website decisions without reloading CrystalCast.");

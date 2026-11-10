@@ -7,6 +7,12 @@ public sealed class ScreenIpcMutationRequest
     public string OwnerId { get; set; } = string.Empty;
     public bool? Enabled { get; set; }
     public bool Activate { get; set; }
+
+    /// <summary>
+    /// <c>Screen.Update</c> only: create the screen with this <see cref="ScreenId"/> when it does not exist,
+    /// so a sync plugin can send the same call every time. Refused while the user keeps that screen hidden.
+    /// </summary>
+    public bool CreateIfMissing { get; set; }
     public BrowserSourceProviderKind? Provider { get; set; }
     public bool? SourceControlsLocked { get; set; }
     public string SourceControlsOwnerId { get; set; } = string.Empty;
@@ -49,6 +55,9 @@ public sealed class ScreenIpcMutationResponse
 {
     public bool Success { get; set; }
     public string Error { get; set; } = string.Empty;
+
+    /// <summary>The user deleted this screen and chose to keep it hidden this session; stop sending it.</summary>
+    public bool HiddenByUser { get; set; }
     public bool Created { get; set; }
     public bool Updated { get; set; }
     public string ScreenId { get; set; } = string.Empty;
@@ -304,6 +313,10 @@ public sealed class ScreenIpcCapabilities
     public bool Enabled { get; set; }
 
     public string[] Providers { get; set; } = [];
+
+    /// <summary>Optional behaviors this version supports, such as <c>createIfMissing</c> and <c>removalReason</c>.</summary>
+    public string[] Features { get; set; } = [];
+
     public ScreenIpcLimits Limits { get; set; } = new();
     public ScreenIpcBrowserCapabilities Browser { get; set; } = new();
 }
@@ -375,8 +388,27 @@ public sealed class ScreenIpcChangeEvent
     public bool SourceControlsLocked { get; set; }
     public string SourceControlsOwnerId { get; set; } = string.Empty;
     public ScreenIpcChangeKind[] Changes { get; set; } = [];
+
+    /// <summary>Why an <c>Unavailable</c> screen went away; <c>None</c> for every other event.</summary>
+    public ScreenIpcRemovalReason RemovalReason { get; set; }
+
     public ScreenStateEnvelope? State { get; set; }
     public long TimestampUnixMs { get; set; }
+}
+
+public enum ScreenIpcRemovalReason
+{
+    /// <summary>Not a removal, or the screen went away for another reason (IPC turned off, plugin unloading).</summary>
+    None = 0,
+
+    /// <summary>A plugin removed it with <c>Screen.Remove</c>.</summary>
+    RemovedByIpc = 1,
+
+    /// <summary>The user deleted it; creating it again brings it back.</summary>
+    RemovedByUser = 2,
+
+    /// <summary>The user deleted it and keeps it hidden this session; creating it again is refused.</summary>
+    HiddenByUser = 3,
 }
 
 /// <summary>

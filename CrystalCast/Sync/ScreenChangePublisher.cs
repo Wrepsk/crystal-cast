@@ -36,9 +36,12 @@ internal sealed class ScreenChangePublisher
         knownLocalScreenIds.Clear();
     }
 
-    public void SendUnavailableAndForget(string screenId, BrowserScreenProfile? screen = null)
+    public void SendUnavailableAndForget(
+        string screenId,
+        BrowserScreenProfile? screen = null,
+        ScreenIpcRemovalReason reason = ScreenIpcRemovalReason.None)
     {
-        SendScreenUnavailable(screenId, screen ?? FindBrowserScreen(screenId));
+        SendScreenUnavailable(screenId, screen ?? FindBrowserScreen(screenId), reason);
         localScreenFingerprints.Remove(screenId);
         knownLocalScreenIds.Remove(screenId);
     }
@@ -174,7 +177,7 @@ internal sealed class ScreenChangePublisher
         sendMessage(IpcJsonService.Serialize(evt));
     }
 
-    private void SendScreenUnavailable(string screenId, BrowserScreenProfile? screen)
+    private void SendScreenUnavailable(string screenId, BrowserScreenProfile? screen, ScreenIpcRemovalReason reason)
     {
         var evt = new ScreenIpcChangeEvent
         {
@@ -185,6 +188,7 @@ internal sealed class ScreenChangePublisher
             SourceControlsLocked = screen?.SourceControlsLocked ?? false,
             SourceControlsOwnerId = screen?.SourceControlsOwnerId ?? string.Empty,
             Changes = [ScreenIpcChangeKind.Unavailable],
+            RemovalReason = reason,
             State = null,
             TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };

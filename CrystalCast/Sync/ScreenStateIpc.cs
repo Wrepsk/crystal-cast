@@ -9,7 +9,7 @@ namespace CrystalCast.Sync;
 
 public sealed class ScreenStateIpc : IDisposable
 {
-    public const int ApiVersion = 9;
+    public const int ApiVersion = 10;
 
     /// <summary>Largest JSON argument any call accepts, in UTF-8 bytes.</summary>
     internal const int MaxPayloadBytes = 64 * 1024;
@@ -49,6 +49,7 @@ public sealed class ScreenStateIpc : IDisposable
     private readonly RemoteScreenStateStore remoteScreens = new();
     private readonly IpcMainThreadDispatcher dispatcher;
     private readonly ScreenPlaybackWatcher playbackWatcher = new();
+    private readonly HiddenIpcScreens hiddenScreens = new();
     private long lastPlaybackWatchTick;
     private bool registered;
 
@@ -77,7 +78,7 @@ public sealed class ScreenStateIpc : IDisposable
         localStateChangedProvider = services.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.LocalStateChanged");
         var screenChangedProvider = services.PluginInterface.GetIpcProvider<string, object>("CrystalCast.Screen.Changed");
         changePublisher = new ScreenChangePublisher(configuration, screenChangedProvider, ownerSessionId);
-        mutationService = new ScreenIpcMutationService(configuration, renderer, stateBuilder, changePublisher, PublishLocalState, services.Log);
+        mutationService = new ScreenIpcMutationService(configuration, renderer, stateBuilder, changePublisher, PublishLocalState, services.Log, hiddenScreens);
         createScreenProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Create");
         updateScreenProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.Update");
         updateSourceProvider = services.PluginInterface.GetIpcProvider<string, string>("CrystalCast.Screen.UpdateSource");
@@ -103,6 +104,15 @@ public sealed class ScreenStateIpc : IDisposable
     public IReadOnlyCollection<ScreenStateEnvelope> RemoteScreens => remoteScreens.GetSnapshot();
 
     public bool Enabled => configuration.IpcEnabled;
+
+    /// <summary>How many IPC screens the user deleted and keeps hidden this session.</summary>
+    public int HiddenScreenCount => hiddenScreens.Count;
+
+    /// <summary>Lets plugins create the hidden screens again; they come back on their next create or update.</summary>
+    public void ShowHiddenScreens() => hiddenScreens.Clear();
+
+    /// <summary>Tells other plugins the user deleted one of their screens, and whether to keep it hidden.</summary>
+    public void OnUserDeletedScreen(BrowserScreenProfile screen, bool hide) => mutationService.RemovedByUser(screen, hide);
 
     public void SetEnabled(bool enabled)
     {
@@ -298,6 +308,7 @@ public sealed class ScreenStateIpc : IDisposable
             PluginVersion = typeof(ScreenStateIpc).Assembly.GetName().Version?.ToString() ?? string.Empty,
             Enabled = configuration.Enabled,
             Providers = BrowserSourceIpcAdapters.All.Select(adapter => adapter.ProviderKind.ToString()).ToArray(),
+            Features = ["createIfMissing", "removalReason"],
             Limits = new ScreenIpcLimits
             {
                 MaxUserScreens = Configuration.MaxBrowserScreens,

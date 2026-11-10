@@ -36,6 +36,7 @@ public sealed class Plugin : IDalamudPlugin
         WineEnvironment.IsWine);
     private readonly FirstRunGuideWindow firstRunGuideWindow;
     private readonly GenericWebIpcApprovalWindow genericWebIpcApprovalWindow;
+    private readonly IpcScreenDeleteWindow ipcScreenDeleteWindow;
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
@@ -85,7 +86,8 @@ public sealed class Plugin : IDalamudPlugin
         playlistAdvancer = new ScreenPlaylistAdvancer(renderer.GetPlaybackTelemetry);
         playlistMetadata = new PlaylistMetadataService(TextureProvider, Log, renderer.GetPlaybackTelemetry);
         ipc = new ScreenStateIpc(Configuration, renderer, services, playlistAdvancer);
-        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata);
+        ipcScreenDeleteWindow = new IpcScreenDeleteWindow(Configuration);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
@@ -102,6 +104,7 @@ public sealed class Plugin : IDalamudPlugin
             windowSystem.AddWindow(wineWebView2SetupWindow);
         windowSystem.AddWindow(firstRunGuideWindow);
         windowSystem.AddWindow(genericWebIpcApprovalWindow);
+        windowSystem.AddWindow(ipcScreenDeleteWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -142,6 +145,7 @@ public sealed class Plugin : IDalamudPlugin
         WebView2Downloader.Dispose();
         firstRunGuideWindow.Dispose();
         genericWebIpcApprovalWindow.Dispose();
+        ipcScreenDeleteWindow.Dispose();
         ipc.Dispose();
         playlistMetadata.Dispose();
         renderer.Dispose();
@@ -288,6 +292,7 @@ public sealed class Plugin : IDalamudPlugin
         wineWebView2SetupWindow?.IsOpen = false;
         firstRunGuideWindow.Suspend();
         genericWebIpcApprovalWindow.Suspend();
+        ipcScreenDeleteWindow.Suspend();
     }
 
     private bool PauseOwnedWorldScreensOnZoneChange()

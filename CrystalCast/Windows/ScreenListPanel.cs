@@ -15,7 +15,13 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
     private string renameDraft = string.Empty;
     private bool focusRename;
 
-    public bool Draw(Configuration config, BrowserScreenProfile? activeScreen, Action<string> onScreenDeleted)
+    /// <param name="onScreenDeleted">Called after a screen is deleted; the flag says to keep an IPC screen hidden.</param>
+    /// <param name="onIpcDeleteRequested">Asks the user how to delete a screen another plugin created.</param>
+    public bool Draw(
+        Configuration config,
+        BrowserScreenProfile? activeScreen,
+        Action<BrowserScreenProfile, bool> onScreenDeleted,
+        Action<BrowserScreenProfile> onIpcDeleteRequested)
     {
         var changed = false;
         var userScreenCount = ScreenLimitPolicy.CountUserScreens(config.BrowserScreens);
@@ -41,7 +47,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
         if (Ui.IconButton("##ScreenMore", FontAwesomeIcon.EllipsisH, "More screen actions"))
             Ui.OpenMenu("ScreenActions");
         var menuAnchor = ImGui.GetItemRectMax();
-        changed |= DrawScreenMenu(config, activeScreen, canAddUserScreen, onScreenDeleted, menuAnchor);
+        changed |= DrawScreenMenu(config, activeScreen, canAddUserScreen, onScreenDeleted, onIpcDeleteRequested, menuAnchor);
 
         if (activeScreen != null && renamingScreenId == activeScreen.ScreenId)
             changed |= DrawRenameControls(activeScreen);
@@ -130,7 +136,13 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
         return changed;
     }
 
-    private bool DrawScreenMenu(Configuration config, BrowserScreenProfile? activeScreen, bool canAddUserScreen, Action<string> onScreenDeleted, Vector2 anchor)
+    private bool DrawScreenMenu(
+        Configuration config,
+        BrowserScreenProfile? activeScreen,
+        bool canAddUserScreen,
+        Action<BrowserScreenProfile, bool> onScreenDeleted,
+        Action<BrowserScreenProfile> onIpcDeleteRequested,
+        Vector2 anchor)
     {
         if (!Ui.BeginMenu("ScreenActions", anchor))
             return false;
@@ -148,20 +160,29 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
         Ui.MenuSeparator();
         if (Ui.MenuItem("Delete", disabled: activeScreen == null, danger: true, icon: FontAwesomeIcon.TrashAlt))
         {
-            var activeIndex = config.BrowserScreens.FindIndex(screen => screen.ScreenId == activeScreen!.ScreenId);
-            var removedId = activeScreen!.ScreenId;
-            config.BrowserScreens.RemoveAll(screen => screen.ScreenId == removedId);
-            onScreenDeleted(removedId);
-            if (renamingScreenId == removedId)
-                renamingScreenId = string.Empty;
-            config.ActiveBrowserScreenId = config.BrowserScreens.Count == 0
-                ? string.Empty
-                : config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
-            changed = true;
+            // Another plugin's screen: ask whether it may come back on that plugin's next update.
+            if (activeScreen!.CreatedByIpc)
+                onIpcDeleteRequested(activeScreen);
+            else
+                changed = DeleteScreen(config, activeScreen, hide: false, onScreenDeleted);
         }
 
         Ui.EndMenu();
         return changed;
+    }
+
+    internal bool DeleteScreen(Configuration config, BrowserScreenProfile screen, bool hide, Action<BrowserScreenProfile, bool> onScreenDeleted)
+    {
+        var activeIndex = config.BrowserScreens.FindIndex(candidate => candidate.ScreenId == screen.ScreenId);
+        var removedId = screen.ScreenId;
+        config.BrowserScreens.RemoveAll(candidate => candidate.ScreenId == removedId);
+        onScreenDeleted(screen, hide);
+        if (renamingScreenId == removedId)
+            renamingScreenId = string.Empty;
+        config.ActiveBrowserScreenId = config.BrowserScreens.Count == 0
+            ? string.Empty
+            : config.BrowserScreens[Math.Clamp(activeIndex - 1, 0, config.BrowserScreens.Count - 1)].ScreenId;
+        return true;
     }
 
     private bool Add(Configuration config, BrowserScreenProfile? activeScreen)

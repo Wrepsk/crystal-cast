@@ -26,6 +26,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly Plugin plugin;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
+    private readonly IpcScreenDeleteWindow ipcScreenDeleteWindow;
     private readonly PlacementUndoService placementUndoService = new();
     private readonly ScreenListPanel screenListPanel;
     private readonly AudioControlsPanel audioControlsPanel;
@@ -44,12 +45,14 @@ public sealed class MainWindow : Window, IDisposable
         ScreenStateIpc ipc,
         ScreenPlacementResolver placementResolver,
         ScreenPlaylistAdvancer playlistAdvancer,
-        PlaylistMetadataService playlistMetadata)
+        PlaylistMetadataService playlistMetadata,
+        IpcScreenDeleteWindow ipcScreenDeleteWindow)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
         this.renderer = renderer;
         this.ipc = ipc;
+        this.ipcScreenDeleteWindow = ipcScreenDeleteWindow;
         screenListPanel = new ScreenListPanel(renderer, playlistMetadata);
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
@@ -448,7 +451,7 @@ public sealed class MainWindow : Window, IDisposable
             Ui.VerticalSpace(sectionGap);
         }
 
-        changed |= screenListPanel.Draw(config, activeScreen, ClearDeletedScreenUiState);
+        changed |= screenListPanel.Draw(config, activeScreen, OnScreenDeleted, AskBeforeDeletingIpcScreen);
         activeScreen = config.GetActiveBrowserScreen();
         if (activeScreen == null)
             return changed;
@@ -571,6 +574,29 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         return state;
+    }
+
+    private void AskBeforeDeletingIpcScreen(BrowserScreenProfile screen)
+    {
+        var screenId = screen.ScreenId;
+        ipcScreenDeleteWindow.Ask(screen, hide =>
+        {
+            var config = plugin.Configuration;
+            var current = config.BrowserScreens.FirstOrDefault(candidate => candidate.ScreenId == screenId);
+            if (current == null)
+                return;
+
+            screenListPanel.DeleteScreen(config, current, hide, OnScreenDeleted);
+            config.Save();
+            SaveAndPublish();
+        });
+    }
+
+    private void OnScreenDeleted(BrowserScreenProfile screen, bool hide)
+    {
+        ClearDeletedScreenUiState(screen.ScreenId);
+        if (screen.CreatedByIpc)
+            ipc.OnUserDeletedScreen(screen, hide);
     }
 
     private void ClearDeletedScreenUiState(string screenId)

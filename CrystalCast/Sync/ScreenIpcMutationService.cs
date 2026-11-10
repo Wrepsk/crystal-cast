@@ -11,6 +11,7 @@ internal sealed class ScreenIpcMutationService
     private readonly ScreenChangePublisher changePublisher;
     private readonly Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState;
     private readonly IPluginLog log;
+    private readonly HiddenIpcScreens hiddenScreens;
 
     public ScreenIpcMutationService(
         Configuration configuration,
@@ -18,8 +19,10 @@ internal sealed class ScreenIpcMutationService
         ScreenStateBuilder stateBuilder,
         ScreenChangePublisher changePublisher,
         Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState,
-        IPluginLog log)
+        IPluginLog log,
+        HiddenIpcScreens hiddenScreens)
     {
+        this.hiddenScreens = hiddenScreens;
         this.configuration = configuration;
         this.renderer = renderer;
         this.stateBuilder = stateBuilder;
@@ -42,8 +45,23 @@ internal sealed class ScreenIpcMutationService
         configuration.BrowserScreens.Remove(screen);
         configuration.Normalize();
         configuration.Save();
-        changePublisher.SendUnavailableAndForget(screenId, screen);
+        changePublisher.SendUnavailableAndForget(screenId, screen, ScreenIpcRemovalReason.RemovedByIpc);
         return true;
+    }
+
+    /// <summary>
+    /// The user deleted an IPC screen from the screen list (already removed from the configuration). With
+    /// <paramref name="hide"/>, other plugins cannot create it again this session.
+    /// </summary>
+    public void RemovedByUser(BrowserScreenProfile screen, bool hide)
+    {
+        if (hide)
+            hiddenScreens.Hide(screen.ScreenId);
+
+        changePublisher.SendUnavailableAndForget(
+            screen.ScreenId,
+            screen,
+            hide ? ScreenIpcRemovalReason.HiddenByUser : ScreenIpcRemovalReason.RemovedByUser);
     }
 
     public string CreateScreenJson(string json)
@@ -54,7 +72,23 @@ internal sealed class ScreenIpcMutationService
             if (request == null)
                 return IpcJsonService.SerializeMutationError("Request body is empty.");
 
+            return CreateScreen(request);
+        }
+        catch (Exception ex)
+        {
+            log.Warning(ex, "Failed to create CrystalCast screen through IPC.");
+            return IpcJsonService.SerializeMutationError($"Failed to create screen: {ex.Message}");
+        }
+    }
+
+    private string CreateScreen(ScreenIpcMutationRequest request)
+    {
+        try
+        {
             configuration.Normalize();
+            if (hiddenScreens.IsHidden(IpcJsonService.NormalizeText(request.ScreenId)))
+                return IpcJsonService.SerializeHiddenByUserError(request.ScreenId);
+
             if (!ScreenLimitPolicy.CanCreateIpcScreen(configuration.BrowserScreens))
                 return IpcJsonService.SerializeMutationError($"CrystalCast can create at most {Configuration.MaxIpcBrowserScreens} IPC browser screens and {Configuration.MaxRenderableBrowserScreens} browser screens in total.");
 
@@ -109,7 +143,11 @@ internal sealed class ScreenIpcMutationService
             var screenId = IpcJsonService.NormalizeText(request.ScreenId);
             var screen = FindBrowserScreen(screenId);
             if (screen == null)
-                return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
+            {
+                return request.CreateIfMissing && !string.IsNullOrWhiteSpace(screenId)
+                    ? CreateScreen(request)
+                    : IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
+            }
 
             if (!ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updatedScreen, out var error))
                 return IpcJsonService.SerializeMutationError(error, screen.ScreenId);

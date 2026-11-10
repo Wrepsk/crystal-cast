@@ -109,7 +109,7 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
         Ui.BeginCard();
         Ui.Heading(runtimeDownloaded || !runtimeAvailable ? "Download WebView2 (recommended)" : "WebView2");
         Ui.Text(
-            "Downloads Microsoft's WebView2 runtime (about 310 MB, 700 MB unpacked) straight from Microsoft into CrystalCast's folder in this Wine prefix. It is not an installer: nothing runs in the background, and it works the same with Wine, Proton, XIVLauncher and Steam or Flatpak containers. Nothing is needed on the Linux side.",
+            "Downloads Microsoft's WebView2 browser (about 310 MB, 700 MB once unpacked) so browser screens can play. Nothing else to install.",
             TextSecondary,
             f => f.Body,
             wrap: true);
@@ -138,7 +138,7 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 
         }
 
-        Ui.Meta("Changed your mind later? Settings > Browser > Downloaded WebView2 shows how much space it uses and deletes it.");
+        Ui.Meta("You can remove it later in Settings > Browser.");
 
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + S(2.0f));
         Ui.StatusLine(
@@ -161,7 +161,6 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
                 break;
         }
 
-        Ui.Meta("Under Wine this also sets Windows 7 mode for msedgewebview2.exe in this prefix, which the WebView2 browser needs to start (the same setting winetricks makes).");
         Ui.EndCard();
     }
 
@@ -200,7 +199,7 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
         Ui.BeginCard();
         Ui.Heading("Use your Linux browser (experimental)");
         Ui.Text(
-            "YouTube, Twitch, Dailymotion and Vimeo can play in your Linux system's WebKitGTK 6.0 instead of WebView2. Install WebKitGTK 6.0 with your package manager (libwebkitgtk-6.0-4 on Ubuntu/Debian, webkitgtk6.0 on Fedora, webkitgtk-6.0 on Arch). It does not work inside Steam's Linux runtime container, and Generic Web screens still need WebView2.",
+            "Plays YouTube, Twitch, Dailymotion and Vimeo in your Linux system's browser instead. Install WebKitGTK 6.0 from your package manager first. Web pages still need WebView2.",
             TextSecondary,
             f => f.Body,
             wrap: true);

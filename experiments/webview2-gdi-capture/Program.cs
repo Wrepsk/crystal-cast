@@ -65,7 +65,10 @@ requestAnimationFrame(draw);
         this.output = output;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
-        Location = new Point(0, 0);
+        // PROBE_OFFSCREEN=1: park the window past the right edge of every monitor, like the plugin does under Wine.
+        Location = Environment.GetEnvironmentVariable("PROBE_OFFSCREEN") == "1"
+            ? new Point(SystemInformation.VirtualScreen.Right + 256, SystemInformation.VirtualScreen.Top)
+            : new Point(0, 0);
         ClientSize = new Size(width, height);
         Text = "WebView2 capture probe";
         ShowInTaskbar = true;

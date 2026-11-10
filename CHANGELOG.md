@@ -11,6 +11,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Fixed
 
+- On Linux (Wine), the hidden browser window behind each screen showed up in the top-left corner of the game and could be clicked. It now sits off the screen.
 - IPC could change a user-created screen to a Generic Web address that then loaded without the approval prompt. IPC-set Generic Web addresses now need approval on every screen.
 - IPC calls from other plugins' background threads could change screens while the game was drawing them. Every call now runs on the game's main thread.
 - `Create`, `Update`, `UpdateSource`, `SetSourceLock` and `GetSourceState` now have the same 64 KiB size limit as `ApplyState`.

@@ -21,6 +21,8 @@ internal sealed class WebView2HostWindow : IDisposable
     private const int SmYVirtualScreen = 77;
     private const int SmCxScreen = 0;
     private const int SmCyScreen = 1;
+    private const int SmCxVirtualScreen = 78;
+    private const int OffScreenMargin = 256;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
@@ -76,8 +78,7 @@ internal sealed class WebView2HostWindow : IDisposable
         EnsureRegistered();
 
         var instance = GetModuleHandle(null);
-        var x = GetSystemMetrics(SmXVirtualScreen);
-        var y = GetSystemMetrics(SmYVirtualScreen);
+        var (x, y) = GetCapturePosition();
         var hwnd = CreateWindowEx(
             WsExToolWindow | WsExNoActivate,
             ClassName,
@@ -111,8 +112,7 @@ internal sealed class WebView2HostWindow : IDisposable
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
 
         SetWindowLongPtr(hwnd, GwlStyle, WindowStyleToIntPtr(CaptureWindowStyle));
-        var x = GetSystemMetrics(SmXVirtualScreen);
-        var y = GetSystemMetrics(SmYVirtualScreen);
+        var (x, y) = GetCapturePosition();
         ShowWindow(hwnd, SwShowNoActivate);
         SetWindowPos(hwnd, HwndBottom, x, y, width, height, SwpNoActivate | SwpNoOwnerZOrder | SwpShowWindow | SwpFrameChanged);
         UpdateWindow(hwnd);
@@ -155,8 +155,7 @@ internal sealed class WebView2HostWindow : IDisposable
             return;
 
         interactionVisible = false;
-        var x = GetSystemMetrics(SmXVirtualScreen);
-        var y = GetSystemMetrics(SmYVirtualScreen);
+        var (x, y) = GetCapturePosition();
         var exStyle = (uint)GetWindowLongPtr(hwnd, GwlExStyle);
         if ((exStyle & WsExNoActivate) == 0)
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(exStyle | WsExNoActivate));
@@ -280,6 +279,27 @@ internal sealed class WebView2HostWindow : IDisposable
         {
             // Never allow managed event handlers to unwind through the native window procedure.
         }
+    }
+
+    /// <summary>
+    /// Where the capture window sits while it is not being used for interaction. On Windows it stays at the
+    /// screen's top-left below every other window, which the game covers. Linux window managers do not keep
+    /// it below the game, so under Wine it goes past the right edge of every monitor instead. The browser
+    /// keeps drawing there because occlusion detection is turned off.
+    /// </summary>
+    private static (int X, int Y) GetCapturePosition()
+    {
+        var left = GetSystemMetrics(SmXVirtualScreen);
+        var top = GetSystemMetrics(SmYVirtualScreen);
+        if (!WineEnvironment.IsWine)
+            return (left, top);
+
+        return (GetOffScreenX(left, GetSystemMetrics(SmCxVirtualScreen)), top);
+    }
+
+    internal static int GetOffScreenX(int virtualLeft, int virtualWidth)
+    {
+        return virtualLeft + Math.Max(0, virtualWidth) + OffScreenMargin;
     }
 
     private static Rect GetWindowRectForClient(int clientWidth, int clientHeight, uint style, uint exStyle)

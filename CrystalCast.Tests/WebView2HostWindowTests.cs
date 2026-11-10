@@ -66,4 +66,12 @@ public sealed class WebView2HostWindowTests
     {
         Assert.Equal(expected, WebView2HostWindow.CanReopenInteraction(dismissedAtTick, currentTick));
     }
+
+    [Theory]
+    [InlineData(0, 1920)]
+    [InlineData(-2560, 4480)]
+    public void WineCaptureWindowSitsPastEveryMonitor(int virtualLeft, int virtualWidth)
+    {
+        Assert.True(WebView2HostWindow.GetOffScreenX(virtualLeft, virtualWidth) >= virtualLeft + virtualWidth);
+    }
 }

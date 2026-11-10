@@ -95,6 +95,35 @@ public sealed class PlaylistOEmbedTests
     }
 
     [Fact]
+    public void TwitchChannelsAreDescribedFromTheLink()
+    {
+        Assert.True(PlaylistOEmbed.TryDescribeLocally(Entry("https://www.twitch.tv/Shenpai"), out var metadata));
+        Assert.Equal("shenpai", metadata.Title);
+        Assert.Equal("https://static-cdn.jtvnw.net/previews-ttv/live_user_shenpai-320x180.jpg", metadata.ThumbnailUrl);
+        Assert.True(PlaylistOEmbed.IsAllowedThumbnail(BrowserSourceProviderKind.Twitch, metadata.ThumbnailUrl));
+
+        var entry = Entry("https://www.twitch.tv/Shenpai");
+        PlaylistMetadataService.Apply(entry, metadata);
+        Assert.True(PlaylistOEmbed.IsLivePreview(entry));
+    }
+
+    [Fact]
+    public void TwitchVodsHaveNoPublicDescription()
+    {
+        Assert.False(PlaylistOEmbed.TryDescribeLocally(Entry("https://www.twitch.tv/videos/1234567890"), out _));
+        Assert.False(PlaylistOEmbed.TryDescribeLocally(Entry("https://vimeo.com/76979871"), out _));
+    }
+
+    [Fact]
+    public void TwitchsOfflineRedirectIsRecognized()
+    {
+        Assert.True(PlaylistOEmbed.IsTwitchOfflinePreview(new Uri("https://static-cdn.jtvnw.net/ttv-static/404_preview-320x180.jpg")));
+        Assert.False(PlaylistOEmbed.IsTwitchOfflinePreview(new Uri("https://static-cdn.jtvnw.net/previews-ttv/live_user_shenpai-320x180.jpg")));
+        Assert.False(PlaylistOEmbed.IsTwitchOfflinePreview(new Uri("https://example.com/ttv-static/404_preview-320x180.jpg")));
+        Assert.False(PlaylistOEmbed.IsTwitchOfflinePreview(null));
+    }
+
+    [Fact]
     public void WebPagesAndTwitchAreNotLookedUp()
     {
         Assert.False(PlaylistOEmbed.TryBuildRequestUri(Entry("https://example.com/page"), out _));
@@ -191,6 +220,18 @@ public sealed class PlaylistMetadataServiceTests
         Assert.False(screen.Playlist[0].MetadataLookedUp);
         service.Update(configuration, force: true);
         Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public void TwitchChannelsNeedNoRequest()
+    {
+        var handler = new StubHandler(_ => Json("""{"title":"x"}"""));
+        var (configuration, screen, service) = Setup(handler, "https://www.twitch.tv/shenpai");
+
+        Assert.Contains(screen.ScreenId, service.Update(configuration, force: true));
+        Assert.Equal("shenpai", ScreenPlaylistPolicy.DisplayTitle(screen.Playlist[0]));
+        Assert.True(screen.Playlist[0].MetadataLookedUp);
+        Assert.Equal(0, handler.Calls);
     }
 
     [Fact]

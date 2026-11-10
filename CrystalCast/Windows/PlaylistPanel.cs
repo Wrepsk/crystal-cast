@@ -351,13 +351,15 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
     }
 
     /// <summary>"Playing · YouTube · channel · 3:33 · added by you", leaving out what isn't known.</summary>
-    private static string DescribeEntry(PlaylistEntry entry, bool current)
+    private string DescribeEntry(PlaylistEntry entry, bool current)
     {
-        var parts = new List<string>(5);
+        var parts = new List<string>(6);
         if (current)
             parts.Add("Playing");
 
         parts.Add(BrowserSourceControlsPanel.ProviderName(entry.ProviderKind));
+        if (metadata.IsLive(entry) is { } live)
+            parts.Add(live ? "Live" : "Offline");
         if (!string.IsNullOrWhiteSpace(entry.Author))
             parts.Add(entry.Author);
         if (entry.DurationSeconds > 0)

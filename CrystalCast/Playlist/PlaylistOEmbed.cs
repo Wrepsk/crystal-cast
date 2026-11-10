@@ -8,11 +8,49 @@ internal sealed record VideoMetadata(string Title, string Author, string Thumbna
 
 /// <summary>
 /// The sites' public oEmbed endpoints, which describe a video from its link without an API key. YouTube,
-/// Vimeo and Dailymotion have one; Twitch and web pages don't, so their titles come from playing them.
+/// Vimeo and Dailymotion have one. Twitch doesn't (its stream titles need API credentials), so a channel
+/// gets its name and Twitch's public live preview image; web pages and Twitch VODs get their title from playing.
 /// </summary>
 internal static class PlaylistOEmbed
 {
     public const int MaxResponseBytes = 64 * 1024;
+
+    private const string TwitchPreviewPath = "/previews-ttv/";
+    private const string TwitchOfflinePreviewPath = "/ttv-static/404_preview";
+
+    /// <summary>Describes a Twitch channel from its link: its name, and the preview of its live stream.</summary>
+    public static bool TryDescribeLocally(PlaylistEntry entry, out VideoMetadata metadata)
+    {
+        metadata = null!;
+        if (entry.ProviderKind != BrowserSourceProviderKind.Twitch
+            || !BrowserSourceDescriptors.Twitch.TryParse(entry.Url, out var source)
+            || source is not TwitchSourceReference { Kind: TwitchSourceKind.Channel } channel
+            || string.IsNullOrWhiteSpace(channel.ChannelName))
+            return false;
+
+        var login = channel.ChannelName.ToLowerInvariant();
+        metadata = new VideoMetadata(
+            channel.ChannelName,
+            string.Empty,
+            $"https://static-cdn.jtvnw.net{TwitchPreviewPath}live_user_{Uri.EscapeDataString(login)}-320x180.jpg",
+            0);
+        return true;
+    }
+
+    /// <summary>Whether the thumbnail is a Twitch live preview, which changes while the channel streams.</summary>
+    public static bool IsLivePreview(PlaylistEntry entry)
+    {
+        return entry.ProviderKind == BrowserSourceProviderKind.Twitch
+            && entry.ThumbnailUrl.Contains(TwitchPreviewPath, StringComparison.Ordinal);
+    }
+
+    /// <summary>Twitch redirects an offline channel's preview to a stock "offline" picture.</summary>
+    public static bool IsTwitchOfflinePreview(Uri? finalUri)
+    {
+        return finalUri != null
+            && finalUri.Host.EndsWith("jtvnw.net", StringComparison.OrdinalIgnoreCase)
+            && finalUri.AbsolutePath.StartsWith(TwitchOfflinePreviewPath, StringComparison.Ordinal);
+    }
 
     public static bool IsSupported(BrowserSourceProviderKind provider)
     {
@@ -81,6 +119,7 @@ internal static class PlaylistOEmbed
             BrowserSourceProviderKind.YouTube => "ytimg.com",
             BrowserSourceProviderKind.Vimeo => "vimeocdn.com",
             BrowserSourceProviderKind.Dailymotion => "dmcdn.net",
+            BrowserSourceProviderKind.Twitch => "jtvnw.net",
             _ => null,
         };
         return imageHost != null && (host == imageHost || host.EndsWith("." + imageHost, StringComparison.Ordinal));

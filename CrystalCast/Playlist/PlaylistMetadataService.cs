@@ -22,6 +22,9 @@ internal sealed class PlaylistMetadataService : IDisposable
     private const long UpdateIntervalMs = 500;
     private const long ThumbnailIdleMs = 120_000;
 
+    /// <summary>Twitch updates its live previews about every five minutes.</summary>
+    private const long LivePreviewRefreshMs = 300_000;
+
     private readonly ITextureProvider? textures;
     private readonly IPluginLog log;
     private readonly Func<BrowserScreenProfile, MediaPlaybackTelemetry?> getTelemetry;
@@ -61,26 +64,69 @@ internal sealed class PlaylistMetadataService : IDisposable
         lastUpdateTick = now;
         var changed = new HashSet<string>(StringComparer.Ordinal);
         ApplyResults(configuration, changed);
-        StartLookups(configuration);
+        StartLookups(configuration, changed);
         LearnFromPlayback(configuration, changed);
         TrimThumbnails(now);
         return changed;
     }
 
-    /// <summary>The entry's thumbnail once it has loaded; starts loading it the first time it is asked for.</summary>
+    /// <summary>
+    /// The entry's thumbnail once it has loaded; starts loading it the first time it is asked for. A Twitch
+    /// live preview is fetched again every few minutes, showing the old picture until the new one is in.
+    /// </summary>
     public IDalamudTextureWrap? GetThumbnail(PlaylistEntry entry)
+    {
+        var slot = GetSlot(entry);
+        if (slot == null)
+            return null;
+
+        if (slot.Task.IsCompletedSuccessfully)
+        {
+            if (slot.Previous is { } previous)
+            {
+                slot.Previous = null;
+                DisposeWhenDone(previous);
+            }
+
+            return slot.Task.Result.Image;
+        }
+
+        return slot.Previous is { IsCompletedSuccessfully: true } shown ? shown.Result.Image : null;
+    }
+
+    /// <summary>For a Twitch channel: true when live, false when offline, null until its preview has been checked.</summary>
+    public bool? IsLive(PlaylistEntry entry)
+    {
+        if (!PlaylistOEmbed.IsLivePreview(entry) || GetSlot(entry) is not { } slot)
+            return null;
+
+        var task = slot.Task.IsCompletedSuccessfully ? slot.Task : slot.Previous;
+        return task is { IsCompletedSuccessfully: true } done && done.Result.Checked ? !done.Result.Offline : null;
+    }
+
+    private ThumbnailSlot? GetSlot(PlaylistEntry entry)
     {
         if (disposed || textures == null || !PlaylistOEmbed.IsAllowedThumbnail(entry.ProviderKind, entry.ThumbnailUrl))
             return null;
 
+        var now = Environment.TickCount64;
         if (!thumbnails.TryGetValue(entry.ThumbnailUrl, out var slot))
         {
-            slot = new ThumbnailSlot(LoadThumbnailAsync(entry.ThumbnailUrl, disposal.Token));
+            slot = new ThumbnailSlot(LoadThumbnailAsync(entry.ThumbnailUrl, disposal.Token), now);
             thumbnails[entry.ThumbnailUrl] = slot;
         }
+        else if (PlaylistOEmbed.IsLivePreview(entry)
+            && slot.Task.IsCompleted
+            && slot.Previous == null
+            && now - slot.CreatedTick > LivePreviewRefreshMs)
+        {
+            var refreshed = new ThumbnailSlot(LoadThumbnailAsync(entry.ThumbnailUrl, disposal.Token), now) { Previous = slot.Task };
+            thumbnails[entry.ThumbnailUrl] = refreshed;
+            slot = refreshed;
+        }
 
-        slot.LastUsedTick = Environment.TickCount64;
-        return slot.Task.IsCompletedSuccessfully ? slot.Task.Result : null;
+        slot.LastUsedTick = now;
+        return slot;
     }
 
     public void Dispose()
@@ -91,7 +137,11 @@ internal sealed class PlaylistMetadataService : IDisposable
         disposed = true;
         disposal.Cancel();
         foreach (var slot in thumbnails.Values)
+        {
             DisposeWhenDone(slot.Task);
+            if (slot.Previous != null)
+                DisposeWhenDone(slot.Previous);
+        }
 
         thumbnails.Clear();
         http.Dispose();
@@ -135,13 +185,25 @@ internal sealed class PlaylistMetadataService : IDisposable
             entry.DurationSeconds = metadata.DurationSeconds;
     }
 
-    private void StartLookups(Configuration configuration)
+    private void StartLookups(Configuration configuration, HashSet<string> changed)
     {
         foreach (var screen in configuration.BrowserScreens)
         {
             foreach (var entry in screen.Playlist)
             {
-                if (entry.MetadataLookedUp || !PlaylistOEmbed.IsSupported(entry.ProviderKind))
+                if (entry.MetadataLookedUp)
+                    continue;
+
+                // Twitch channels are described from the link alone.
+                if (PlaylistOEmbed.TryDescribeLocally(entry, out var local))
+                {
+                    Apply(entry, local);
+                    entry.MetadataLookedUp = true;
+                    changed.Add(screen.ScreenId);
+                    continue;
+                }
+
+                if (!PlaylistOEmbed.IsSupported(entry.ProviderKind))
                     continue;
 
                 var key = $"{entry.ProviderKind}|{entry.Url}";
@@ -233,7 +295,7 @@ internal sealed class PlaylistMetadataService : IDisposable
         }
     }
 
-    private async Task<IDalamudTextureWrap?> LoadThumbnailAsync(string url, CancellationToken cancellationToken)
+    private async Task<ThumbnailResult> LoadThumbnailAsync(string url, CancellationToken cancellationToken)
     {
         try
         {
@@ -242,8 +304,13 @@ internal sealed class PlaylistMetadataService : IDisposable
             try
             {
                 using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+                // Twitch answers an offline channel's preview with a redirect to its "offline" picture.
+                if (PlaylistOEmbed.IsTwitchOfflinePreview(response.RequestMessage?.RequestUri))
+                    return new ThumbnailResult(null, Checked: true, Offline: true);
+
                 if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true)
-                    return null;
+                    return default;
 
                 bytes = await ReadBoundedAsync(response, MaxThumbnailBytes, cancellationToken).ConfigureAwait(false);
             }
@@ -252,18 +319,19 @@ internal sealed class PlaylistMetadataService : IDisposable
                 requestGate.Release();
             }
 
-            return bytes == null
+            var image = bytes == null
                 ? null
                 : await textures!.CreateFromImageAsync(bytes, "CrystalCast playlist thumbnail", cancellationToken).ConfigureAwait(false);
+            return new ThumbnailResult(image, Checked: true, Offline: false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return null;
+            return default;
         }
         catch (Exception ex)
         {
             log.Debug(ex, "Loading a playlist thumbnail failed.");
-            return null;
+            return default;
         }
     }
 
@@ -274,16 +342,18 @@ internal sealed class PlaylistMetadataService : IDisposable
         {
             thumbnails.Remove(url);
             DisposeWhenDone(slot.Task);
+            if (slot.Previous != null)
+                DisposeWhenDone(slot.Previous);
         }
     }
 
-    private static void DisposeWhenDone(Task<IDalamudTextureWrap?> task)
+    private static void DisposeWhenDone(Task<ThumbnailResult> task)
     {
         task.ContinueWith(
             finished =>
             {
                 if (finished.IsCompletedSuccessfully)
-                    finished.Result?.Dispose();
+                    finished.Result.Image?.Dispose();
             },
             TaskScheduler.Default);
     }
@@ -308,11 +378,18 @@ internal sealed class PlaylistMetadataService : IDisposable
         return buffer.ToArray();
     }
 
-    private sealed class ThumbnailSlot(Task<IDalamudTextureWrap?> task)
+    private sealed class ThumbnailSlot(Task<ThumbnailResult> task, long createdTick)
     {
-        public Task<IDalamudTextureWrap?> Task { get; } = task;
+        public Task<ThumbnailResult> Task { get; } = task;
+        public long CreatedTick { get; } = createdTick;
         public long LastUsedTick { get; set; }
+
+        /// <summary>The last picture, shown while a refreshed one loads.</summary>
+        public Task<ThumbnailResult>? Previous { get; set; }
     }
+
+    /// <summary><paramref name="Checked"/> is false when the image couldn't be fetched at all.</summary>
+    private readonly record struct ThumbnailResult(IDalamudTextureWrap? Image, bool Checked, bool Offline);
 
     private readonly record struct LookupResult(BrowserSourceProviderKind Provider, string Url, VideoMetadata? Metadata, bool Final);
 }

@@ -6,7 +6,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
-- Per-screen playlists: a **Playlist** tab (between Audio and Placement) queues videos from any supported site to play after the current one ends, with Shuffle, Loop playlist, Play now, reorder, Skip and Clear. The Source tab's per-video loop is paused while another video is waiting. Entries show the title, channel, length and thumbnail, from YouTube, Vimeo and Dailymotion's oEmbed endpoints, or from playback for Twitch and web pages.
+- Per-screen playlists: a **Playlist** tab (between Audio and Placement) queues videos from any supported site to play after the current one ends, with Shuffle, Loop playlist, Play now, reorder, Skip and Clear. The Source tab's per-video loop is paused while another video is waiting. Entries show the title, channel, length and thumbnail, from YouTube, Vimeo and Dailymotion's oEmbed endpoints, Twitch channels show their name, live preview and Live/Offline; Twitch VODs and web pages take their title from playback.
 - IPC: `CrystalCast.Screen.Playlist.Get`, `Add`, `Remove`, `Clear`, `Skip`, `Move` and `SetOptions`. Other plugins can add videos only after the user turns on **Let other plugins add videos** for that screen (or when they hold its source lock), and may remove only the videos they added. `Screen.Changed` reports playlist changes as `Playlist`. IPC API version is now 9.
 
 - IPC: `CrystalCast.Ready` and `CrystalCast.Disposed` events, and `CrystalCast.GetCapabilities` (versions, providers, limits, Wine/WebView2 status).

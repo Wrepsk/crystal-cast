@@ -37,6 +37,21 @@ internal static class PlaylistOEmbed
         return true;
     }
 
+    /// <summary>
+    /// For a YouTube playlist link that names its current video, the plain link of that video, so it is
+    /// described rather than the playlist. Null for anything else.
+    /// </summary>
+    public static string? CurrentVideoLink(BrowserSourceProviderKind provider, string url)
+    {
+        if (provider == BrowserSourceProviderKind.YouTube
+            && BrowserSourceDescriptors.YouTube.TryParse(url, out var source)
+            && source is YouTubeSourceReference { Kind: YouTubeSourceKind.Playlist } playlist
+            && YouTubeVideoId.IsValidVideoId(playlist.VideoId))
+            return YouTubeVideoId.BuildCanonicalWatchUrl(playlist.VideoId);
+
+        return null;
+    }
+
     /// <summary>Whether the thumbnail is a Twitch live preview, which changes while the channel streams.</summary>
     public static bool IsLivePreview(PlaylistEntry entry)
     {

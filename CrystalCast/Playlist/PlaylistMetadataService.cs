@@ -41,6 +41,12 @@ internal sealed class PlaylistMetadataService : IDisposable
     /// thumbnail. Kept in memory only, keyed by provider and link.
     /// </summary>
     private readonly Dictionary<string, PlaylistEntry> sources = new(StringComparer.Ordinal);
+
+    /// <summary>The link each screen's player is on, by screen ID; refreshed in <see cref="Update"/>.</summary>
+    private readonly Dictionary<string, (BrowserSourceProviderKind Provider, string Url)> shown = new(StringComparer.Ordinal);
+
+    /// <summary>Links seen this session keep their details, up to this many, so switching back needs no lookup.</summary>
+    private const int MaxSources = 256;
     private long? lastUpdateTick;
     private bool disposed;
 
@@ -185,39 +191,78 @@ internal sealed class PlaylistMetadataService : IDisposable
     /// </summary>
     public IDalamudTextureWrap? GetSourceThumbnail(BrowserScreenProfile screen)
     {
-        var url = BrowserSourceProviderRegistry.GetUrl(screen);
-        if (string.IsNullOrWhiteSpace(url))
+        return FindSourceEntry(screen) is { } entry ? GetThumbnail(entry) : null;
+    }
+
+    /// <summary>The thumbnail address <see cref="GetSourceThumbnail"/> uses, or empty.</summary>
+    internal string GetSourceThumbnailUrl(BrowserScreenProfile screen) => FindSourceEntry(screen)?.ThumbnailUrl ?? string.Empty;
+
+    private PlaylistEntry? FindSourceEntry(BrowserScreenProfile screen)
+    {
+        if (!shown.TryGetValue(screen.ScreenId, out var link))
             return null;
 
         foreach (var entry in screen.Playlist)
         {
-            if (entry.ProviderKind == screen.ProviderKind
+            if (entry.ProviderKind == link.Provider
                 && entry.ThumbnailUrl.Length > 0
-                && string.Equals(entry.Url, url, StringComparison.Ordinal))
-                return GetThumbnail(entry);
+                && string.Equals(entry.Url, link.Url, StringComparison.Ordinal))
+                return entry;
         }
 
-        return sources.TryGetValue(SourceKey(screen.ProviderKind, url), out var source) ? GetThumbnail(source) : null;
+        return sources.GetValueOrDefault(SourceKey(link.Provider, link.Url));
     }
 
-    /// <summary>Keeps one in-memory entry per link a screen is showing, and drops links no screen shows.</summary>
+    /// <summary>
+    /// Notes which link each screen's player is on and keeps an in-memory entry for it. Links from earlier
+    /// in the session are kept (up to <see cref="MaxSources"/>), since their lookup has already run.
+    /// </summary>
     private void SyncSources(Configuration configuration)
     {
         var current = new HashSet<string>(StringComparer.Ordinal);
+        shown.Clear();
         foreach (var screen in configuration.BrowserScreens)
         {
-            var url = BrowserSourceProviderRegistry.GetUrl(screen);
-            if (string.IsNullOrWhiteSpace(url))
+            if (GetShownLink(screen) is not { } url)
                 continue;
 
+            shown[screen.ScreenId] = (screen.ProviderKind, url);
             var key = SourceKey(screen.ProviderKind, url);
             current.Add(key);
             if (!sources.ContainsKey(key))
                 sources[key] = CreateSource(configuration, screen.ProviderKind, url);
         }
 
+        if (sources.Count <= MaxSources)
+            return;
+
+        // Forgotten links may be asked about again.
         foreach (var key in sources.Keys.Where(key => !current.Contains(key)).ToArray())
+        {
             sources.Remove(key);
+            requested.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// The link of the video the screen's player is on. That can differ from the screen's link when a
+    /// YouTube or Dailymotion playlist moves on, or YouTube autoplays the next video. A playlist link
+    /// resolves to its current video, so the tile shows that video.
+    /// </summary>
+    private string? GetShownLink(BrowserScreenProfile screen)
+    {
+        var url = BrowserSourceProviderRegistry.GetUrl(screen);
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        var playing = getTelemetry(screen)?.CanonicalUrl;
+        if (!string.IsNullOrWhiteSpace(playing)
+            && PlaylistOEmbed.IsSupported(screen.ProviderKind)
+            && BrowserSourceDetector.TryDetect(playing, screen.ProviderKind, out var detected)
+            && detected.ProviderKind == screen.ProviderKind)
+            url = detected.Url;
+
+        return PlaylistOEmbed.CurrentVideoLink(screen.ProviderKind, url) ?? url;
     }
 
     /// <summary>

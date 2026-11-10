@@ -276,6 +276,79 @@ public sealed class PlaylistMetadataServiceTests
     }
 
     [Fact]
+    public async Task ChangingTheScreensLinkDescribesTheNewVideo()
+    {
+        var handler = new StubHandler(request => Json(request.RequestUri!.Query.Contains("111")
+            ? """{"title":"First","thumbnail_url":"https://i.vimeocdn.com/video/1.jpg"}"""
+            : """{"title":"Second","thumbnail_url":"https://i.vimeocdn.com/video/2.jpg"}"""));
+        var screen = new BrowserScreenProfile { ProviderKind = BrowserSourceProviderKind.Vimeo, VimeoUrl = "https://vimeo.com/111" };
+        var configuration = new Configuration { Enabled = true };
+        configuration.BrowserScreens.Clear();
+        configuration.BrowserScreens.Add(screen);
+        var service = new PlaylistMetadataService(null, NoOpLog.Create(), _ => telemetry, handler);
+
+        Assert.Equal("https://i.vimeocdn.com/video/1.jpg", await SourceThumbnailUrl(service, configuration, screen));
+        screen.VimeoUrl = "https://vimeo.com/222";
+        Assert.Equal("https://i.vimeocdn.com/video/2.jpg", await SourceThumbnailUrl(service, configuration, screen));
+
+        // Going back to a link seen earlier this session still finds its picture.
+        screen.VimeoUrl = "https://vimeo.com/111";
+        Assert.Equal("https://i.vimeocdn.com/video/1.jpg", await SourceThumbnailUrl(service, configuration, screen));
+        Assert.Equal(2, handler.Calls);
+    }
+
+    [Fact]
+    public async Task TheTileFollowsTheVideoThePlayerIsOn()
+    {
+        var handler = new StubHandler(request => Json(Uri.UnescapeDataString(request.RequestUri!.Query).Contains("v=bbbbbbbbbbb")
+            ? """{"title":"Next","thumbnail_url":"https://i.ytimg.com/vi/bbbbbbbbbbb/hqdefault.jpg"}"""
+            : """{"title":"First","thumbnail_url":"https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg"}"""));
+        var screen = new BrowserScreenProfile { YouTubeUrl = "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI" };
+        var configuration = new Configuration { Enabled = true };
+        configuration.BrowserScreens.Clear();
+        configuration.BrowserScreens.Add(screen);
+        var service = new PlaylistMetadataService(null, NoOpLog.Create(), _ => telemetry, handler);
+
+        Assert.Equal("https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg", await SourceThumbnailUrl(service, configuration, screen));
+
+        // The YouTube playlist moves on; the screen's own link stays the same.
+        telemetry = new MediaPlaybackTelemetry
+        {
+            State = ScreenPlaybackState.Playing,
+            CanonicalUrl = "https://www.youtube.com/watch?v=bbbbbbbbbbb&list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+        };
+        Assert.Equal("https://i.ytimg.com/vi/bbbbbbbbbbb/hqdefault.jpg", await SourceThumbnailUrlChangedFrom(service, configuration, screen, "https://i.ytimg.com/vi/aaaaaaaaaaa/hqdefault.jpg"));
+    }
+
+    private static async Task<string> SourceThumbnailUrlChangedFrom(PlaylistMetadataService service, Configuration configuration, BrowserScreenProfile screen, string previous)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            service.Update(configuration, force: true);
+            if (service.GetSourceThumbnailUrl(screen) is { Length: > 0 } url && url != previous)
+                return url;
+
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        return previous;
+    }
+
+    private static async Task<string> SourceThumbnailUrl(PlaylistMetadataService service, Configuration configuration, BrowserScreenProfile screen)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            service.Update(configuration, force: true);
+            if (service.GetSourceThumbnailUrl(screen) is { Length: > 0 } url)
+                return url;
+
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        return string.Empty;
+    }
+
+    [Fact]
     public void WebPagesAreNeverFetched()
     {
         var handler = new StubHandler(_ => Json("""{"title":"x"}"""));

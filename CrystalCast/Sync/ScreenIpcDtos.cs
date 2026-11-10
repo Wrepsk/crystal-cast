@@ -310,6 +310,7 @@ public sealed class ScreenIpcLimits
     public int MaxRemoteScreens { get; set; }
     public int MaxPayloadBytes { get; set; }
     public int IpcScreensInUse { get; set; }
+    public int MaxPlaylistEntries { get; set; }
 }
 
 /// <summary>Whether this player can show browser screens, and with what.</summary>
@@ -333,6 +334,9 @@ public enum ScreenIpcChangeKind
     Visual = 5,
     SourceLock = 6,
     Unavailable = 7,
+
+    /// <summary>Playlist entries, order, play position, or its options changed. Read it with <c>Playlist.Get</c>.</summary>
+    Playlist = 8,
 }
 
 public enum ScreenIpcApplyStateResult
@@ -366,4 +370,79 @@ public sealed class ScreenIpcChangeEvent
     public ScreenIpcChangeKind[] Changes { get; set; } = [];
     public ScreenStateEnvelope? State { get; set; }
     public long TimestampUnixMs { get; set; }
+}
+
+/// <summary>
+/// One request type for every <c>CrystalCast.Screen.Playlist.*</c> call; each call reads the fields it needs.
+/// </summary>
+public sealed class ScreenIpcPlaylistRequest
+{
+    public string ScreenId { get; set; } = string.Empty;
+
+    /// <summary>Who is calling. Entries are recorded under it, and lock-owner calls compare it to the lock.</summary>
+    public string OwnerId { get; set; } = string.Empty;
+
+    /// <summary>Add: a full YouTube, Twitch, Dailymotion, Vimeo or web link.</summary>
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>Add: an optional name for the list. Defaults to the video ID or page address.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Remove and Move: the entry to change.</summary>
+    public string EntryId { get; set; } = string.Empty;
+
+    /// <summary>Move: the new zero-based position.</summary>
+    public int? Index { get; set; }
+
+    /// <summary>SetOptions: leave out to keep the current value.</summary>
+    public bool? Shuffle { get; set; }
+
+    /// <summary>SetOptions: leave out to keep the current value.</summary>
+    public bool? Loop { get; set; }
+}
+
+public sealed class ScreenIpcPlaylistResponse
+{
+    public bool Success { get; set; }
+    public string Error { get; set; } = string.Empty;
+    public string ScreenId { get; set; } = string.Empty;
+
+    /// <summary>Add: the new entry. Skip: the entry now playing.</summary>
+    public string EntryId { get; set; } = string.Empty;
+    public ScreenIpcPlaylistState? Playlist { get; set; }
+}
+
+public sealed class ScreenIpcPlaylistState
+{
+    public bool Shuffle { get; set; }
+    public bool Loop { get; set; }
+
+    /// <summary>The user's "Let other plugins add videos" switch. IPC can read it but not change it.</summary>
+    public bool AllowIpcAdds { get; set; }
+    public string CurrentEntryId { get; set; } = string.Empty;
+    public int MaxEntries { get; set; }
+    public ScreenIpcPlaylistEntry[] Entries { get; set; } = [];
+}
+
+public sealed class ScreenIpcPlaylistEntry
+{
+    public string EntryId { get; set; } = string.Empty;
+    public string Provider { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>The name to show: the title the adding plugin gave, else the site's, else what the link points at.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The channel or uploader, when the site said.</summary>
+    public string Author { get; set; } = string.Empty;
+
+    /// <summary>An https image on the site's image host, or empty.</summary>
+    public string ThumbnailUrl { get; set; } = string.Empty;
+
+    /// <summary>Zero when unknown or live.</summary>
+    public int DurationSeconds { get; set; }
+    public bool AddedByIpc { get; set; }
+    public string AddedBy { get; set; } = string.Empty;
+    public bool Played { get; set; }
+    public bool Current { get; set; }
 }

@@ -373,7 +373,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
         var positionMs = BrowserMessageValidator.ToBoundedMilliseconds(positionSeconds);
         var durationMs = BrowserMessageValidator.ToBoundedMilliseconds(durationSeconds);
-        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, url);
+        UpdateTelemetry(playbackState, positionMs, durationMs, rate, title, url, ended: !noMedia && stateCode == 0);
         playerStatus = noMedia
             ? PlaybackUnavailableStatus
             : string.IsNullOrWhiteSpace(title)
@@ -381,7 +381,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 : $"{title}; state {stateCode}; {positionSeconds:0.0}s / {durationSeconds:0.0}s";
     }
 
-    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string url)
+    private void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string url, bool ended = false)
     {
         if (!GenericWebUrl.TryParseSource(url, out var parsed))
             parsed = source;
@@ -399,6 +399,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 CanonicalUrl = parsed.Url,
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = 0.0f,
+                Ended = ended && state == ScreenPlaybackState.Stopped,
             };
         }
     }

@@ -1,3 +1,4 @@
+using CrystalCast.Playlist;
 using CrystalCast.Rendering;
 using CrystalCast.Sync;
 using CrystalCast.Video;
@@ -38,6 +39,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
+    private readonly ScreenPlaylistAdvancer playlistAdvancer;
+    private readonly PlaylistMetadataService playlistMetadata;
     private readonly CrystalCastFonts fonts;
 
     public Plugin()
@@ -79,8 +82,10 @@ public sealed class Plugin : IDalamudPlugin
         CrystalCastUiTheme.Fonts = fonts;
 
         renderer = new WorldScreenManager(Configuration, services);
-        ipc = new ScreenStateIpc(Configuration, renderer, services);
-        mainWindow = new MainWindow(this, renderer, ipc, placementResolver);
+        playlistAdvancer = new ScreenPlaylistAdvancer(renderer.GetPlaybackTelemetry);
+        playlistMetadata = new PlaylistMetadataService(TextureProvider, Log, renderer.GetPlaybackTelemetry);
+        ipc = new ScreenStateIpc(Configuration, renderer, services, playlistAdvancer);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
@@ -138,6 +143,7 @@ public sealed class Plugin : IDalamudPlugin
         firstRunGuideWindow.Dispose();
         genericWebIpcApprovalWindow.Dispose();
         ipc.Dispose();
+        playlistMetadata.Dispose();
         renderer.Dispose();
         genericWebIpcApprovals.Dispose();
         CrystalCastUiTheme.Fonts = null;
@@ -183,10 +189,38 @@ public sealed class Plugin : IDalamudPlugin
         {
             UpdateFirstRunGuide();
             genericWebIpcApprovalWindow.RefreshState();
+            AdvancePlaylists();
         }
         windowSystem.Draw();
         renderer.DrawWorld();
         Configuration.ProcessPendingSave();
+    }
+
+    /// <summary>Moves screens whose video just ended to their next playlist video, and fills in video details.</summary>
+    private void AdvancePlaylists()
+    {
+        try
+        {
+            var advanced = playlistAdvancer.Update(Configuration);
+            if (advanced.Count > 0)
+            {
+                Configuration.Save();
+                foreach (var advance in advanced)
+                    ipc.PublishPlaylistAdvance(advance);
+            }
+
+            var described = playlistMetadata.Update(Configuration);
+            if (described.Count > 0)
+            {
+                Configuration.Save();
+                foreach (var screenId in described)
+                    ipc.PublishPlaylistChange(screenId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Moving a CrystalCast screen to its next playlist video failed.");
+        }
     }
 
     private void UpdateFirstRunGuide()

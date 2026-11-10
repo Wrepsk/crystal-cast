@@ -1,4 +1,5 @@
 using Dalamud.Configuration;
+using CrystalCast.Playlist;
 using CrystalCast.Video;
 using System;
 
@@ -324,6 +325,19 @@ public sealed class BrowserScreenProfile
     public float SpatialAudioFullVolumeRadiusMeters { get; set; } = 4.0f;
     public float SpatialAudioSilentRadiusMeters { get; set; } = 18.0f;
 
+    /// <summary>Videos that play after the current one ends.</summary>
+    public List<PlaylistEntry> Playlist { get; set; } = [];
+
+    /// <summary>The playlist entry now loaded on the screen, or empty when the source didn't come from the playlist.</summary>
+    public string PlaylistCurrentEntryId { get; set; } = string.Empty;
+    public bool PlaylistShuffle { get; set; }
+    public bool PlaylistLoop { get; set; }
+
+    /// <summary>
+    /// Lets other plugins add videos through IPC. Only the user can change it: no IPC call sets it.
+    /// </summary>
+    public bool PlaylistAllowIpcAdds { get; set; }
+
     public bool Normalize(string defaultName, ISet<string> usedScreenIds)
     {
         var changed = false;
@@ -364,6 +378,7 @@ public sealed class BrowserScreenProfile
         }
 
         changed |= Placement.Normalize();
+        changed |= ScreenPlaylistPolicy.Normalize(this);
         return changed;
     }
 
@@ -434,9 +449,14 @@ public sealed class BrowserScreenProfile
             SpatialAudioEnabled = SpatialAudioEnabled,
             SpatialAudioFullVolumeRadiusMeters = SpatialAudioFullVolumeRadiusMeters,
             SpatialAudioSilentRadiusMeters = SpatialAudioSilentRadiusMeters,
+            // A copied screen keeps the videos and play order, but not the permission for other plugins to add.
+            Playlist = Playlist.Select(entry => entry.CloneAsNew()).ToList(),
+            PlaylistShuffle = PlaylistShuffle,
+            PlaylistLoop = PlaylistLoop,
         };
     }
 
+    /// <summary>An exact copy of this screen. IPC updates replace the screen with one, so it must keep everything.</summary>
     public BrowserScreenProfile Clone()
     {
         var clone = CloneAsNew(Name);
@@ -446,6 +466,73 @@ public sealed class BrowserScreenProfile
         clone.SourceControlsLocked = SourceControlsLocked;
         clone.SourceControlsOwnerId = SourceControlsOwnerId;
         clone.LocalSequence = LocalSequence;
+        clone.Playlist = Playlist.Select(entry => entry.Clone()).ToList();
+        clone.PlaylistCurrentEntryId = PlaylistCurrentEntryId;
+        clone.PlaylistAllowIpcAdds = PlaylistAllowIpcAdds;
+        return clone;
+    }
+}
+
+[Serializable]
+public sealed class PlaylistEntry
+{
+    public string EntryId { get; set; } = Guid.NewGuid().ToString("N");
+    public BrowserSourceProviderKind ProviderKind { get; set; } = BrowserSourceProviderKind.YouTube;
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>A name the adding plugin gave. Empty when the site's own title should be used.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>What the link points at, such as the video ID or page address. Shown until the title is known.</summary>
+    public string SourceName { get; set; } = string.Empty;
+
+    /// <summary>The video's title, from the site or from playing it.</summary>
+    public string MetadataTitle { get; set; } = string.Empty;
+
+    /// <summary>The channel or uploader.</summary>
+    public string Author { get; set; } = string.Empty;
+
+    /// <summary>An https image on the site's own image host.</summary>
+    public string ThumbnailUrl { get; set; } = string.Empty;
+    public int DurationSeconds { get; set; }
+
+    /// <summary>The site answered the metadata lookup, so it isn't asked again.</summary>
+    public bool MetadataLookedUp { get; set; }
+
+    /// <summary>True when another plugin added this entry through IPC.</summary>
+    public bool AddedByIpc { get; set; }
+
+    /// <summary>The owner ID the adding plugin gave. Empty for entries the user added.</summary>
+    public string AddedBy { get; set; } = string.Empty;
+
+    /// <summary>Whether this entry has played since the playlist last started over.</summary>
+    public bool Played { get; set; }
+
+    public PlaylistEntry Clone()
+    {
+        return new PlaylistEntry
+        {
+            EntryId = EntryId,
+            ProviderKind = ProviderKind,
+            Url = Url,
+            Title = Title,
+            SourceName = SourceName,
+            MetadataTitle = MetadataTitle,
+            Author = Author,
+            ThumbnailUrl = ThumbnailUrl,
+            DurationSeconds = DurationSeconds,
+            MetadataLookedUp = MetadataLookedUp,
+            AddedByIpc = AddedByIpc,
+            AddedBy = AddedBy,
+            Played = Played,
+        };
+    }
+
+    public PlaylistEntry CloneAsNew()
+    {
+        var clone = Clone();
+        clone.EntryId = Guid.NewGuid().ToString("N");
+        clone.Played = false;
         return clone;
     }
 }

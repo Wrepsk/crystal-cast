@@ -1,4 +1,5 @@
 using System.Numerics;
+using CrystalCast.Playlist;
 using CrystalCast.Rendering;
 using CrystalCast.Sync;
 using CrystalCast.Video;
@@ -14,9 +15,9 @@ public sealed class MainWindow : Window, IDisposable
 {
 #if DEBUG
     private const string DebugIpcOwnerId = "CrystalCast.Debug";
-    private static readonly string[] TabLabels = ["Source", "Audio", "Placement", "IPC testing"];
+    private static readonly string[] TabLabels = ["Source", "Audio", "Playlist", "Placement", "IPC testing"];
 #else
-    private static readonly string[] TabLabels = ["Source", "Audio", "Placement"];
+    private static readonly string[] TabLabels = ["Source", "Audio", "Playlist", "Placement"];
 #endif
 
     private const float ArtworkHeight = 260.0f;
@@ -29,6 +30,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly ScreenListPanel screenListPanel;
     private readonly AudioControlsPanel audioControlsPanel;
     private readonly PlacementPanel placementPanel;
+    private readonly PlaylistPanel playlistPanel;
     private readonly SourceControlsPanel sourceControlsPanel;
     private readonly Dictionary<string, SourceProgressUiState> progressStates = new(StringComparer.Ordinal);
     private readonly ComReferenceHold previewHold = new();
@@ -36,7 +38,13 @@ public sealed class MainWindow : Window, IDisposable
     private double volumeLastHoveredAt = double.NegativeInfinity;
     private int selectedTab;
 
-    internal MainWindow(Plugin plugin, WorldScreenManager renderer, ScreenStateIpc ipc, ScreenPlacementResolver placementResolver)
+    internal MainWindow(
+        Plugin plugin,
+        WorldScreenManager renderer,
+        ScreenStateIpc ipc,
+        ScreenPlacementResolver placementResolver,
+        ScreenPlaylistAdvancer playlistAdvancer,
+        PlaylistMetadataService playlistMetadata)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
@@ -45,6 +53,7 @@ public sealed class MainWindow : Window, IDisposable
         screenListPanel = new ScreenListPanel(renderer);
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
+        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);
         sourceControlsPanel = new SourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -452,9 +461,10 @@ public sealed class MainWindow : Window, IDisposable
         {
             0 => sourceControlsPanel.Draw(activeScreen),
             1 => audioControlsPanel.Draw(activeScreen),
-            2 => placementPanel.Draw(config, activeScreen),
+            2 => playlistPanel.Draw(activeScreen),
+            3 => placementPanel.Draw(config, activeScreen),
 #if DEBUG
-            3 => DrawIpcTesting(config, activeScreen),
+            4 => DrawIpcTesting(config, activeScreen),
 #endif
             _ => false,
         };
@@ -555,6 +565,7 @@ public sealed class MainWindow : Window, IDisposable
     private void ClearDeletedScreenUiState(string screenId)
     {
         sourceControlsPanel.ClearScreen(screenId);
+        playlistPanel.ClearScreen(screenId);
         placementUndoService.Remove(screenId);
         progressStates.Remove(screenId);
     }

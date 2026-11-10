@@ -39,6 +39,10 @@ Screens can be enabled, placed in front of the player, rotated/scaled, curved, a
 
 Browser screens currently support YouTube, Twitch, Dailymotion, Vimeo, and Generic Web. YouTube accepts video URLs/IDs, playlist URLs/IDs, playlist watch URLs, channel IDs, and channel live embeds. Twitch accepts channel and VOD URLs. Dailymotion accepts video URLs/IDs and playlist URLs. Vimeo accepts video URLs/IDs, including unlisted video URLs with hashes. Generic Web accepts HTTP/HTTPS page URLs and syncs playback when it can access a page `<video>` or `<audio>` element. Browser audio is local to the client when enabled, and browser sources start muted by default.
 
+Each screen has a **Playlist** tab. Videos added there play after the current one ends, from any supported site, with **Shuffle** and **Loop playlist** switches. A per-video loop setting is paused while another playlist video is waiting, so the current one can end. Twitch streams and most web pages never end on their own; use **Skip** for those. **Let other plugins add videos** is off by default and only the user can turn it on.
+
+Playlist entries show the video's title, channel, length and thumbnail. For YouTube, Vimeo and Dailymotion links CrystalCast asks the site's public oEmbed endpoint when the entry is added (the same site the video would play from) and loads the thumbnail from that site's image host. Twitch has no such endpoint and its stream titles need API credentials, so a Twitch channel shows its name and Twitch's public live preview image (refreshed every five minutes, with Live or Offline). Twitch VODs and web pages are not fetched outside the browser; they get their title and length once they play.
+
 For YouTube, use **Show browser controls** to open the interactive player and change captions, playback quality, playback speed, and other YouTube settings. YouTube no longer exposes programmatic quality selection through the IFrame API, so quality changes use YouTube's own settings menu.
 
 CrystalCast's intended Windows render output is CrystalRenderer `RenderOutput.SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
@@ -115,10 +119,11 @@ CrystalCast exposes state-only IPC for media-screen synchronization:
 - `CrystalCast.Screen.SetSourceLock`
 - `CrystalCast.Screen.GetSourceState`
 - `CrystalCast.Screen.Changed`
+- `CrystalCast.Screen.Playlist.Get` / `Add` / `Remove` / `Clear` / `Skip` / `Move` / `SetOptions`
 
 The IPC payload intentionally exchanges screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. Received states are retained for snapshot consumers; CrystalCast does not automatically render remote states. It does not sync raw pixels or audio.
 
-API version 8 runs every call on the game's main thread, so other plugins may call from any thread: calls from other threads wait up to 5 seconds for it and otherwise return an error. Every JSON argument is limited to 64 KiB and screen IDs to 256 characters.
+API version 9 runs every call on the game's main thread, so other plugins may call from any thread: calls from other threads wait up to 5 seconds for it and otherwise return an error. Every JSON argument is limited to 64 KiB and screen IDs to 256 characters.
 
 `CrystalCast.Ready` is sent when the IPC becomes available (plugin load, or IPC switched on in settings) and `CrystalCast.Disposed` before it goes away, so integrations can connect without polling `ApiVersion`. `CrystalCast.GetCapabilities` returns JSON with the API and plugin versions, supported providers, screen and payload limits, and the browser situation: Wine, configured backend, capture mode, and whether WebView2 is available (with its version or the reason it is not).
 
@@ -134,7 +139,15 @@ A Generic Web address set through IPC needs the user's approval before it loads,
 
 `CrystalCast.Screen.GetSourceState` accepts a screen ID and returns the current provider and source-specific state. For browser screens this includes the configured URL, canonical URL/source identity, title, playback state, position, duration, rate, and host timestamp when available.
 
-`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, IPC-created-screen, or screen-availability changes. Changes made inside the player itself are included as well: pausing in browser controls, a video ending, the next playlist item, a title loading, and seeks (a position more than 2 seconds from where playback should be). These are checked four times a second; normal playback progress does not send events. The event includes `changes` and the current screen state envelope. When a previously visible local screen is disabled, deleted, or made unavailable by disabling CrystalCast, `changes` contains `Unavailable` and `state` is `null` so sync consumers can refresh snapshots and remove stale remote screens.
+`CrystalCast.Screen.Playlist.Get` accepts a screen ID and returns the playlist: `shuffle`, `loop`, `allowIpcAdds`, `currentEntryId`, the limits, and `entries` (each with `entryId`, `provider`, `url`, `title`, `author`, `thumbnailUrl`, `durationSeconds`, `addedByIpc`, `addedBy`, `played`, and `current`). `title` is the one given to `Add`, else the site's title, else what the link points at; details arrive shortly after adding and are announced with a `Playlist` change. The other playlist calls accept a JSON request with `screenId`, `ownerId`, and the call's fields (`url` and an optional `title` for `Add`; `entryId` for `Remove`; `entryId` and `index` for `Move`; `shuffle` and/or `loop` for `SetOptions`), and return `success`, `error`, `screenId`, `entryId`, and the playlist. Unlike source locks, these calls are checked:
+
+- `Add` needs the screen's **Let other plugins add videos** switch, which only the user can change, or the caller's `ownerId` must match the screen's source-lock owner. Only full links are accepted and a playlist holds at most 100 videos. Web pages added this way still need the user's approval before they open.
+- `Remove` works on entries added under the same `ownerId`; the source-lock owner can remove any entry.
+- `Skip`, `Move`, `Clear`, and `SetOptions` are for the source-lock owner only.
+
+`ownerId` is still reported by the calling plugin, so these checks keep cooperating integrations apart; the user's switch is what controls access. The user can always remove videos, clear the playlist, and turn the switch off, even on a locked screen.
+
+`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, IPC-created-screen, or screen-availability changes. Changes made inside the player itself are included as well: pausing in browser controls, a video ending, the next playlist item, a title loading, and seeks (a position more than 2 seconds from where playback should be). These are checked four times a second; normal playback progress does not send events. The event includes `changes` and the current screen state envelope. Playlist edits, the next video starting, and option changes are reported with `Playlist` in `changes`. When a previously visible local screen is disabled, deleted, or made unavailable by disabling CrystalCast, `changes` contains `Unavailable` and `state` is `null` so sync consumers can refresh snapshots and remove stale remote screens.
 
 ## Safety and scope
 

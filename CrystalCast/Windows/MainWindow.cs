@@ -50,7 +50,7 @@ public sealed class MainWindow : Window, IDisposable
         this.plugin = plugin;
         this.renderer = renderer;
         this.ipc = ipc;
-        screenListPanel = new ScreenListPanel(renderer);
+        screenListPanel = new ScreenListPanel(renderer, playlistMetadata);
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);

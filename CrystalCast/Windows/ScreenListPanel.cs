@@ -1,4 +1,5 @@
 using System.Numerics;
+using CrystalCast.Playlist;
 using CrystalCast.Rendering;
 using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
@@ -8,7 +9,7 @@ using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-internal sealed class ScreenListPanel(WorldScreenManager renderer)
+internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata)
 {
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
@@ -50,6 +51,19 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
         return changed;
     }
 
+    /// <summary>The screen's video thumbnail when it has one; otherwise its crystal artwork.</summary>
+    private void DrawScreenArt(ImDrawListPtr dl, Vector2 min, Vector2 max, BrowserScreenProfile screen, float seed)
+    {
+        if (metadata.GetSourceThumbnail(screen) is { Width: > 0, Height: > 0 } image)
+        {
+            dl.AddRectFilled(min, max, U32(Inset));
+            Ui.ImageCover(dl, image, min, max, Vector4.One, 0.0f);
+            return;
+        }
+
+        CrystalArtwork.DrawThumbnail(dl, min, max, seed);
+    }
+
     private bool DrawThumbnails(Configuration config, BrowserScreenProfile? activeScreen, bool canAddUserScreen)
     {
         var changed = false;
@@ -79,7 +93,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer)
                     meta,
                     selected,
                     dimmed: !screen.Enabled,
-                    (dl, min, max) => CrystalArtwork.DrawThumbnail(dl, min, max, seed),
+                    (dl, min, max) => DrawScreenArt(dl, min, max, screen, seed),
                     Base))
             {
                 if (!selected)

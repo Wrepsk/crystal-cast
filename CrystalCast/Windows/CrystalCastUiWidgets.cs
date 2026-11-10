@@ -2,6 +2,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.ManagedFontAtlas;
+using Dalamud.Interface.Textures.TextureWraps;
 using static CrystalCast.Windows.CrystalCastUiTheme;
 
 namespace CrystalCast.Windows;
@@ -1181,6 +1182,34 @@ internal static class CrystalCastUiWidgets
 
         DrawCrystal();
         DrawUi();
+    }
+
+    // ---------------------------------------------------------------- images
+
+    /// <summary>
+    /// Draws <paramref name="image"/> filling the box, cropping the overflow evenly (which also trims
+    /// YouTube's 4:3 letterbox bars from a 16:9 box).
+    /// </summary>
+    public static void ImageCover(ImDrawListPtr dl, IDalamudTextureWrap image, Vector2 min, Vector2 max, Vector4 tint, float rounding)
+    {
+        var (uv0, uv1) = CoverUv((float)image.Width / image.Height, (max.X - min.X) / (max.Y - min.Y));
+        dl.AddImageRounded(image.Handle, min, max, uv0, uv1, U32(tint), rounding);
+    }
+
+    /// <summary>The part of an image of <paramref name="sourceAspect"/> that fills a box of <paramref name="targetAspect"/>.</summary>
+    internal static (Vector2 Uv0, Vector2 Uv1) CoverUv(float sourceAspect, float targetAspect)
+    {
+        if (!(sourceAspect > 0.0f) || !(targetAspect > 0.0f))
+            return (Vector2.Zero, Vector2.One);
+
+        if (sourceAspect > targetAspect)
+        {
+            var inset = (1.0f - (targetAspect / sourceAspect)) * 0.5f;
+            return (new Vector2(inset, 0.0f), new Vector2(1.0f - inset, 1.0f));
+        }
+
+        var vertical = (1.0f - (sourceAspect / targetAspect)) * 0.5f;
+        return (new Vector2(0.0f, vertical), new Vector2(1.0f, 1.0f - vertical));
     }
 
     // ---------------------------------------------------------------- helper-window layout

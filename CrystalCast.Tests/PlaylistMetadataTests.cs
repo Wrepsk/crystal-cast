@@ -235,6 +235,47 @@ public sealed class PlaylistMetadataServiceTests
     }
 
     [Fact]
+    public async Task AScreensOwnLinkIsLookedUpForItsTile()
+    {
+        var handler = new StubHandler(_ => Json("""{"title":"A video","thumbnail_url":"https://i.vimeocdn.com/video/1.jpg"}"""));
+        var screen = new BrowserScreenProfile { ProviderKind = BrowserSourceProviderKind.Vimeo, VimeoUrl = "https://vimeo.com/76979871" };
+        var configuration = new Configuration { Enabled = true };
+        configuration.BrowserScreens.Clear();
+        configuration.BrowserScreens.Add(screen);
+        var service = new PlaylistMetadataService(null, NoOpLog.Create(), _ => telemetry, handler);
+
+        // Not a playlist change, so nothing is reported or saved.
+        Assert.Empty(service.Update(configuration, force: true));
+        await handler.WaitForCall();
+        Assert.Equal(1, handler.Calls);
+        for (var i = 0; i < 20; i++)
+        {
+            Assert.Empty(service.Update(configuration, force: true));
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public void AScreenShowingAPlaylistVideoReusesItsDetails()
+    {
+        var handler = new StubHandler(_ => Json("""{"title":"x"}"""));
+        var (configuration, screen, service) = Setup(handler, "https://vimeo.com/76979871");
+        var entry = screen.Playlist[0];
+        PlaylistMetadataService.Apply(entry, new VideoMetadata("A video", "", "https://i.vimeocdn.com/video/1.jpg", 0));
+        entry.MetadataLookedUp = true;
+
+        // The entry plays, then leaves the playlist: the screen's link still needs no request.
+        ScreenPlaylistPolicy.Load(screen, entry);
+        service.Update(configuration, force: true);
+        ScreenPlaylistPolicy.Remove(screen, entry.EntryId);
+        service.Update(configuration, force: true);
+
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
     public void WebPagesAreNeverFetched()
     {
         var handler = new StubHandler(_ => Json("""{"title":"x"}"""));

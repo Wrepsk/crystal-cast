@@ -35,6 +35,12 @@ internal sealed class PlaylistMetadataService : IDisposable
     private readonly HashSet<string> requested = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string EntryId, long SinceUnixMs)> playing = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ThumbnailSlot> thumbnails = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// What each screen is showing, described like a playlist entry so the screen list can show its
+    /// thumbnail. Kept in memory only, keyed by provider and link.
+    /// </summary>
+    private readonly Dictionary<string, PlaylistEntry> sources = new(StringComparer.Ordinal);
     private long? lastUpdateTick;
     private bool disposed;
 
@@ -63,6 +69,7 @@ internal sealed class PlaylistMetadataService : IDisposable
 
         lastUpdateTick = now;
         var changed = new HashSet<string>(StringComparer.Ordinal);
+        SyncSources(configuration);
         ApplyResults(configuration, changed);
         StartLookups(configuration, changed);
         LearnFromPlayback(configuration, changed);
@@ -155,24 +162,104 @@ internal sealed class PlaylistMetadataService : IDisposable
             if (!result.Final)
                 continue; // Network trouble: try again next session.
 
-            foreach (var screen in configuration.BrowserScreens)
+            foreach (var (screenId, entry) in DescribedEntries(configuration))
             {
-                foreach (var entry in screen.Playlist)
-                {
-                    if (entry.MetadataLookedUp
-                        || entry.ProviderKind != result.Provider
-                        || !string.Equals(entry.Url, result.Url, StringComparison.Ordinal))
-                        continue;
+                if (entry.MetadataLookedUp
+                    || entry.ProviderKind != result.Provider
+                    || !string.Equals(entry.Url, result.Url, StringComparison.Ordinal))
+                    continue;
 
-                    if (result.Metadata is { } metadata)
-                        Apply(entry, metadata);
+                if (result.Metadata is { } metadata)
+                    Apply(entry, metadata);
 
-                    entry.MetadataLookedUp = true;
-                    changed.Add(screen.ScreenId);
-                }
+                entry.MetadataLookedUp = true;
+                if (screenId != null)
+                    changed.Add(screenId);
             }
         }
     }
+
+    /// <summary>
+    /// The thumbnail of what the screen is showing, or null when there's no link, the site has no picture,
+    /// or it hasn't loaded yet. A matching playlist entry's details are used when it has them.
+    /// </summary>
+    public IDalamudTextureWrap? GetSourceThumbnail(BrowserScreenProfile screen)
+    {
+        var url = BrowserSourceProviderRegistry.GetUrl(screen);
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        foreach (var entry in screen.Playlist)
+        {
+            if (entry.ProviderKind == screen.ProviderKind
+                && entry.ThumbnailUrl.Length > 0
+                && string.Equals(entry.Url, url, StringComparison.Ordinal))
+                return GetThumbnail(entry);
+        }
+
+        return sources.TryGetValue(SourceKey(screen.ProviderKind, url), out var source) ? GetThumbnail(source) : null;
+    }
+
+    /// <summary>Keeps one in-memory entry per link a screen is showing, and drops links no screen shows.</summary>
+    private void SyncSources(Configuration configuration)
+    {
+        var current = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var screen in configuration.BrowserScreens)
+        {
+            var url = BrowserSourceProviderRegistry.GetUrl(screen);
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+
+            var key = SourceKey(screen.ProviderKind, url);
+            current.Add(key);
+            if (!sources.ContainsKey(key))
+                sources[key] = CreateSource(configuration, screen.ProviderKind, url);
+        }
+
+        foreach (var key in sources.Keys.Where(key => !current.Contains(key)).ToArray())
+            sources.Remove(key);
+    }
+
+    /// <summary>
+    /// A new screen link, starting from a playlist entry's details when one already described it: its
+    /// lookup has run, so it wouldn't be asked again.
+    /// </summary>
+    private static PlaylistEntry CreateSource(Configuration configuration, BrowserSourceProviderKind provider, string url)
+    {
+        var source = new PlaylistEntry { ProviderKind = provider, Url = url };
+        foreach (var screen in configuration.BrowserScreens)
+        {
+            foreach (var entry in screen.Playlist)
+            {
+                if (!entry.MetadataLookedUp || entry.ProviderKind != provider || !string.Equals(entry.Url, url, StringComparison.Ordinal))
+                    continue;
+
+                source.MetadataTitle = entry.MetadataTitle;
+                source.Author = entry.Author;
+                source.ThumbnailUrl = entry.ThumbnailUrl;
+                source.DurationSeconds = entry.DurationSeconds;
+                source.MetadataLookedUp = true;
+                return source;
+            }
+        }
+
+        return source;
+    }
+
+    /// <summary>Every entry to describe: playlist entries with their screen, then the screens' links.</summary>
+    private IEnumerable<(string? ScreenId, PlaylistEntry Entry)> DescribedEntries(Configuration configuration)
+    {
+        foreach (var screen in configuration.BrowserScreens)
+        {
+            foreach (var entry in screen.Playlist)
+                yield return (screen.ScreenId, entry);
+        }
+
+        foreach (var source in sources.Values)
+            yield return (null, source);
+    }
+
+    private static string SourceKey(BrowserSourceProviderKind provider, string url) => $"{provider}|{url}";
 
     internal static void Apply(PlaylistEntry entry, VideoMetadata metadata)
     {
@@ -187,38 +274,36 @@ internal sealed class PlaylistMetadataService : IDisposable
 
     private void StartLookups(Configuration configuration, HashSet<string> changed)
     {
-        foreach (var screen in configuration.BrowserScreens)
+        foreach (var (screenId, entry) in DescribedEntries(configuration))
         {
-            foreach (var entry in screen.Playlist)
+            if (entry.MetadataLookedUp)
+                continue;
+
+            // Twitch channels are described from the link alone.
+            if (PlaylistOEmbed.TryDescribeLocally(entry, out var local))
             {
-                if (entry.MetadataLookedUp)
-                    continue;
-
-                // Twitch channels are described from the link alone.
-                if (PlaylistOEmbed.TryDescribeLocally(entry, out var local))
-                {
-                    Apply(entry, local);
-                    entry.MetadataLookedUp = true;
-                    changed.Add(screen.ScreenId);
-                    continue;
-                }
-
-                if (!PlaylistOEmbed.IsSupported(entry.ProviderKind))
-                    continue;
-
-                var key = $"{entry.ProviderKind}|{entry.Url}";
-                if (requested.Contains(key))
-                    continue;
-
-                requested.Add(key);
-                if (!PlaylistOEmbed.TryBuildRequestUri(entry, out var requestUri))
-                {
-                    results.Enqueue(new LookupResult(entry.ProviderKind, entry.Url, null, Final: true));
-                    continue;
-                }
-
-                _ = LookUpAsync(entry.ProviderKind, entry.Url, requestUri, disposal.Token);
+                Apply(entry, local);
+                entry.MetadataLookedUp = true;
+                if (screenId != null)
+                    changed.Add(screenId);
+                continue;
             }
+
+            if (!PlaylistOEmbed.IsSupported(entry.ProviderKind))
+                continue;
+
+            var key = SourceKey(entry.ProviderKind, entry.Url);
+            if (requested.Contains(key))
+                continue;
+
+            requested.Add(key);
+            if (!PlaylistOEmbed.TryBuildRequestUri(entry, out var requestUri))
+            {
+                results.Enqueue(new LookupResult(entry.ProviderKind, entry.Url, null, Final: true));
+                continue;
+            }
+
+            _ = LookUpAsync(entry.ProviderKind, entry.Url, requestUri, disposal.Token);
         }
     }
 

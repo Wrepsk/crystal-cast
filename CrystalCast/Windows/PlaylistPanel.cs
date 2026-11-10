@@ -366,22 +366,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             return;
         }
 
-        var target = (max.X - min.X) / (max.Y - min.Y);
-        var source = (float)image.Width / image.Height;
-        Vector2 uv0, uv1;
-        if (source > target)
-        {
-            var inset = (1.0f - (target / source)) * 0.5f;
-            (uv0, uv1) = (new Vector2(inset, 0.0f), new Vector2(1.0f - inset, 1.0f));
-        }
-        else
-        {
-            var inset = (1.0f - (source / target)) * 0.5f;
-            (uv0, uv1) = (new Vector2(0.0f, inset), new Vector2(1.0f, 1.0f - inset));
-        }
-
-        var tint = dimmed ? new Vector4(1.0f, 1.0f, 1.0f, 0.45f) : Vector4.One;
-        dl.AddImageRounded(image.Handle, min, max, uv0, uv1, U32(tint), rounding);
+        Ui.ImageCover(dl, image, min, max, dimmed ? new Vector4(1.0f, 1.0f, 1.0f, 0.45f) : Vector4.One, rounding);
     }
 
     /// <summary>"Playing · YouTube · channel · 3:33 · added by you", leaving out what isn't known.</summary>

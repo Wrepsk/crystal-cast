@@ -11,6 +11,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
+- The screen list in the main window shows each screen's video thumbnail (YouTube, Vimeo, Dailymotion, and Twitch live previews). Screens with no link, a web page or no picture keep their crystal artwork.
 - On screens created through IPC the Playlist tab is read-only for the user: adding, Shuffle, Loop playlist, Skip, Clear, Play now, reordering and removing are all blocked.
 - IPC: `playlistAllowUserAdds` on `Screen.Create` and `Screen.Update` for screens created through IPC. Off by default; when on, the user can add videos to that screen, and nothing else. The playlist state reports it as `allowUserAdds`, and `allowIpcAdds` is now always false on those screens.
 

@@ -15,7 +15,6 @@ internal readonly record struct PlaylistPick(PlaylistEntry Entry, bool StartsOve
 internal static class ScreenPlaylistPolicy
 {
     public const int MaxEntries = 100;
-    public const int MaxEntriesPerIpcOwner = 20;
     public const int MaxTitleLength = 200;
 
     /// <summary>Repairs a loaded or IPC-edited playlist. Runs every frame, so it only checks structure.</summary>
@@ -68,15 +67,34 @@ internal static class ScreenPlaylistPolicy
                 changed = true;
             }
 
-            if (entry.Title == null)
+            if (entry.Title == null || entry.SourceName == null || entry.MetadataTitle == null
+                || entry.Author == null || entry.ThumbnailUrl == null || entry.AddedBy == null)
             {
-                entry.Title = string.Empty;
+                entry.Title ??= string.Empty;
+                entry.SourceName ??= string.Empty;
+                entry.MetadataTitle ??= string.Empty;
+                entry.Author ??= string.Empty;
+                entry.ThumbnailUrl ??= string.Empty;
+                entry.AddedBy ??= string.Empty;
                 changed = true;
             }
 
-            if (entry.AddedBy == null)
+            if (entry.DurationSeconds < 0)
             {
-                entry.AddedBy = string.Empty;
+                entry.DurationSeconds = 0;
+                changed = true;
+            }
+
+            // Entries saved before SourceName existed kept the auto name in Title, which now means
+            // "a name the plugin chose" and would hide the site's title. Done once per entry.
+            if (entry.SourceName.Length == 0)
+            {
+                entry.SourceName = BrowserSourceDetector.TryDetect(entry.Url, entry.ProviderKind, out var detected)
+                    ? CleanTitle(detected.Source.DisplayName)
+                    : CleanTitle(entry.Url);
+                if (string.Equals(entry.Title, entry.SourceName, StringComparison.Ordinal))
+                    entry.Title = string.Empty;
+
                 changed = true;
             }
         }
@@ -112,12 +130,12 @@ internal static class ScreenPlaylistPolicy
             return false;
         }
 
-        var cleanTitle = CleanTitle(title);
         entry = new PlaylistEntry
         {
             ProviderKind = detected.ProviderKind,
             Url = detected.Url,
-            Title = string.IsNullOrEmpty(cleanTitle) ? CleanTitle(detected.Source.DisplayName) : cleanTitle,
+            Title = CleanTitle(title),
+            SourceName = CleanTitle(detected.Source.DisplayName),
             AddedByIpc = addedByIpc,
             AddedBy = addedByIpc ? (addedBy ?? string.Empty).Trim() : string.Empty,
         };
@@ -125,18 +143,12 @@ internal static class ScreenPlaylistPolicy
         return true;
     }
 
-    /// <summary>Adds <paramref name="entry"/> to the end. IPC entries count against their owner's limit.</summary>
-    public static bool TryAdd(BrowserScreenProfile screen, PlaylistEntry entry, out string error, bool ignoreOwnerLimit = false)
+    /// <summary>Adds <paramref name="entry"/> to the end.</summary>
+    public static bool TryAdd(BrowserScreenProfile screen, PlaylistEntry entry, out string error)
     {
         if (screen.Playlist.Count >= MaxEntries)
         {
             error = $"The playlist is full ({MaxEntries} videos).";
-            return false;
-        }
-
-        if (entry.AddedByIpc && !ignoreOwnerLimit && CountOwnedBy(screen, entry.AddedBy) >= MaxEntriesPerIpcOwner)
-        {
-            error = $"A plugin can add at most {MaxEntriesPerIpcOwner} videos to one playlist.";
             return false;
         }
 
@@ -330,12 +342,19 @@ internal static class ScreenPlaylistPolicy
             && string.Equals(BrowserSourceProviderRegistry.GetUrl(screen), entry.Url, StringComparison.Ordinal);
     }
 
-    private static int CountOwnedBy(BrowserScreenProfile screen, string owner)
+    /// <summary>The name to show: the adding plugin's, then the site's title, then what the link points at.</summary>
+    public static string DisplayTitle(PlaylistEntry entry)
     {
-        return screen.Playlist.Count(entry => entry.AddedByIpc && string.Equals(entry.AddedBy, owner, StringComparison.Ordinal));
+        if (!string.IsNullOrWhiteSpace(entry.Title))
+            return entry.Title;
+
+        if (!string.IsNullOrWhiteSpace(entry.MetadataTitle))
+            return entry.MetadataTitle;
+
+        return string.IsNullOrWhiteSpace(entry.SourceName) ? entry.Url : entry.SourceName;
     }
 
-    private static string CleanTitle(string? title)
+    internal static string CleanTitle(string? title)
     {
         if (string.IsNullOrWhiteSpace(title))
             return string.Empty;

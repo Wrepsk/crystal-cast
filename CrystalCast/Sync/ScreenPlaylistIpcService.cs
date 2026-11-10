@@ -52,7 +52,7 @@ internal sealed class ScreenPlaylistIpcService
 
         // Links only: a bare ID could belong to several sites.
         if (!ScreenPlaylistPolicy.TryCreateEntry(request.Url, BrowserSourceProviderKind.GenericWeb, addedByIpc: true, ownerId, request.Title, out var entry, out var error)
-            || !ScreenPlaylistPolicy.TryAdd(screen, entry, out error, ignoreOwnerLimit: ScreenPlaylistPolicy.IsLockOwner(screen, ownerId)))
+            || !ScreenPlaylistPolicy.TryAdd(screen, entry, out error))
             return Error(error, screen.ScreenId);
 
         Changed(screen);
@@ -148,13 +148,15 @@ internal sealed class ScreenPlaylistIpcService
             AllowIpcAdds = screen.PlaylistAllowIpcAdds,
             CurrentEntryId = screen.PlaylistCurrentEntryId,
             MaxEntries = ScreenPlaylistPolicy.MaxEntries,
-            MaxEntriesPerOwner = ScreenPlaylistPolicy.MaxEntriesPerIpcOwner,
             Entries = screen.Playlist.Select(entry => new ScreenIpcPlaylistEntry
             {
                 EntryId = entry.EntryId,
                 Provider = entry.ProviderKind.ToString(),
                 Url = entry.Url,
-                Title = entry.Title,
+                Title = ScreenPlaylistPolicy.DisplayTitle(entry),
+                Author = entry.Author,
+                ThumbnailUrl = entry.ThumbnailUrl,
+                DurationSeconds = entry.DurationSeconds,
                 AddedByIpc = entry.AddedByIpc,
                 AddedBy = entry.AddedBy,
                 Played = entry.Played,

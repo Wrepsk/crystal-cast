@@ -308,7 +308,6 @@ public sealed class ScreenStateIpc : IDisposable
                 MaxPayloadBytes = MaxPayloadBytes,
                 IpcScreensInUse = ScreenLimitPolicy.CountIpcScreens(configuration.BrowserScreens),
                 MaxPlaylistEntries = ScreenPlaylistPolicy.MaxEntries,
-                MaxPlaylistEntriesPerOwner = ScreenPlaylistPolicy.MaxEntriesPerIpcOwner,
             },
             Browser = new ScreenIpcBrowserCapabilities
             {

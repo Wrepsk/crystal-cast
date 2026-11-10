@@ -14,7 +14,7 @@ namespace CrystalCast.Windows;
 /// adding, playing, skipping, reordering and the play-order switches are locked, but the user can always remove
 /// videos, clear the list and turn off other plugins' access.
 /// </summary>
-internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenStateIpc ipc)
+internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenStateIpc ipc, PlaylistMetadataService metadata)
 {
     private const float LabelWidth = MainLabelWidth;
     private const float LabelGap = MainLabelGap;
@@ -135,7 +135,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
 
         Ui.RowIndent(LabelWidth, LabelGap);
         Ui.Meta(allowIpc
-            ? $"Plugins can add up to {ScreenPlaylistPolicy.MaxEntriesPerIpcOwner} videos each. Web pages they add still ask before opening."
+            ? "Plugins can add videos to this screen. Web pages they add still ask before opening."
             : "Only you can add videos, unless a plugin holds this screen's source lock.");
         return changed;
     }
@@ -235,13 +235,13 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         return changed;
     }
 
-    private static PendingAction? DrawEntry(BrowserScreenProfile screen, PlaylistEntry entry, int index, int count, bool locked, string lockTooltip)
+    private PendingAction? DrawEntry(BrowserScreenProfile screen, PlaylistEntry entry, int index, int count, bool locked, string lockTooltip)
     {
         PendingAction? action = null;
         var current = ScreenPlaylistPolicy.IsCurrent(screen, entry);
         var start = ImGui.GetCursorScreenPos();
         var width = ImGui.GetContentRegionAvail().X;
-        var height = S(46.0f);
+        var height = S(58.0f);
         var dl = ImGui.GetWindowDrawList();
 
         if (current)
@@ -251,7 +251,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         }
 
         // Position, or a marker for the playing and played entries.
-        var markerWidth = S(28.0f);
+        var markerWidth = S(24.0f);
         var markerCenter = start + new Vector2(S(6.0f) + (markerWidth * 0.5f), height * 0.5f);
         if (current)
         {
@@ -271,27 +271,27 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             }
         }
 
+        var thumbSize = S(80.0f, 45.0f);
+        var thumbMin = new Vector2(start.X + S(6.0f) + markerWidth + S(4.0f), start.Y + ((height - thumbSize.Y) * 0.5f));
+        DrawThumbnail(dl, entry, thumbMin, thumbMin + thumbSize, dimmed: entry.Played && !current);
+
         var buttonGap = S(2.0f);
         var buttonsWidth = (Ui.FrameHeight * 4.0f) + (buttonGap * 3.0f);
-        var textX = start.X + S(6.0f) + markerWidth + S(6.0f);
+        var textX = thumbMin.X + thumbSize.X + S(10.0f);
         var textWidth = Math.Max(S(40.0f), start.X + width - buttonsWidth - S(8.0f) - textX);
+        var title = ScreenPlaylistPolicy.DisplayTitle(entry);
 
         using (Ui.Font(f => f.Body))
         {
-            var title = string.IsNullOrWhiteSpace(entry.Title) ? entry.Url : entry.Title;
             var color = entry.Played && !current ? TextTertiary : CrystalCastUiTheme.Text;
-            dl.AddText(new Vector2(textX, start.Y + S(6.0f)), U32(color), Ui.Ellipsize(title, textWidth));
+            dl.AddText(new Vector2(textX, start.Y + S(11.0f)), U32(color), Ui.Ellipsize(title, textWidth));
         }
 
         using (Ui.Font(f => f.Small))
-        {
-            var provider = BrowserSourceControlsPanel.ProviderName(entry.ProviderKind);
-            var addedBy = entry.AddedByIpc
-                ? $"added by {(string.IsNullOrWhiteSpace(entry.AddedBy) ? "a plugin" : entry.AddedBy)}"
-                : "added by you";
-            var meta = current ? $"Playing · {provider} · {addedBy}" : $"{provider} · {addedBy}";
-            dl.AddText(new Vector2(textX, start.Y + S(26.0f)), U32(TextTertiary), Ui.Ellipsize(meta, textWidth));
-        }
+            dl.AddText(new Vector2(textX, start.Y + S(31.0f)), U32(TextTertiary), Ui.Ellipsize(DescribeEntry(entry, current), textWidth));
+
+        if (ImGui.IsWindowHovered() && ImGui.IsMouseHoveringRect(thumbMin, new Vector2(textX + textWidth, start.Y + height)))
+            ImGui.SetTooltip($"{title}\n{entry.Url}");
 
         ImGui.PushID(entry.EntryId);
         var buttonY = start.Y + ((height - Ui.FrameHeight) * 0.5f);
@@ -317,6 +317,56 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         ImGui.Dummy(new Vector2(width, height));
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + S(2.0f));
         return action;
+    }
+
+    /// <summary>The thumbnail cropped to 16:9 (which also trims YouTube's letterbox bars), or a placeholder.</summary>
+    private void DrawThumbnail(ImDrawListPtr dl, PlaylistEntry entry, Vector2 min, Vector2 max, bool dimmed)
+    {
+        var rounding = S(3.0f);
+        var image = metadata.GetThumbnail(entry);
+        if (image == null || image.Width <= 0 || image.Height <= 0)
+        {
+            dl.AddRectFilled(min, max, U32(Inset), rounding);
+            var icon = entry.ProviderKind == BrowserSourceProviderKind.GenericWeb ? FontAwesomeIcon.Globe : FontAwesomeIcon.Film;
+            Ui.DrawIcon(dl, (min + max) * 0.5f, icon, CrystalCastUiTheme.TextDisabled);
+            return;
+        }
+
+        var target = (max.X - min.X) / (max.Y - min.Y);
+        var source = (float)image.Width / image.Height;
+        Vector2 uv0, uv1;
+        if (source > target)
+        {
+            var inset = (1.0f - (target / source)) * 0.5f;
+            (uv0, uv1) = (new Vector2(inset, 0.0f), new Vector2(1.0f - inset, 1.0f));
+        }
+        else
+        {
+            var inset = (1.0f - (source / target)) * 0.5f;
+            (uv0, uv1) = (new Vector2(0.0f, inset), new Vector2(1.0f, 1.0f - inset));
+        }
+
+        var tint = dimmed ? new Vector4(1.0f, 1.0f, 1.0f, 0.45f) : Vector4.One;
+        dl.AddImageRounded(image.Handle, min, max, uv0, uv1, U32(tint), rounding);
+    }
+
+    /// <summary>"Playing · YouTube · channel · 3:33 · added by you", leaving out what isn't known.</summary>
+    private static string DescribeEntry(PlaylistEntry entry, bool current)
+    {
+        var parts = new List<string>(5);
+        if (current)
+            parts.Add("Playing");
+
+        parts.Add(BrowserSourceControlsPanel.ProviderName(entry.ProviderKind));
+        if (!string.IsNullOrWhiteSpace(entry.Author))
+            parts.Add(entry.Author);
+        if (entry.DurationSeconds > 0)
+            parts.Add(SourceControlUi.FormatPlaybackPosition(entry.DurationSeconds * 1000L));
+
+        parts.Add(entry.AddedByIpc
+            ? $"added by {(string.IsNullOrWhiteSpace(entry.AddedBy) ? "a plugin" : entry.AddedBy)}"
+            : "added by you");
+        return string.Join(" · ", parts);
     }
 
     private static bool IsVideoLoopOn(BrowserScreenProfile screen)

@@ -43,7 +43,8 @@ public sealed class MainWindow : Window, IDisposable
         WorldScreenManager renderer,
         ScreenStateIpc ipc,
         ScreenPlacementResolver placementResolver,
-        ScreenPlaylistAdvancer playlistAdvancer)
+        ScreenPlaylistAdvancer playlistAdvancer,
+        PlaylistMetadataService playlistMetadata)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
@@ -52,7 +53,7 @@ public sealed class MainWindow : Window, IDisposable
         screenListPanel = new ScreenListPanel(renderer);
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
-        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc);
+        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);
         sourceControlsPanel = new SourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);

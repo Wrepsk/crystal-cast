@@ -480,8 +480,24 @@ public sealed class PlaylistEntry
     public BrowserSourceProviderKind ProviderKind { get; set; } = BrowserSourceProviderKind.YouTube;
     public string Url { get; set; } = string.Empty;
 
-    /// <summary>A short name for the list, such as the video ID or page address.</summary>
+    /// <summary>A name the adding plugin gave. Empty when the site's own title should be used.</summary>
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>What the link points at, such as the video ID or page address. Shown until the title is known.</summary>
+    public string SourceName { get; set; } = string.Empty;
+
+    /// <summary>The video's title, from the site or from playing it.</summary>
+    public string MetadataTitle { get; set; } = string.Empty;
+
+    /// <summary>The channel or uploader.</summary>
+    public string Author { get; set; } = string.Empty;
+
+    /// <summary>An https image on the site's own image host.</summary>
+    public string ThumbnailUrl { get; set; } = string.Empty;
+    public int DurationSeconds { get; set; }
+
+    /// <summary>The site answered the metadata lookup, so it isn't asked again.</summary>
+    public bool MetadataLookedUp { get; set; }
 
     /// <summary>True when another plugin added this entry through IPC.</summary>
     public bool AddedByIpc { get; set; }
@@ -500,6 +516,12 @@ public sealed class PlaylistEntry
             ProviderKind = ProviderKind,
             Url = Url,
             Title = Title,
+            SourceName = SourceName,
+            MetadataTitle = MetadataTitle,
+            Author = Author,
+            ThumbnailUrl = ThumbnailUrl,
+            DurationSeconds = DurationSeconds,
+            MetadataLookedUp = MetadataLookedUp,
             AddedByIpc = AddedByIpc,
             AddedBy = AddedBy,
             Played = Played,

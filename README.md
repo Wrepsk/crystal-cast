@@ -41,6 +41,8 @@ Browser screens currently support YouTube, Twitch, Dailymotion, Vimeo, and Gener
 
 Each screen has a **Playlist** tab. Videos added there play after the current one ends, from any supported site, with **Shuffle** and **Loop playlist** switches. A per-video loop setting is paused while another playlist video is waiting, so the current one can end. Twitch streams and most web pages never end on their own; use **Skip** for those. **Let other plugins add videos** is off by default and only the user can turn it on.
 
+Playlist entries show the video's title, channel, length and thumbnail. For YouTube, Vimeo and Dailymotion links CrystalCast asks the site's public oEmbed endpoint when the entry is added (the same site the video would play from) and loads the thumbnail from that site's image host. Twitch links and web pages are not fetched outside the browser; they get their title and length once they play.
+
 For YouTube, use **Show browser controls** to open the interactive player and change captions, playback quality, playback speed, and other YouTube settings. YouTube no longer exposes programmatic quality selection through the IFrame API, so quality changes use YouTube's own settings menu.
 
 CrystalCast's intended Windows render output is CrystalRenderer `RenderOutput.SceneComposite`, which composites the world screen into the game backbuffer before native UI/nameplates.
@@ -137,9 +139,9 @@ A Generic Web address set through IPC needs the user's approval before it loads,
 
 `CrystalCast.Screen.GetSourceState` accepts a screen ID and returns the current provider and source-specific state. For browser screens this includes the configured URL, canonical URL/source identity, title, playback state, position, duration, rate, and host timestamp when available.
 
-`CrystalCast.Screen.Playlist.Get` accepts a screen ID and returns the playlist: `shuffle`, `loop`, `allowIpcAdds`, `currentEntryId`, the limits, and `entries` (each with `entryId`, `provider`, `url`, `title`, `addedByIpc`, `addedBy`, `played`, and `current`). The other playlist calls accept a JSON request with `screenId`, `ownerId`, and the call's fields (`url` and an optional `title` for `Add`; `entryId` for `Remove`; `entryId` and `index` for `Move`; `shuffle` and/or `loop` for `SetOptions`), and return `success`, `error`, `screenId`, `entryId`, and the playlist. Unlike source locks, these calls are checked:
+`CrystalCast.Screen.Playlist.Get` accepts a screen ID and returns the playlist: `shuffle`, `loop`, `allowIpcAdds`, `currentEntryId`, the limits, and `entries` (each with `entryId`, `provider`, `url`, `title`, `author`, `thumbnailUrl`, `durationSeconds`, `addedByIpc`, `addedBy`, `played`, and `current`). `title` is the one given to `Add`, else the site's title, else what the link points at; details arrive shortly after adding and are announced with a `Playlist` change. The other playlist calls accept a JSON request with `screenId`, `ownerId`, and the call's fields (`url` and an optional `title` for `Add`; `entryId` for `Remove`; `entryId` and `index` for `Move`; `shuffle` and/or `loop` for `SetOptions`), and return `success`, `error`, `screenId`, `entryId`, and the playlist. Unlike source locks, these calls are checked:
 
-- `Add` needs the screen's **Let other plugins add videos** switch, which only the user can change, or the caller's `ownerId` must match the screen's source-lock owner. Only full links are accepted, a playlist holds at most 100 videos, and each `ownerId` can add at most 20 to one playlist. Web pages added this way still need the user's approval before they open.
+- `Add` needs the screen's **Let other plugins add videos** switch, which only the user can change, or the caller's `ownerId` must match the screen's source-lock owner. Only full links are accepted and a playlist holds at most 100 videos. Web pages added this way still need the user's approval before they open.
 - `Remove` works on entries added under the same `ownerId`; the source-lock owner can remove any entry.
 - `Skip`, `Move`, `Clear`, and `SetOptions` are for the source-lock owner only.
 

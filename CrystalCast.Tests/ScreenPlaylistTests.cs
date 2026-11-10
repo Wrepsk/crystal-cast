@@ -19,7 +19,9 @@ public sealed class ScreenPlaylistPolicyTests
         Assert.True(ScreenPlaylistPolicy.TryCreateEntry(Second, BrowserSourceProviderKind.YouTube, false, "", null, out var entry, out var error), error);
         Assert.Equal(BrowserSourceProviderKind.Vimeo, entry.ProviderKind);
         Assert.Equal(Second, entry.Url);
-        Assert.False(string.IsNullOrWhiteSpace(entry.Title));
+        Assert.Equal(string.Empty, entry.Title);
+        Assert.False(string.IsNullOrWhiteSpace(entry.SourceName));
+        Assert.Equal(entry.SourceName, ScreenPlaylistPolicy.DisplayTitle(entry));
         Assert.False(entry.AddedByIpc);
     }
 
@@ -152,17 +154,6 @@ public sealed class ScreenPlaylistPolicyTests
     }
 
     [Fact]
-    public void EachPluginHasItsOwnLimit()
-    {
-        var screen = new BrowserScreenProfile();
-        for (var i = 0; i < ScreenPlaylistPolicy.MaxEntriesPerIpcOwner; i++)
-            Assert.True(ScreenPlaylistPolicy.TryAdd(screen, IpcEntry($"https://example.com/{i}", "A"), out _));
-
-        Assert.False(ScreenPlaylistPolicy.TryAdd(screen, IpcEntry("https://example.com/more", "A"), out _));
-        Assert.True(ScreenPlaylistPolicy.TryAdd(screen, IpcEntry("https://example.com/more", "B"), out _));
-    }
-
-    [Fact]
     public void ThePlaylistHasATotalLimit()
     {
         var screen = new BrowserScreenProfile();
@@ -250,6 +241,28 @@ public sealed class ScreenPlaylistPolicyTests
         Assert.Equal(2, screen.Playlist.Count);
         Assert.NotEqual(screen.Playlist[0].EntryId, screen.Playlist[1].EntryId);
         Assert.Equal(string.Empty, screen.PlaylistCurrentEntryId);
+    }
+
+    [Fact]
+    public void EntriesFromTheFirstBuildGetTheirAutoNameMoved()
+    {
+        var screen = new BrowserScreenProfile
+        {
+            Playlist =
+            [
+                new PlaylistEntry { Url = "https://www.youtube.com/watch?v=RiR77AI4uQ8", Title = "Video ID: RiR77AI4uQ8" },
+                new PlaylistEntry { Url = "https://vimeo.com/76979871", ProviderKind = BrowserSourceProviderKind.Vimeo, Title = "Chosen by a plugin" },
+            ],
+        };
+
+        Assert.True(ScreenPlaylistPolicy.Normalize(screen));
+        Assert.Equal(string.Empty, screen.Playlist[0].Title);
+        Assert.Equal("Video ID: RiR77AI4uQ8", screen.Playlist[0].SourceName);
+        Assert.Equal("Chosen by a plugin", screen.Playlist[1].Title);
+
+        screen.Playlist[0].MetadataTitle = "The real title";
+        Assert.Equal("The real title", ScreenPlaylistPolicy.DisplayTitle(screen.Playlist[0]));
+        Assert.False(ScreenPlaylistPolicy.Normalize(screen));
     }
 
     [Fact]

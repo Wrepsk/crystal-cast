@@ -311,7 +311,6 @@ public sealed class ScreenIpcLimits
     public int MaxPayloadBytes { get; set; }
     public int IpcScreensInUse { get; set; }
     public int MaxPlaylistEntries { get; set; }
-    public int MaxPlaylistEntriesPerOwner { get; set; }
 }
 
 /// <summary>Whether this player can show browser screens, and with what.</summary>
@@ -422,7 +421,6 @@ public sealed class ScreenIpcPlaylistState
     public bool AllowIpcAdds { get; set; }
     public string CurrentEntryId { get; set; } = string.Empty;
     public int MaxEntries { get; set; }
-    public int MaxEntriesPerOwner { get; set; }
     public ScreenIpcPlaylistEntry[] Entries { get; set; } = [];
 }
 
@@ -431,7 +429,18 @@ public sealed class ScreenIpcPlaylistEntry
     public string EntryId { get; set; } = string.Empty;
     public string Provider { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+
+    /// <summary>The name to show: the title the adding plugin gave, else the site's, else what the link points at.</summary>
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>The channel or uploader, when the site said.</summary>
+    public string Author { get; set; } = string.Empty;
+
+    /// <summary>An https image on the site's image host, or empty.</summary>
+    public string ThumbnailUrl { get; set; } = string.Empty;
+
+    /// <summary>Zero when unknown or live.</summary>
+    public int DurationSeconds { get; set; }
     public bool AddedByIpc { get; set; }
     public string AddedBy { get; set; } = string.Empty;
     public bool Played { get; set; }

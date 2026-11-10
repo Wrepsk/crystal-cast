@@ -523,6 +523,17 @@ public sealed class MainWindow : Window, IDisposable
 
         Ui.RowIndent(labelWidth, labelGap);
         Ui.Meta("Locks source and placement controls like an integration-owned screen; this tab can still reposition it.");
+
+        var allowUserAdds = activeScreen.PlaylistAllowUserAdds;
+        Ui.RowLabel("Playlist edits", labelWidth, labelGap);
+        if (Ui.SwitchLabeled("##SimulateIpcPlaylistAdds", "Allow user to add videos", ref allowUserAdds, disabled: !isIpc))
+        {
+            activeScreen.PlaylistAllowUserAdds = allowUserAdds;
+            changed = true;
+        }
+
+        Ui.RowIndent(labelWidth, labelGap);
+        Ui.Meta("Like playlistAllowUserAdds in Screen.Update. The rest of the Playlist tab stays blocked on IPC screens.");
         return changed;
     }
 

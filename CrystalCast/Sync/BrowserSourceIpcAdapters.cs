@@ -75,6 +75,8 @@ internal static class BrowserSourceIpcAdapters
             changes.Add(ScreenIpcChangeKind.Placement);
         if (request.SourceControlsLocked.HasValue || !string.IsNullOrWhiteSpace(request.SourceControlsOwnerId))
             changes.Add(ScreenIpcChangeKind.SourceLock);
+        if (request.PlaylistAllowUserAdds.HasValue)
+            changes.Add(ScreenIpcChangeKind.Playlist);
         AddBrowserChangeKinds(changes, request.Provider.HasValue, request);
 
         return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();

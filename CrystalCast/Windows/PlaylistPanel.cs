@@ -25,18 +25,45 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
     public bool Draw(BrowserScreenProfile screen)
     {
         var uiState = GetUiState(screen.ScreenId);
-        var locked = SourceControlUi.IsSourceControlsLocked(screen);
-        var changed = DrawAddRow(screen, uiState, locked);
-        changed |= DrawOptions(screen, locked);
+        var blocks = DescribeBlocks(screen);
+        var changed = DrawAddRow(screen, uiState, blocks.Add);
+        changed |= DrawOptions(screen, blocks.Controls);
         Ui.VerticalSpace(24.0f);
-        changed |= DrawList(screen, uiState, locked);
+        changed |= DrawList(screen, uiState, blocks);
         return changed;
     }
 
     public void ClearScreen(string screenId) => uiStates.Remove(screenId);
 
-    private static bool DrawAddRow(BrowserScreenProfile screen, PlaylistUiState uiState, bool locked)
+    /// <summary>
+    /// Why each part of the tab is off (null when it is on). On a plugin's own screen everything is the
+    /// plugin's, except adding when it allows that. A source lock on the user's own screen blocks adding,
+    /// playing and the play order, but the user can still remove videos and clear the list.
+    /// </summary>
+    internal static PlaylistBlocks DescribeBlocks(BrowserScreenProfile screen)
     {
+        if (ScreenPlaylistPolicy.IsPluginManaged(screen))
+        {
+            var managed = string.IsNullOrWhiteSpace(screen.IpcOwnerId)
+                ? "The plugin that created this screen manages its playlist"
+                : $"{screen.IpcOwnerId} manages this screen's playlist";
+            var lockedAdd = SourceControlUi.IsSourceControlsLocked(screen) ? $"Locked by {SourceControlUi.LockedOwner(screen)}" : null;
+            return new PlaylistBlocks(
+                Add: ScreenPlaylistPolicy.AllowsUserAdds(screen) ? lockedAdd : managed,
+                Controls: managed,
+                Remove: managed);
+        }
+
+        var locked = SourceControlUi.IsSourceControlsLocked(screen) ? $"Locked by {SourceControlUi.LockedOwner(screen)}" : null;
+        return new PlaylistBlocks(Add: locked, Controls: locked, Remove: null);
+    }
+
+    /// <summary>Why adding, the other controls, and removing/clearing are off; null where they are on.</summary>
+    internal readonly record struct PlaylistBlocks(string? Add, string? Controls, string? Remove);
+
+    private static bool DrawAddRow(BrowserScreenProfile screen, PlaylistUiState uiState, string? blockedReason)
+    {
+        var locked = blockedReason != null;
         var changed = false;
         var draft = uiState.Draft;
         var full = screen.Playlist.Count >= ScreenPlaylistPolicy.MaxEntries;
@@ -79,8 +106,8 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         }
 
         Ui.RowIndent(LabelWidth, LabelGap);
-        if (locked)
-            Ui.Meta($"Locked by {SourceControlUi.LockedOwner(screen)}.");
+        if (blockedReason != null)
+            Ui.Meta($"{blockedReason}.");
         else if (full)
             Ui.Meta($"The playlist is full ({ScreenPlaylistPolicy.MaxEntries} videos).");
         else if (uiState.Error.Length > 0)
@@ -95,10 +122,11 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         return changed;
     }
 
-    private static bool DrawOptions(BrowserScreenProfile screen, bool locked)
+    private static bool DrawOptions(BrowserScreenProfile screen, string? blockedReason)
     {
         var changed = false;
-        var lockTooltip = locked ? $"Locked by {SourceControlUi.LockedOwner(screen)}" : null;
+        var locked = blockedReason != null;
+        var lockTooltip = blockedReason;
 
         var shuffle = screen.PlaylistShuffle;
         Ui.RowLabel("Shuffle", LabelWidth, LabelGap);
@@ -124,6 +152,10 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             Ui.Meta("The Source tab's loop setting is paused so the next video can start.");
         }
 
+        // A plugin's own screen is its to manage, so the user's permission switch doesn't apply there.
+        if (screen.CreatedByIpc)
+            return changed;
+
         // Always available, even on a locked screen: this switch is the user's protection.
         var allowIpc = screen.PlaylistAllowIpcAdds;
         Ui.RowLabel("Other plugins", LabelWidth, LabelGap);
@@ -140,11 +172,13 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         return changed;
     }
 
-    private bool DrawList(BrowserScreenProfile screen, PlaylistUiState uiState, bool locked)
+    private bool DrawList(BrowserScreenProfile screen, PlaylistUiState uiState, PlaylistBlocks blocks)
     {
         var changed = false;
         var playlist = screen.Playlist;
-        var lockTooltip = $"Locked by {SourceControlUi.LockedOwner(screen)}";
+        var locked = blocks.Controls != null;
+        var lockTooltip = blocks.Controls ?? string.Empty;
+        var removeBlocked = blocks.Remove != null;
 
         Ui.RowText("Up next", CrystalCastUiTheme.Text, f => f.SemiBold);
         ImGui.SameLine(0.0f, S(8.0f));
@@ -166,9 +200,9 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         }
 
         ImGui.SameLine(0.0f, S(4.0f));
-        if (Ui.Button(clearLabel, ButtonKind.Ghost, disabled: playlist.Count == 0,
-                textColor: clearArmed ? Error : null,
-                tooltip: clearArmed ? "Click again to remove every video" : "Remove every video"))
+        if (Ui.Button(clearLabel, ButtonKind.Ghost, disabled: removeBlocked || playlist.Count == 0,
+                textColor: clearArmed && !removeBlocked ? Error : null,
+                tooltip: blocks.Remove ?? (clearArmed ? "Click again to remove every video" : "Remove every video")))
         {
             if (clearArmed)
             {
@@ -206,7 +240,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         PendingAction? pending = null;
         for (var i = 0; i < playlist.Count; i++)
         {
-            var action = DrawEntry(screen, playlist[i], i, playlist.Count, locked, lockTooltip);
+            var action = DrawEntry(screen, playlist[i], i, playlist.Count, locked, lockTooltip, blocks.Remove);
             if (action != null)
                 pending = action;
         }
@@ -235,7 +269,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         return changed;
     }
 
-    private PendingAction? DrawEntry(BrowserScreenProfile screen, PlaylistEntry entry, int index, int count, bool locked, string lockTooltip)
+    private PendingAction? DrawEntry(BrowserScreenProfile screen, PlaylistEntry entry, int index, int count, bool locked, string lockTooltip, string? removeBlocked)
     {
         PendingAction? action = null;
         var current = ScreenPlaylistPolicy.IsCurrent(screen, entry);
@@ -309,7 +343,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             action = new PendingAction(PendingKind.MoveDown, entry.EntryId);
 
         ImGui.SameLine(0.0f, buttonGap);
-        if (Ui.IconButton("##Remove", FontAwesomeIcon.Times, current ? "Remove (the video keeps playing)" : "Remove"))
+        if (Ui.IconButton("##Remove", FontAwesomeIcon.Times, removeBlocked ?? (current ? "Remove (the video keeps playing)" : "Remove"), disabled: removeBlocked != null))
             action = new PendingAction(PendingKind.Remove, entry.EntryId);
         ImGui.PopID();
 

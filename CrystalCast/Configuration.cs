@@ -338,6 +338,13 @@ public sealed class BrowserScreenProfile
     /// </summary>
     public bool PlaylistAllowIpcAdds { get; set; }
 
+    /// <summary>
+    /// On a screen a plugin created: whether the user may add videos. The rest of that screen's playlist is
+    /// always the plugin's.
+    /// Only the plugin sets it, through <c>Screen.Create</c> or <c>Screen.Update</c>. Ignored on the user's screens.
+    /// </summary>
+    public bool PlaylistAllowUserAdds { get; set; }
+
     public bool Normalize(string defaultName, ISet<string> usedScreenIds)
     {
         var changed = false;
@@ -469,6 +476,7 @@ public sealed class BrowserScreenProfile
         clone.Playlist = Playlist.Select(entry => entry.Clone()).ToList();
         clone.PlaylistCurrentEntryId = PlaylistCurrentEntryId;
         clone.PlaylistAllowIpcAdds = PlaylistAllowIpcAdds;
+        clone.PlaylistAllowUserAdds = PlaylistAllowUserAdds;
         return clone;
     }
 }

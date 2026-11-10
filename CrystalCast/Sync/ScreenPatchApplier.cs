@@ -80,6 +80,10 @@ internal static class ScreenPatchApplier
                 : string.Empty;
         }
 
+        // Only a plugin's own screen has this setting; the user's screens ignore it.
+        if (request.PlaylistAllowUserAdds is { } allowUserAdds && screen.CreatedByIpc)
+            screen.PlaylistAllowUserAdds = allowUserAdds;
+
         ApplyPlacementPatch(screen.Placement, request.Placement);
         return ApplyProviderPatch(screen, screen.ProviderKind, request, out error);
     }

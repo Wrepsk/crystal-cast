@@ -4,6 +4,15 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- The **Let other plugins add videos** switch is no longer shown on screens created through IPC. On those screens the plugin that created the screen (its `ownerId`) and the source-lock owner can add videos, skip, reorder, clear and change Shuffle and Loop playlist.
+
+### Added
+
+- On screens created through IPC the Playlist tab is read-only for the user: adding, Shuffle, Loop playlist, Skip, Clear, Play now, reordering and removing are all blocked.
+- IPC: `playlistAllowUserAdds` on `Screen.Create` and `Screen.Update` for screens created through IPC. Off by default; when on, the user can add videos to that screen, and nothing else. The playlist state reports it as `allowUserAdds`, and `allowIpcAdds` is now always false on those screens.
+
 ## 0.9.0 - 2026-11-10
 
 ### Added

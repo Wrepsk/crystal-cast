@@ -245,6 +245,7 @@ internal sealed class ScreenChangePublisher
             screen.PlaylistShuffle,
             screen.PlaylistLoop,
             screen.PlaylistAllowIpcAdds,
+            screen.PlaylistAllowUserAdds,
             screen.PlaylistCurrentEntryId,
             string.Join(',', screen.Playlist.Select(entry => entry.Played ? entry.EntryId + "*" : entry.EntryId)));
     }

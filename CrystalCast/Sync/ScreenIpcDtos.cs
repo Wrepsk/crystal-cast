@@ -16,6 +16,13 @@ public sealed class ScreenIpcMutationRequest
     public DailymotionScreenPatchDto? Dailymotion { get; set; }
     public VimeoScreenPatchDto? Vimeo { get; set; }
     public GenericWebScreenPatchDto? GenericWeb { get; set; }
+
+    /// <summary>
+    /// Screens created through IPC only: lets the user add videos. Everything else in that screen's playlist
+    /// stays with the plugin.
+    /// Leave out to keep the current value; off on new screens.
+    /// </summary>
+    public bool? PlaylistAllowUserAdds { get; set; }
 }
 
 public sealed class ScreenIpcSourceLockRequest
@@ -417,8 +424,17 @@ public sealed class ScreenIpcPlaylistState
     public bool Shuffle { get; set; }
     public bool Loop { get; set; }
 
-    /// <summary>The user's "Let other plugins add videos" switch. IPC can read it but not change it.</summary>
+    /// <summary>
+    /// The user's "Let other plugins add videos" switch. IPC can read it but not change it. Always false on
+    /// screens created through IPC, which have no such switch.
+    /// </summary>
     public bool AllowIpcAdds { get; set; }
+
+    /// <summary>
+    /// Whether the user may add videos in the UI. Always true on the
+    /// user's own screens; on screens created through IPC the creating plugin sets it.
+    /// </summary>
+    public bool AllowUserAdds { get; set; }
     public string CurrentEntryId { get; set; } = string.Empty;
     public int MaxEntries { get; set; }
     public ScreenIpcPlaylistEntry[] Entries { get; set; } = [];

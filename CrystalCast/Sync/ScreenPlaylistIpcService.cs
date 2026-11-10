@@ -4,13 +4,14 @@ using Dalamud.Plugin.Services;
 namespace CrystalCast.Sync;
 
 /// <summary>
-/// The <c>CrystalCast.Screen.Playlist.*</c> calls. Unlike source locks, these are checked: adding needs the
-/// user's "Let other plugins add videos" switch, a plugin may remove only what it added, and Skip, Move, Clear
-/// and SetOptions are for the plugin holding the screen's source lock. See <see cref="ScreenPlaylistPolicy"/>.
+/// The <c>CrystalCast.Screen.Playlist.*</c> calls. Unlike source locks, these are checked: on the user's
+/// screens adding needs the user's "Let other plugins add videos" switch, a plugin may remove only what it
+/// added, and Skip, Move, Clear and SetOptions are for the screen's owner (the source-lock holder, or the
+/// plugin that created the screen). See <see cref="ScreenPlaylistPolicy"/>.
 /// </summary>
 internal sealed class ScreenPlaylistIpcService
 {
-    private const string LockOwnerOnly = "Only the plugin holding this screen's source lock can do this.";
+    private const string OwnerOnly = "Only the plugin holding this screen's source lock, or that created it, can do this.";
 
     private readonly Configuration configuration;
     private readonly ScreenPlaylistAdvancer advancer;
@@ -48,7 +49,9 @@ internal sealed class ScreenPlaylistIpcService
     {
         var ownerId = IpcJsonService.NormalizeText(request.OwnerId);
         if (!ScreenPlaylistPolicy.CanIpcAdd(screen, ownerId))
-            return Error("This screen doesn't accept videos from other plugins. The user can allow it in the screen's Playlist tab.", screen.ScreenId);
+            return Error(screen.CreatedByIpc
+                ? "Only the plugin that created this screen or holds its source lock can add videos to it."
+                : "This screen doesn't accept videos from other plugins. The user can allow it in the screen's Playlist tab.", screen.ScreenId);
 
         // Links only: a bare ID could belong to several sites.
         if (!ScreenPlaylistPolicy.TryCreateEntry(request.Url, BrowserSourceProviderKind.GenericWeb, addedByIpc: true, ownerId, request.Title, out var entry, out var error)
@@ -75,8 +78,8 @@ internal sealed class ScreenPlaylistIpcService
 
     public string ClearJson(string json) => Handle(json, "clear", (screen, request) =>
     {
-        if (!ScreenPlaylistPolicy.IsLockOwner(screen, request.OwnerId))
-            return Error(LockOwnerOnly, screen.ScreenId);
+        if (!ScreenPlaylistPolicy.IsScreenOwner(screen, request.OwnerId))
+            return Error(OwnerOnly, screen.ScreenId);
 
         if (ScreenPlaylistPolicy.Clear(screen))
             Changed(screen);
@@ -86,8 +89,8 @@ internal sealed class ScreenPlaylistIpcService
 
     public string SkipJson(string json) => Handle(json, "skip in", (screen, request) =>
     {
-        if (!ScreenPlaylistPolicy.IsLockOwner(screen, request.OwnerId))
-            return Error(LockOwnerOnly, screen.ScreenId);
+        if (!ScreenPlaylistPolicy.IsScreenOwner(screen, request.OwnerId))
+            return Error(OwnerOnly, screen.ScreenId);
 
         if (!advancer.TryAdvance(screen, out var advance))
             return Error("Nothing is left to play.", screen.ScreenId);
@@ -99,8 +102,8 @@ internal sealed class ScreenPlaylistIpcService
 
     public string MoveJson(string json) => Handle(json, "reorder", (screen, request) =>
     {
-        if (!ScreenPlaylistPolicy.IsLockOwner(screen, request.OwnerId))
-            return Error(LockOwnerOnly, screen.ScreenId);
+        if (!ScreenPlaylistPolicy.IsScreenOwner(screen, request.OwnerId))
+            return Error(OwnerOnly, screen.ScreenId);
 
         var entryId = IpcJsonService.NormalizeText(request.EntryId);
         if (ScreenPlaylistPolicy.FindEntry(screen, entryId) == null)
@@ -117,8 +120,8 @@ internal sealed class ScreenPlaylistIpcService
 
     public string SetOptionsJson(string json) => Handle(json, "change the options of", (screen, request) =>
     {
-        if (!ScreenPlaylistPolicy.IsLockOwner(screen, request.OwnerId))
-            return Error(LockOwnerOnly, screen.ScreenId);
+        if (!ScreenPlaylistPolicy.IsScreenOwner(screen, request.OwnerId))
+            return Error(OwnerOnly, screen.ScreenId);
 
         var changed = false;
         if (request.Shuffle is { } shuffle && shuffle != screen.PlaylistShuffle)
@@ -145,7 +148,8 @@ internal sealed class ScreenPlaylistIpcService
         {
             Shuffle = screen.PlaylistShuffle,
             Loop = screen.PlaylistLoop,
-            AllowIpcAdds = screen.PlaylistAllowIpcAdds,
+            AllowIpcAdds = !screen.CreatedByIpc && screen.PlaylistAllowIpcAdds,
+            AllowUserAdds = ScreenPlaylistPolicy.AllowsUserAdds(screen),
             CurrentEntryId = screen.PlaylistCurrentEntryId,
             MaxEntries = ScreenPlaylistPolicy.MaxEntries,
             Entries = screen.Playlist.Select(entry => new ScreenIpcPlaylistEntry

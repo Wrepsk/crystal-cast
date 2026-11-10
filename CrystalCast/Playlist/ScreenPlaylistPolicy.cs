@@ -301,14 +301,48 @@ internal static class ScreenPlaylistPolicy
             && string.Equals(screen.SourceControlsOwnerId, ownerId?.Trim(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The plugin in charge of the screen's playlist: the source-lock holder, or on a screen a plugin
+    /// created, that plugin. It may add, skip, reorder, clear and change the options.
+    /// </summary>
+    public static bool IsScreenOwner(BrowserScreenProfile screen, string? ownerId)
+    {
+        return IsLockOwner(screen, ownerId) || (screen.CreatedByIpc && IsCreator(screen, ownerId));
+    }
+
+    /// <summary>
+    /// On the user's screens, other plugins need the user's switch. A screen a plugin created has no such
+    /// switch; only its owner adds to it.
+    /// </summary>
     public static bool CanIpcAdd(BrowserScreenProfile screen, string? ownerId)
     {
-        return screen.PlaylistAllowIpcAdds || IsLockOwner(screen, ownerId);
+        return IsScreenOwner(screen, ownerId) || (!screen.CreatedByIpc && screen.PlaylistAllowIpcAdds);
+    }
+
+    /// <summary>
+    /// Whether the user may add videos. Always on the user's own screens; on a plugin's screen, when that
+    /// plugin allows it.
+    /// </summary>
+    public static bool AllowsUserAdds(BrowserScreenProfile screen)
+    {
+        return !screen.CreatedByIpc || screen.PlaylistAllowUserAdds;
+    }
+
+    /// <summary>
+    /// A screen a plugin created: its playlist is the plugin's, so the user can't change it beyond adding
+    /// videos when <see cref="AllowsUserAdds"/> allows.
+    /// </summary>
+    public static bool IsPluginManaged(BrowserScreenProfile screen) => screen.CreatedByIpc;
+
+    private static bool IsCreator(BrowserScreenProfile screen, string? ownerId)
+    {
+        return !string.IsNullOrWhiteSpace(screen.IpcOwnerId)
+            && string.Equals(screen.IpcOwnerId, ownerId?.Trim(), StringComparison.Ordinal);
     }
 
     public static bool CanIpcRemove(BrowserScreenProfile screen, PlaylistEntry entry, string? ownerId)
     {
-        if (IsLockOwner(screen, ownerId))
+        if (IsScreenOwner(screen, ownerId))
             return true;
 
         var owner = ownerId?.Trim() ?? string.Empty;

@@ -164,6 +164,49 @@ public sealed class ScreenPlaylistPolicyTests
     }
 
     [Fact]
+    public void ThePluginDecidesWhetherTheUserMayEditItsScreensPlaylist()
+    {
+        var pluginScreen = new BrowserScreenProfile { CreatedByIpc = true };
+        Assert.False(ScreenPlaylistPolicy.AllowsUserAdds(pluginScreen));
+
+        var request = new ScreenIpcMutationRequest { PlaylistAllowUserAdds = true };
+        Assert.True(ScreenPatchApplier.TryApplyScreenMutation(pluginScreen, request, out var updated, out var error), error);
+        Assert.True(updated.PlaylistAllowUserAdds);
+        Assert.True(ScreenPlaylistPolicy.AllowsUserAdds(updated));
+        Assert.True(updated.Clone().PlaylistAllowUserAdds);
+        Assert.Contains(ScreenIpcChangeKind.Playlist, ScreenChangePublisher.GetMutationChangeKinds(request));
+
+        // Leaving it out keeps it.
+        Assert.True(ScreenPatchApplier.TryApplyScreenMutation(updated, new ScreenIpcMutationRequest(), out var unchanged, out _));
+        Assert.True(unchanged.PlaylistAllowUserAdds);
+    }
+
+    [Fact]
+    public void TheUsersOwnScreensIgnoreThePluginSetting()
+    {
+        var userScreen = new BrowserScreenProfile();
+        Assert.True(ScreenPlaylistPolicy.AllowsUserAdds(userScreen));
+
+        var request = new ScreenIpcMutationRequest { PlaylistAllowUserAdds = false };
+        Assert.True(ScreenPatchApplier.TryApplyScreenMutation(userScreen, request, out var updated, out var error), error);
+        Assert.True(ScreenPlaylistPolicy.AllowsUserAdds(updated));
+    }
+
+    [Fact]
+    public void OnAPluginsScreenTheCreatorCanAddAndTheSwitchIsIgnored()
+    {
+        var screen = new BrowserScreenProfile { CreatedByIpc = true, IpcOwnerId = "Creator", PlaylistAllowIpcAdds = true };
+
+        Assert.True(ScreenPlaylistPolicy.CanIpcAdd(screen, "Creator"));
+        Assert.False(ScreenPlaylistPolicy.CanIpcAdd(screen, "Other"));
+        Assert.False(ScreenPlaylistPolicy.CanIpcAdd(screen, ""));
+
+        screen.SourceControlsLocked = true;
+        screen.SourceControlsOwnerId = "Other";
+        Assert.True(ScreenPlaylistPolicy.CanIpcAdd(screen, "Other"));
+    }
+
+    [Fact]
     public void PluginsNeedTheUsersSwitchOrTheLockToAdd()
     {
         var screen = new BrowserScreenProfile();
@@ -439,6 +482,40 @@ public sealed class ScreenPlaylistIpcServiceTests
         configuration.BrowserScreens.Add(screen);
         var advancer = new ScreenPlaylistAdvancer(_ => null, random: new Random(1));
         service = new ScreenPlaylistIpcService(configuration, advancer, advances.Add, _ => { }, NoOpLog.Create());
+    }
+
+    [Fact]
+    public void ThePluginThatCreatedAScreenManagesItsPlaylist()
+    {
+        screen.CreatedByIpc = true;
+        screen.IpcOwnerId = "Creator";
+        Assert.True(Call(service.AddJson, new { screenId = screen.ScreenId, ownerId = "Creator", url = "https://vimeo.com/76979871" }).Success);
+        Assert.False(Call(service.AddJson, new { screenId = screen.ScreenId, ownerId = "Other", url = "https://vimeo.com/76979871" }).Success);
+
+        Assert.False(Call(service.SkipJson, new { screenId = screen.ScreenId, ownerId = "Other" }).Success);
+        var skipped = Call(service.SkipJson, new { screenId = screen.ScreenId, ownerId = "Creator" });
+        Assert.True(skipped.Success, skipped.Error);
+
+        var options = Call(service.SetOptionsJson, new { screenId = screen.ScreenId, ownerId = "Creator", loop = true });
+        Assert.True(options.Success, options.Error);
+        Assert.True(screen.PlaylistLoop);
+    }
+
+    [Fact]
+    public void PlaylistStateSaysWhatIsActuallyAllowed()
+    {
+        screen.PlaylistAllowIpcAdds = true;
+        var userScreen = IpcJsonService.Deserialize<ScreenIpcPlaylistResponse>(service.GetJson(screen.ScreenId))!.Playlist!;
+        Assert.True(userScreen.AllowIpcAdds);
+        Assert.True(userScreen.AllowUserAdds);
+
+        screen.CreatedByIpc = true;
+        var pluginScreen = IpcJsonService.Deserialize<ScreenIpcPlaylistResponse>(service.GetJson(screen.ScreenId))!.Playlist!;
+        Assert.False(pluginScreen.AllowIpcAdds);
+        Assert.False(pluginScreen.AllowUserAdds);
+
+        screen.PlaylistAllowUserAdds = true;
+        Assert.True(IpcJsonService.Deserialize<ScreenIpcPlaylistResponse>(service.GetJson(screen.ScreenId))!.Playlist!.AllowUserAdds);
     }
 
     [Fact]

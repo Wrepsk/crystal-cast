@@ -209,8 +209,12 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnDraw()
     {
-        // With the screens kept, Dalamud calls this while the game UI is hidden; the windows still hide.
-        var showWindows = HiddenUiPolicy.ShowsWindows(GameGui.GameUiHidden, PluginInterface.UiBuilder.DisableUserUiHide);
+        // With the screens kept, Dalamud calls this while the game UI is hidden or in GPose; the windows still hide.
+        var showWindows = HiddenUiPolicy.ShowsWindows(
+            GameGui.GameUiHidden,
+            PluginInterface.UiBuilder.DisableUserUiHide,
+            ClientState.IsGPosing,
+            PluginInterface.UiBuilder.DisableGposeUiHide);
         if (ClientRuntimePolicy.CanStart(ClientState.IsLoggedIn))
         {
             if (showWindows)
@@ -227,12 +231,13 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>
-    /// Asks Dalamud to keep calling the draw callback while the game UI is hidden, when screens should stay.
+    /// Asks Dalamud to keep calling the draw callback while the game UI is hidden or in GPose, when screens should stay.
     /// Set every frame so a settings change takes effect before the UI is next hidden.
     /// </summary>
     private void ApplyHiddenUiPolicy()
     {
         PluginInterface.UiBuilder.DisableUserUiHide = HiddenUiPolicy.KeepsScreens(Configuration);
+        PluginInterface.UiBuilder.DisableGposeUiHide = HiddenUiPolicy.KeepsScreensInGpose(Configuration);
     }
 
     /// <summary>Moves screens whose video just ended to their next playlist video, and fills in video details.</summary>

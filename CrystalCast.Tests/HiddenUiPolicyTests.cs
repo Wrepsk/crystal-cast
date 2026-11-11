@@ -31,4 +31,21 @@ public sealed class HiddenUiPolicyTests
     {
         Assert.Equal(expected, HiddenUiPolicy.ShowsWindows(uiHidden, keepsScreens));
     }
+
+    [Fact]
+    public void GposeHasItsOwnSwitch()
+    {
+        Assert.True(HiddenUiPolicy.KeepsScreensInGpose(new Configuration { OutputMode = ScreenOutputMode.SceneComposite }));
+        Assert.False(HiddenUiPolicy.KeepsScreensInGpose(new Configuration { OutputMode = ScreenOutputMode.SceneComposite, KeepScreensInGpose = false }));
+        Assert.False(HiddenUiPolicy.KeepsScreensInGpose(new Configuration { OutputMode = ScreenOutputMode.NativeOverlay }));
+    }
+
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    public void WindowsHideInGposeOnlyWhenCrystalCastKeptDrawing(bool inGpose, bool keepsInGpose, bool expected)
+    {
+        Assert.Equal(expected, HiddenUiPolicy.ShowsWindows(false, false, inGpose, keepsInGpose));
+    }
 }

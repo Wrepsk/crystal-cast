@@ -47,6 +47,9 @@ public class Configuration : IPluginConfiguration
     /// <summary>Scene composite only: screens stay visible when the game UI is hidden. See HiddenUiPolicy.</summary>
     public bool KeepScreensWhenUiHidden { get; set; } = true;
 
+    /// <summary>Scene composite only: screens stay visible in GPose, so they show up in screenshots.</summary>
+    public bool KeepScreensInGpose { get; set; } = true;
+
     /// <summary>
     /// Wine used to default to native overlay; set once a Wine configuration has been moved to scene
     /// composite, so a later native overlay choice sticks.

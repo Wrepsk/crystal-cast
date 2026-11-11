@@ -5,7 +5,7 @@ namespace CrystalCast.Rendering;
 /// while the UI is hidden, and that callback also drives the screens, so keeping them means asking Dalamud
 /// to keep calling it and hiding only CrystalCast's own windows. Only scene composite can use this: the
 /// native overlay is part of the game's UI and is hidden with it. Scene composite draws through the same
-/// render hook under Wine, so this applies on Linux too.
+/// render hook under Wine, so this applies on Linux too. GPose works the same way with its own setting.
 /// </summary>
 internal static class HiddenUiPolicy
 {
@@ -13,9 +13,14 @@ internal static class HiddenUiPolicy
     public static bool KeepsScreens(Configuration configuration)
         => configuration.KeepScreensWhenUiHidden && configuration.OutputMode == ScreenOutputMode.SceneComposite;
 
+    /// <summary>Whether CrystalCast should keep drawing screens in GPose, which Dalamud handles separately.</summary>
+    public static bool KeepsScreensInGpose(Configuration configuration)
+        => configuration.KeepScreensInGpose && configuration.OutputMode == ScreenOutputMode.SceneComposite;
+
     /// <summary>
     /// Whether CrystalCast's windows should draw this frame. They hide with the game UI only when CrystalCast
     /// asked Dalamud to keep drawing; otherwise Dalamud decides as usual (players can turn its hiding off).
     /// </summary>
-    public static bool ShowsWindows(bool gameUiHidden, bool keepsScreens) => !(gameUiHidden && keepsScreens);
+    public static bool ShowsWindows(bool gameUiHidden, bool keepsScreens, bool inGpose = false, bool keepsScreensInGpose = false)
+        => !(gameUiHidden && keepsScreens) && !(inGpose && keepsScreensInGpose);
 }

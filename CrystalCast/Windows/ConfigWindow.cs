@@ -229,8 +229,16 @@ public sealed class ConfigWindow : Window, IDisposable
                 changed = true;
             }
 
+            var keepInGpose = config.KeepScreensInGpose;
+            Ui.RowLabel("GPose", LabelWidth, LabelGap);
+            if (Ui.SwitchLabeled("##KeepScreensInGpose", "Keep screens visible in GPose", ref keepInGpose))
+            {
+                config.KeepScreensInGpose = keepInGpose;
+                changed = true;
+            }
+
             Ui.RowIndent(LabelWidth, LabelGap);
-            Ui.Meta("CrystalCast's windows still hide with the UI. Native overlay screens always hide with it.");
+            Ui.Meta("CrystalCast's windows still hide. Native overlay screens always hide with the UI and in GPose.");
         }
 
         if (renderer.IsOutputUnavailable)

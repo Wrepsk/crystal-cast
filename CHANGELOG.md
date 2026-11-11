@@ -7,6 +7,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 ### Added
 
 - With **Scene composite**, screens stay visible when you hide the game UI (Windows and Linux). CrystalCast's windows still hide. Turn it off with **Settings > Rendering > Keep screens visible when the game UI is hidden**. Native overlay screens still hide with the UI, since they are part of it.
+- With **Scene composite**, screens also stay visible in GPose, so they appear in screenshots. Turn it off with **Settings > Rendering > Keep screens visible in GPose**.
 - Placement gizmo **Resize** mode: drag the in-world width handle to change the screen's size; the height follows the video's shape.
 - **Face me** in the Placement tab turns a screen toward your camera and levels it, keeping its position.
 - Hold **Ctrl** while dragging the gizmo to snap: 0.1 m moves, 15° turns, 0.25 m widths.

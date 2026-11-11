@@ -20,6 +20,9 @@ public sealed class MainWindow : Window, IDisposable
     private static readonly string[] TabLabels = ["Source", "Audio", "Playlist", "Placement"];
 #endif
 
+    /// <summary>The Placement tab; the in-world gizmo shows only while it is open.</summary>
+    private const int PlacementTab = 3;
+
     private const float ArtworkHeight = 260.0f;
     private const float TransportHeight = 52.0f;
 
@@ -112,7 +115,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.EndChild();
 
         activeScreen = config.GetActiveBrowserScreen();
-        if (activeScreen != null)
+        if (activeScreen != null && selectedTab == PlacementTab)
             changed |= placementPanel.DrawGizmo(config, activeScreen);
 
         if (changed)
@@ -465,7 +468,7 @@ public sealed class MainWindow : Window, IDisposable
             0 => sourceControlsPanel.Draw(activeScreen),
             1 => audioControlsPanel.Draw(activeScreen),
             2 => playlistPanel.Draw(activeScreen),
-            3 => placementPanel.Draw(config, activeScreen),
+            PlacementTab => placementPanel.Draw(config, activeScreen),
 #if DEBUG
             4 => DrawIpcTesting(config, activeScreen),
 #endif

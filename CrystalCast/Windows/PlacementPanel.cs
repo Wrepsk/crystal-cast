@@ -18,9 +18,9 @@ internal sealed class PlacementPanel(
 
     private static readonly (ScreenPlacementMode Mode, string Name, string Description)[] PlacementModes =
     [
-        (ScreenPlacementMode.World, "World", "Stays at a fixed position in the zone."),
-        (ScreenPlacementMode.FollowPlayer, "Follow player", "Coordinates are relative to the local player."),
-        (ScreenPlacementMode.FollowCamera, "Follow camera", "Coordinates are relative to the camera heading around the local player."),
+        (ScreenPlacementMode.World, "Fixed in place", "Stays where you put it in this zone."),
+        (ScreenPlacementMode.FollowPlayer, "Follows you", "Moves and turns with your character."),
+        (ScreenPlacementMode.FollowCamera, "Follows your view", "Moves with your character and turns with your camera."),
     ];
 
     private string renamingPresetId = string.Empty;
@@ -55,11 +55,9 @@ internal sealed class PlacementPanel(
         return changed;
     }
 
+    /// <summary>Draws the in-world handles. The main window calls this only while the Placement tab is open.</summary>
     public bool DrawGizmo(Configuration config, BrowserScreenProfile activeScreen)
     {
-        if (!config.PlacementGizmoEnabled)
-            return false;
-
         if (IsPlacementControlsLocked(activeScreen))
             return false;
 
@@ -127,16 +125,9 @@ internal sealed class PlacementPanel(
                 : "Waiting for the local player.");
         }
 
-        var gizmoEnabled = config.PlacementGizmoEnabled;
+        // The handles show on the screen whenever this tab is open; these pick what they do.
         Ui.RowLabel("Gizmo", LabelWidth, LabelGap);
-        if (Ui.Switch("##CrystalCastPlacementGizmo", ref gizmoEnabled, locked))
-        {
-            config.PlacementGizmoEnabled = gizmoEnabled;
-            changed = true;
-        }
-
-        ImGui.SameLine(0.0f, S(12.0f));
-        var gizmoOff = !config.PlacementGizmoEnabled || locked;
+        var gizmoOff = locked;
         var translate = config.PlacementGizmoOperation == ScreenPlacementGizmoOperation.Translate;
         if (Ui.Button("Move##GizmoMove", ButtonKind.Ghost, disabled: gizmoOff, on: translate && !gizmoOff, tooltip: "Drag the in-world arrows to move the screen"))
         {
@@ -197,8 +188,8 @@ internal sealed class PlacementPanel(
         var changed = false;
         var follow = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera;
         Ui.SectionHeader("Position and shape", follow
-            ? "Local offsets: right, up and forward from the anchor."
-            : "World coordinates of the screen center.");
+            ? "Offset from you: right, up and forward."
+            : "Where the screen's center is in this zone.");
 
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
         Ui.RowLabel("Position", LabelWidth, LabelGap);

@@ -176,9 +176,9 @@ internal sealed class FirstRunGuideWindow : Window, IDisposable
     {
         Ui.Card(
             "Choose an anchor",
-            "World stays at a fixed position. Follow player travels with your character.",
-            "Follow camera remains positioned relative to the camera heading.",
-            "Start with Place in front of player, then refine position and rotation.");
+            "Fixed in place stays where you put it. Follows you travels with your character.",
+            "Follows your view also turns with your camera, so it stays in sight.",
+            "Start with Place in front of player, then drag the handles on the screen while the Placement tab is open.");
 
         Ui.Card(
             "Shape, move, and reuse",

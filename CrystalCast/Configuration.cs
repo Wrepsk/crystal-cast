@@ -51,7 +51,6 @@ public class Configuration : IPluginConfiguration
     public bool WineSceneCompositeDefaultApplied { get; set; }
     public bool ShowDebugMarker { get; set; }
     public bool EnableGpuDiagnostics { get; set; }
-    public bool PlacementGizmoEnabled { get; set; }
     public ScreenPlacementGizmoOperation PlacementGizmoOperation { get; set; } = ScreenPlacementGizmoOperation.Translate;
 
     /// <summary>Move and rotate along the world's axes instead of the screen's own.</summary>

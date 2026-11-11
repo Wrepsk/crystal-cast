@@ -12,6 +12,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Changed
 
+- The placement gizmo shows only while the Placement tab is open, so its on/off switch is gone.
+- The anchors have plainer names: **Fixed in place** (was World), **Follows you** (was Follow player) and **Follows your view** (was Follow camera).
 - The gizmo's arrows and rings now follow the screen's own axes (left/right, up/down, toward/away) instead of the world's. **Gizmo axes > World** switches back.
 
 ## 0.9.1.3 - 2026-11-11

@@ -7,7 +7,7 @@ Screens are only drawn on your own game client. Other players don't see them unl
 ## What you can do
 
 - **Up to 8 screens of your own**, each with its own video, size, position and settings. Up to 8 play at the same time; more stay set up and wait.
-- **Place them anywhere:** pin a screen to a spot in the zone (**World**), have it travel with your character (**Follow player**), or keep it in view (**Follow camera**). **Place in front of me** puts it where you are standing, on-screen handles move and turn it, and **Width** sets its size. Screens can also be curved, faded out with distance, and made see-through where something is in front of them.
+- **Place them anywhere:** pin a screen to a spot in the zone (**Fixed in place**), have it travel with your character (**Follows you**), or keep it in view (**Follows your view**). **Place in front of me** puts it where you are standing, while the Placement tab is open on-screen handles move, turn and resize it, and **Face me** turns it toward you. Screens can also be curved, faded out with distance, and made see-through where something is in front of them.
 - **Play videos and streams** from YouTube (videos, playlists, live streams), Twitch (channels and past broadcasts), Dailymotion, Vimeo, or any web page (**Generic Web**). Play, pause, seek, loop, playback speed and volume are in the main window. **Show controls** opens the site's own player for captions, quality and other settings.
 - **Playlists:** queue videos from any supported site to play one after another, with Shuffle, Loop playlist, Skip and reordering. Entries show the title, channel, length and thumbnail.
 - **Sound:** each screen has its own volume. Spatial audio makes a screen quieter as you walk away from it.

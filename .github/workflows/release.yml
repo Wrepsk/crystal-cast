@@ -14,10 +14,15 @@ jobs:
     # (glibc 2.39+) and packaged into the plugin by the Windows job.
     name: Native WebKitGTK helper (Ubuntu 24.04)
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+
+      - name: Use Ubuntu's main package mirror
+        # The runner's default Azure mirror can be unreachable; see the script for details.
+        run: sh scripts/use-ubuntu-main-mirror.sh
 
       - name: Install build dependencies
         run: |

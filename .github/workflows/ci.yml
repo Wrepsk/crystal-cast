@@ -103,6 +103,15 @@ jobs:
       - name: Check launcher script syntax
         run: sh -n native/webkitgtk-host/launch.sh
 
+      - name: Save helper for release builds
+        # Release runs restore this instead of installing packages and building again. Tag runs can read
+        # caches saved on master. The key matches the release workflow's; keep the two in sync.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: native/webkitgtk-host/build/crystalcast-webkit-host
+          key: webkitgtk-host-ubuntu-24.04-v1-${{ hashFiles('native/webkitgtk-host/Makefile', 'native/webkitgtk-host/*.c', 'native/webkitgtk-host/*.h') }}
+
       - name: Upload helper
         uses: actions/upload-artifact@v4
         with:

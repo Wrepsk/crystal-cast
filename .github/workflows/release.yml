@@ -20,17 +20,39 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      - name: Restore helper built by CI
+        # CI on master saves the helper under a key made from its source files (see ci.yml; keep the keys
+        # in sync). On a match, this release skips installing packages and building, so an Ubuntu mirror
+        # outage cannot block it.
+        id: helper-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: native/webkitgtk-host/build/crystalcast-webkit-host
+          key: webkitgtk-host-ubuntu-24.04-v1-${{ hashFiles('native/webkitgtk-host/Makefile', 'native/webkitgtk-host/*.c', 'native/webkitgtk-host/*.h') }}
+
       - name: Use a reachable Ubuntu package mirror
         # The runner's default Azure mirror can be unreachable; see the script for details.
+        if: steps.helper-cache.outputs.cache-hit != 'true'
         run: sh scripts/use-reachable-ubuntu-mirror.sh
 
       - name: Install build dependencies
+        if: steps.helper-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libwebkitgtk-6.0-dev libgtk-4-dev
 
       - name: Build helper with warnings as errors
+        if: steps.helper-cache.outputs.cache-hit != 'true'
         run: make -C native/webkitgtk-host
+
+      - name: Report helper source
+        run: |
+          if [ "${{ steps.helper-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "Using the helper CI built for these sources."
+          else
+            echo "No cached helper for these sources; built it here."
+          fi
+          file native/webkitgtk-host/build/crystalcast-webkit-host
 
       - name: Check launcher script syntax
         run: sh -n native/webkitgtk-host/launch.sh

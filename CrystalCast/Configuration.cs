@@ -44,6 +44,9 @@ public class Configuration : IPluginConfiguration
     public float FadeStopMeters { get; set; } = 60.0f;
     public ScreenOutputMode OutputMode { get; set; } = DefaultOutputMode;
 
+    /// <summary>Scene composite only: screens stay visible when the game UI is hidden. See HiddenUiPolicy.</summary>
+    public bool KeepScreensWhenUiHidden { get; set; } = true;
+
     /// <summary>
     /// Wine used to default to native overlay; set once a Wine configuration has been moved to scene
     /// composite, so a later native overlay choice sticks.

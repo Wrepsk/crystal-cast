@@ -218,6 +218,21 @@ public sealed class ConfigWindow : Window, IDisposable
         Ui.VerticalSpace(14.0f);
         Ui.Label(GetOutputModeDescription(config.OutputMode), wrap: true);
 
+        if (config.OutputMode == ScreenOutputMode.SceneComposite)
+        {
+            ImGui.Spacing();
+            var keepScreens = config.KeepScreensWhenUiHidden;
+            Ui.RowLabel("Hidden UI", LabelWidth, LabelGap);
+            if (Ui.SwitchLabeled("##KeepScreensWhenUiHidden", "Keep screens visible when the game UI is hidden", ref keepScreens))
+            {
+                config.KeepScreensWhenUiHidden = keepScreens;
+                changed = true;
+            }
+
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.Meta("CrystalCast's windows still hide with the UI. Native overlay screens always hide with it.");
+        }
+
         if (renderer.IsOutputUnavailable)
         {
             ImGui.Spacing();

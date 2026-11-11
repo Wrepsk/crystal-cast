@@ -115,6 +115,7 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "Open the CrystalCast settings window.",
         });
 
+        ApplyHiddenUiPolicy();
         PluginInterface.UiBuilder.Draw += OnDraw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
@@ -208,15 +209,30 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnDraw()
     {
+        // With the screens kept, Dalamud calls this while the game UI is hidden; the windows still hide.
+        var showWindows = HiddenUiPolicy.ShowsWindows(GameGui.GameUiHidden, PluginInterface.UiBuilder.DisableUserUiHide);
         if (ClientRuntimePolicy.CanStart(ClientState.IsLoggedIn))
         {
-            UpdateFirstRunGuide();
+            if (showWindows)
+                UpdateFirstRunGuide();
             genericWebIpcApprovalWindow.RefreshState();
             AdvancePlaylists();
         }
-        windowSystem.Draw();
+
+        if (showWindows)
+            windowSystem.Draw();
         renderer.DrawWorld();
         Configuration.ProcessPendingSave();
+        ApplyHiddenUiPolicy();
+    }
+
+    /// <summary>
+    /// Asks Dalamud to keep calling the draw callback while the game UI is hidden, when screens should stay.
+    /// Set every frame so a settings change takes effect before the UI is next hidden.
+    /// </summary>
+    private void ApplyHiddenUiPolicy()
+    {
+        PluginInterface.UiBuilder.DisableUserUiHide = HiddenUiPolicy.KeepsScreens(Configuration);
     }
 
     /// <summary>Moves screens whose video just ended to their next playlist video, and fills in video details.</summary>

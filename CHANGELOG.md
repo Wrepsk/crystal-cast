@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.1.4 - 2026-11-11
+
 ### Added
 
 - With **Scene composite**, screens stay visible when you hide the game UI (Windows and Linux). CrystalCast's windows still hide. Turn it off with **Settings > Rendering > Keep screens visible when the game UI is hidden**. Native overlay screens still hide with the UI, since they are part of it.

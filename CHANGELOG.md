@@ -4,7 +4,9 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
-## 0.9.1.1 - 2026-11-11
+## 0.9.1.2 - 2026-11-11
+
+The 0.9.1.1 tag was never released: its build could not reach Ubuntu's package servers.
 
 ### Fixed
 

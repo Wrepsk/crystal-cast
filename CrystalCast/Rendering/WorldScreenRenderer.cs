@@ -734,7 +734,8 @@ public sealed class WorldScreenManager : IDisposable
         }
 
         public string SourceStatus => frameSource?.Status
-            ?? (!string.IsNullOrEmpty(sourceAuthorizationStatus) ? sourceAuthorizationStatus : "no dynamic source");
+            ?? (!string.IsNullOrEmpty(sourceAuthorizationStatus) ? sourceAuthorizationStatus
+                : string.IsNullOrWhiteSpace(BrowserSourceProviderRegistry.GetUrl(browserScreen)) ? "no video loaded" : "no dynamic source");
         public string AudioStatus => BrowserSourceProviderRegistry.GetSnapshot(browserScreen).RuntimeSettings.AudioEnabled
             ? "browser audio enabled"
             : "browser audio muted";
@@ -1201,6 +1202,10 @@ public sealed class WorldScreenManager : IDisposable
             lastPauseCommandUnixMs = 0;
 
             if (access != GenericWebIpcAccess.Allowed)
+                return;
+
+            // A screen with no link yet starts no browser; it shows its placeholder so it can be placed.
+            if (string.IsNullOrWhiteSpace(BrowserSourceProviderRegistry.GetUrl(browserScreen)))
                 return;
 
             frameSource = BrowserSourceProviderRegistry.CreateFrameSource(

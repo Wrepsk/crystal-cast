@@ -16,13 +16,14 @@ internal enum BrowserPlayerMessageResult
 internal sealed class BrowserPlayerState
 {
     private readonly BrowserSourceDescriptor descriptor;
-    private readonly IBrowserSourceReference source;
+    /// <summary>Null when the link didn't parse; the browser then only shows the invalid-link message.</summary>
+    private readonly IBrowserSourceReference? source;
     private readonly object telemetryLock = new();
     private MediaPlaybackTelemetry telemetry = new();
     private volatile string playerStatus = "player not ready";
     private float detectedVideoFps;
 
-    public BrowserPlayerState(BrowserSourceDescriptor descriptor, IBrowserSourceReference source, float playbackRate)
+    public BrowserPlayerState(BrowserSourceDescriptor descriptor, IBrowserSourceReference? source, float playbackRate)
     {
         this.descriptor = descriptor;
         this.source = source;
@@ -57,7 +58,7 @@ internal sealed class BrowserPlayerState
         switch (typeProperty.GetString())
         {
             case "ready":
-                playerStatus = $"player ready: {source.DisplayName}";
+                playerStatus = $"player ready: {source?.DisplayName ?? descriptor.DisplayName}";
                 return BrowserPlayerMessageResult.Ready;
             case "status":
                 UpdateFromStatusMessage(root, configuredPlaybackRate);
@@ -89,7 +90,7 @@ internal sealed class BrowserPlayerState
     public void UpdateTelemetry(ScreenPlaybackState state, long positionMs, long durationMs, float rate, string title, string currentVideoId = "", bool ended = false)
     {
         if (!descriptor.IsValidVideoId(currentVideoId))
-            currentVideoId = source.VideoId;
+            currentVideoId = source?.VideoId ?? string.Empty;
 
         lock (telemetryLock)
         {
@@ -101,7 +102,7 @@ internal sealed class BrowserPlayerState
                 Rate = ClampPlaybackRate(rate),
                 Title = title,
                 VideoId = currentVideoId,
-                CanonicalUrl = descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
+                CanonicalUrl = source == null ? string.Empty : descriptor.BuildCanonicalSourceUrl(source, currentVideoId),
                 HostTimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 DetectedVideoFps = DetectedVideoFps,
                 Ended = ended && state == ScreenPlaybackState.Stopped,
@@ -128,7 +129,7 @@ internal sealed class BrowserPlayerState
     private void UpdateFromStatusMessage(JsonElement root, float configuredPlaybackRate)
     {
         var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
-        var currentVideoId = BrowserSourceDescriptors.TryGetString(root, "videoId", source.VideoId);
+        var currentVideoId = BrowserSourceDescriptors.TryGetString(root, "videoId", source?.VideoId ?? string.Empty);
         var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
         var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
         var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", configuredPlaybackRate);

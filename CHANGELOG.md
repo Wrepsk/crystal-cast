@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Fixed
+
+- A new screen showed "WebView2 browser source unavailable: Object reference not set to an instance of an object" before any video was loaded. Screens without a link no longer start a browser and show their placeholder, and a link that can't be played shows the usual invalid-link message instead of this error.
+
 ## 0.9.1.2 - 2026-11-11
 
 The 0.9.1.1 tag was never released: its build could not reach Ubuntu's package servers.

@@ -4,6 +4,16 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- Placement gizmo **Resize** mode: drag the in-world width handle to change the screen's size; the height follows the video's shape.
+- **Face me** in the Placement tab turns a screen toward your camera and levels it, keeping its position.
+- Hold **Ctrl** while dragging the gizmo to snap: 0.1 m moves, 15° turns, 0.25 m widths.
+
+### Changed
+
+- The gizmo's arrows and rings now follow the screen's own axes (left/right, up/down, toward/away) instead of the world's. **Gizmo axes > World** switches back.
+
 ## 0.9.1.3 - 2026-11-11
 
 ### Fixed

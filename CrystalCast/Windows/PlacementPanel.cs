@@ -64,7 +64,12 @@ internal sealed class PlacementPanel(
             return false;
 
         var before = activeScreen.Placement.Clone();
-        if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, config.PlacementGizmoOperation, placementResolver))
+        var options = new GizmoOptions(
+            config.PlacementGizmoOperation,
+            config.PlacementGizmoWorldAxes,
+            Snap: ImGui.GetIO().KeyCtrl,
+            HeightPerWidth(activeScreen.Placement));
+        if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, options, placementResolver))
             return false;
 
         undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
@@ -105,6 +110,15 @@ internal sealed class PlacementPanel(
                 placeFailedAtTick = Environment.TickCount64;
         }
 
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Face me", disabled: locked, tooltip: "Turn the screen toward your camera and level it"))
+        {
+            if (placementResolver.FaceCamera(placement))
+                changed = true;
+            else
+                placeFailedAtTick = Environment.TickCount64;
+        }
+
         if (placeFailedAtTick > 0 && Environment.TickCount64 - placeFailedAtTick < 3000)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
@@ -131,13 +145,51 @@ internal sealed class PlacementPanel(
         }
 
         ImGui.SameLine(0.0f, S(4.0f));
-        if (Ui.Button("Rotate##GizmoRotate", ButtonKind.Ghost, disabled: gizmoOff, on: !translate && !gizmoOff, tooltip: "Drag the in-world rings to rotate the screen"))
+        var rotate = config.PlacementGizmoOperation == ScreenPlacementGizmoOperation.Rotate;
+        if (Ui.Button("Rotate##GizmoRotate", ButtonKind.Ghost, disabled: gizmoOff, on: rotate && !gizmoOff, tooltip: "Drag the in-world rings to rotate the screen"))
         {
             config.PlacementGizmoOperation = ScreenPlacementGizmoOperation.Rotate;
             changed = true;
         }
 
+        ImGui.SameLine(0.0f, S(4.0f));
+        var resize = config.PlacementGizmoOperation == ScreenPlacementGizmoOperation.Resize;
+        if (Ui.Button("Resize##GizmoResize", ButtonKind.Ghost, disabled: gizmoOff, on: resize && !gizmoOff, tooltip: "Drag the in-world handle to change the screen's width; the height follows the video"))
+        {
+            config.PlacementGizmoOperation = ScreenPlacementGizmoOperation.Resize;
+            changed = true;
+        }
+
+        // Resizing always follows the screen's sides, so the axes choice only applies to moving and rotating.
+        var axesOff = gizmoOff || resize;
+        Ui.RowLabel("Gizmo axes", LabelWidth, LabelGap);
+        if (Ui.Button("Screen##GizmoAxesScreen", ButtonKind.Ghost, disabled: axesOff, on: !config.PlacementGizmoWorldAxes && !axesOff,
+                tooltip: "Arrows and rings follow the screen: left/right, up/down, toward/away"))
+        {
+            config.PlacementGizmoWorldAxes = false;
+            changed = true;
+        }
+
+        ImGui.SameLine(0.0f, S(4.0f));
+        if (Ui.Button("World##GizmoAxesWorld", ButtonKind.Ghost, disabled: axesOff, on: config.PlacementGizmoWorldAxes && !axesOff,
+                tooltip: "Arrows and rings follow the zone's fixed directions, whichever way the screen faces"))
+        {
+            config.PlacementGizmoWorldAxes = true;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta($"Hold Ctrl while dragging to snap: {ScreenPlacementGizmo.MoveSnapMeters:0.#} m steps, {ScreenPlacementGizmo.RotateSnapDegrees:0}° turns, {ScreenPlacementGizmo.ResizeSnapMeters:0.##} m widths.");
         return changed;
+    }
+
+    /// <summary>The screen's height per meter of width: the video's shape once it has frames, else the saved size.</summary>
+    private float HeightPerWidth(ScreenPlacementSettings placement)
+    {
+        if (renderer.TextureWidth > 0 && renderer.TextureHeight > 0)
+            return (float)renderer.TextureHeight / renderer.TextureWidth;
+
+        return placement.WidthMeters > 0.0f ? placement.HeightMeters / placement.WidthMeters : 9.0f / 16.0f;
     }
 
     private bool DrawTransform(ScreenPlacementSettings placement, bool locked)

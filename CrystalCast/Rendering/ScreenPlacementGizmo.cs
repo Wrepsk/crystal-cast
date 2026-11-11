@@ -6,9 +6,22 @@ using FFXIVClientStructs.FFXIV.Client.Game.Control;
 
 namespace CrystalCast.Rendering;
 
+/// <summary>What the in-world gizmo shows and how it snaps.</summary>
+internal readonly record struct GizmoOptions(
+    ScreenPlacementGizmoOperation Operation,
+    bool WorldAxes,
+    bool Snap,
+    float HeightPerWidth);
+
 internal static class ScreenPlacementGizmo
 {
-    public static bool Draw(ScreenPlacementSettings placement, ScreenPlacementGizmoOperation operation, ScreenPlacementResolver placementResolver)
+    /// <summary>Ctrl snapping steps: meters when moving, degrees when rotating, meters of width when resizing.</summary>
+    internal const float MoveSnapMeters = 0.1f;
+    internal const float RotateSnapDegrees = 15.0f;
+    internal const float ResizeSnapMeters = 0.25f;
+    internal const float MinimumWidthMeters = 0.1f;
+
+    public static bool Draw(ScreenPlacementSettings placement, GizmoOptions options, ScreenPlacementResolver placementResolver)
     {
         if (!placementResolver.TryResolve(placement, out var resolved))
             return false;
@@ -39,7 +52,7 @@ internal static class ScreenPlacementGizmo
 
                 var io = ImGui.GetIO();
                 ImGui.SetWindowSize(io.DisplaySize);
-                changed = DrawGizmo(placement, operation, resolved, ImGui.GetWindowPos(), io.DisplaySize, ref view, ref projection, placementResolver);
+                changed = DrawGizmo(placement, options, resolved, ImGui.GetWindowPos(), io.DisplaySize, ref view, ref projection, placementResolver);
             }
             finally
             {
@@ -56,7 +69,7 @@ internal static class ScreenPlacementGizmo
 
     private static bool DrawGizmo(
         ScreenPlacementSettings placement,
-        ScreenPlacementGizmoOperation operation,
+        GizmoOptions options,
         ResolvedScreenPlacement resolved,
         Vector2 position,
         Vector2 size,
@@ -71,22 +84,51 @@ internal static class ScreenPlacementGizmo
         ImGuizmo.SetOrthographic(false);
         ImGuizmo.SetRect(position.X, position.Y, size.X, size.Y);
 
+        var resizing = options.Operation == ScreenPlacementGizmoOperation.Resize;
+        var width = Math.Max(MinimumWidthMeters, placement.WidthMeters);
+        var height = width * options.HeightPerWidth;
         var matrix = Matrix4x4.CreateFromQuaternion(resolved.Rotation);
+        if (resizing)
+            matrix = Matrix4x4.CreateScale(width, height, 1.0f) * matrix;
         matrix.Translation = resolved.Position;
-        var snap = Vector3.Zero;
+
+        // Moves and turns snap through ImGuizmo; widths are rounded here so they land on whole steps.
+        var snap = options.Snap && !resizing
+            ? options.Operation == ScreenPlacementGizmoOperation.Rotate
+                ? new Vector3(RotateSnapDegrees)
+                : new Vector3(MoveSnapMeters)
+            : Vector3.Zero;
 
         try
         {
-            if (!Manipulate(operation, ref view.M11, ref projection.M11, ref matrix.M11, ref snap.X))
+            if (!Manipulate(options, ref view.M11, ref projection.M11, ref matrix.M11, ref snap.X))
                 return false;
 
-            if (operation == ScreenPlacementGizmoOperation.Rotate)
-            {
-                return Matrix4x4.Decompose(matrix, out _, out var worldRotation, out _)
-                    && placementResolver.TryApplyWorldRotationPreservingMode(placement, worldRotation);
-            }
+            // Holding the mouse still must not move the screen. Small frame-to-frame differences (camera,
+            // a followed player, rounding through yaw/pitch/roll) would otherwise make it twitch.
+            if (ImGui.GetIO().MouseDelta == Vector2.Zero)
+                return false;
 
-            return placementResolver.TryApplyWorldPositionPreservingMode(placement, matrix.Translation);
+            switch (options.Operation)
+            {
+                case ScreenPlacementGizmoOperation.Rotate:
+                    return Matrix4x4.Decompose(matrix, out _, out var worldRotation, out _)
+                        && placementResolver.TryApplyWorldRotationPreservingMode(placement, worldRotation);
+                case ScreenPlacementGizmoOperation.Resize:
+                    if (!Matrix4x4.Decompose(matrix, out var scale, out _, out _))
+                        return false;
+
+                    if (ResizedWidth(scale.X, options.Snap) is not { } newWidth
+                        || MathF.Abs(newWidth - placement.WidthMeters) < 0.0001f)
+                        return false;
+
+                    placement.WidthMeters = newWidth;
+                    placement.HeightMeters = newWidth * options.HeightPerWidth;
+                    placement.Normalize();
+                    return true;
+                default:
+                    return placementResolver.TryApplyWorldPositionPreservingMode(placement, matrix.Translation);
+            }
         }
         finally
         {
@@ -94,8 +136,34 @@ internal static class ScreenPlacementGizmo
         }
     }
 
-    private static unsafe bool Manipulate(ScreenPlacementGizmoOperation operation, ref float view, ref float projection, ref float matrix, ref float snap)
+    /// <summary>
+    /// The width after a resize drag. The screen has one size setting, its width, so Resize shows only the
+    /// width handle. ImGuizmo measures the drag from the size at its start, so its X scale is the new width.
+    /// With snapping it lands on whole <see cref="ResizeSnapMeters"/> steps. Null for a broken scale.
+    /// </summary>
+    internal static float? ResizedWidth(float scaleX, bool snap)
     {
+        if (!float.IsFinite(scaleX) || scaleX <= 0.0f)
+            return null;
+
+        var resized = snap ? MathF.Round(scaleX / ResizeSnapMeters) * ResizeSnapMeters : scaleX;
+        return Math.Max(MinimumWidthMeters, resized);
+    }
+
+    private static unsafe bool Manipulate(GizmoOptions options, ref float view, ref float projection, ref float matrix, ref float snap)
+    {
+        var operation = options.Operation switch
+        {
+            ScreenPlacementGizmoOperation.Rotate => ImGuizmoOperation.Rotate,
+            ScreenPlacementGizmoOperation.Resize => ImGuizmoOperation.ScaleX,
+            _ => ImGuizmoOperation.Translate,
+        };
+
+        // Resizing is always along the screen's own sides.
+        var mode = options.WorldAxes && options.Operation != ScreenPlacementGizmoOperation.Resize
+            ? ImGuizmoMode.World
+            : ImGuizmoMode.Local;
+
         fixed (float* nativeView = &view)
         fixed (float* nativeProjection = &projection)
         fixed (float* nativeMatrix = &matrix)
@@ -104,8 +172,8 @@ internal static class ScreenPlacementGizmo
             return ImGuizmo.Manipulate(
                 nativeView,
                 nativeProjection,
-                operation == ScreenPlacementGizmoOperation.Rotate ? ImGuizmoOperation.Rotate : ImGuizmoOperation.Translate,
-                operation == ScreenPlacementGizmoOperation.Rotate ? ImGuizmoMode.Local : ImGuizmoMode.World,
+                operation,
+                mode,
                 nativeMatrix,
                 null,
                 nativeSnap,
@@ -126,16 +194,17 @@ internal static class ScreenPlacementGizmo
             return false;
         }
 
+        // The render camera's own view with its steady projection, as CrystalRenderer draws with. The gameplay
+        // view-projection carries the anti-aliasing jitter, which shifted the gizmo's mouse ray every frame.
         projection = renderCamera->ProjectionMatrix;
-        if (!Matrix4x4.Invert(projection, out var inverseProjection))
+        view = renderCamera->ViewMatrix;
+        view.M44 = 1.0f;
+        if (!Matrix4x4.Invert(view * projection, out _))
         {
             view = default;
             projection = default;
             return false;
         }
-
-        view = Matrix4x4.Multiply(control->ViewProjectionMatrix, inverseProjection);
-        view.M44 = 1.0f;
 
         var near = renderCamera->NearPlane;
         var far = renderCamera->FarPlane;

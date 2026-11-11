@@ -174,6 +174,46 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         return true;
     }
 
+    /// <summary>Turns the screen to face the camera and levels it (no tilt or roll), keeping its position.</summary>
+    public bool FaceCamera(ScreenPlacementSettings placement)
+    {
+        if (!TryResolve(placement, out var resolved) || !TryGetViewerPosition(out var viewer))
+            return false;
+
+        return FacingYaw(resolved.Position, viewer) is { } yaw
+            && TryApplyWorldRotationPreservingMode(placement, Quaternion.CreateFromYawPitchRoll(yaw, 0.0f, 0.0f));
+    }
+
+    /// <summary>
+    /// The yaw that points a screen at <paramref name="screen"/> toward <paramref name="viewer"/>, ignoring
+    /// height. A screen faces along (sin yaw, 0, cos yaw). Null when the viewer is straight above or below.
+    /// </summary>
+    internal static float? FacingYaw(Vector3 screen, Vector3 viewer)
+    {
+        var toViewer = viewer - screen;
+        toViewer.Y = 0.0f;
+        return toViewer.LengthSquared() < 0.0001f ? null : MathF.Atan2(toViewer.X, toViewer.Z);
+    }
+
+    /// <summary>The camera's position, or the player's when the camera can't be read.</summary>
+    private unsafe bool TryGetViewerPosition(out Vector3 viewer)
+    {
+        var control = Control.Instance();
+        var camera = control != null ? control->CameraManager.GetActiveCamera() : null;
+        var renderCamera = camera != null ? camera->SceneCamera.RenderCamera : null;
+        if (renderCamera != null)
+        {
+            viewer = TryGetCurrentCameraOrigin(control->ViewProjectionMatrix, renderCamera->ProjectionMatrix, out var origin)
+                ? origin
+                : (Vector3)renderCamera->Origin;
+            if (IsFinite(viewer))
+                return true;
+        }
+
+        viewer = objectTable.LocalPlayer?.Position ?? default;
+        return objectTable.LocalPlayer != null && IsFinite(viewer);
+    }
+
     private static void ApplyWorldPlacement(ScreenPlacementSettings placement, ResolvedScreenPlacement worldPlacement)
     {
         placement.PositionX = worldPlacement.Position.X;

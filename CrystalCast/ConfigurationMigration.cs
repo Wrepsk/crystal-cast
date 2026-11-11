@@ -29,7 +29,7 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
-        if (configuration.PlacementGizmoOperation is not (ScreenPlacementGizmoOperation.Translate or ScreenPlacementGizmoOperation.Rotate))
+        if (configuration.PlacementGizmoOperation is not (ScreenPlacementGizmoOperation.Translate or ScreenPlacementGizmoOperation.Rotate or ScreenPlacementGizmoOperation.Resize))
         {
             configuration.PlacementGizmoOperation = ScreenPlacementGizmoOperation.Translate;
             changed = true;

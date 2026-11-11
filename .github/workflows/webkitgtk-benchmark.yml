@@ -26,9 +26,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-      - name: Use Ubuntu's main package mirror
+      - name: Use a reachable Ubuntu package mirror
         # The runner's default Azure mirror can be unreachable; see the script for details.
-        run: sh scripts/use-ubuntu-main-mirror.sh
+        run: sh scripts/use-reachable-ubuntu-mirror.sh
       - name: Install developer build/test dependencies (CI only)
         run: |
           sudo apt-get update

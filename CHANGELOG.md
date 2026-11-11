@@ -4,6 +4,12 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.1.1 - 2026-11-11
+
+### Fixed
+
+- The plugin manifest's icon link pointed at a placeholder address; it now points at the CrystalCast icon.
+
 ## 0.9.1 - 2026-11-11
 
 ### Changed

@@ -12,16 +12,6 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
     private const float LabelWidth = MainLabelWidth;
     private const float LabelGap = MainLabelGap;
 
-    private static readonly IReadOnlyDictionary<BrowserSourceProviderKind, BrowserSourceUiDescriptor> Descriptors =
-        new Dictionary<BrowserSourceProviderKind, BrowserSourceUiDescriptor>
-        {
-            [BrowserSourceProviderKind.YouTube] = CreateYouTubeDescriptor(),
-            [BrowserSourceProviderKind.Twitch] = CreateTwitchDescriptor(),
-            [BrowserSourceProviderKind.Dailymotion] = CreateDailymotionDescriptor(),
-            [BrowserSourceProviderKind.Vimeo] = CreateVimeoDescriptor(),
-            [BrowserSourceProviderKind.GenericWeb] = CreateGenericWebDescriptor(),
-        };
-
     private readonly Dictionary<string, BrowserSourceUiState> uiStates = new(StringComparer.Ordinal);
 
     public bool Draw(BrowserScreenProfile screen)
@@ -87,11 +77,11 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         return kind.ToString();
     }
 
-    private static BrowserSourceUiDescriptor GetDescriptor(BrowserScreenProfile screen)
+    private static BrowserProviderSettings GetDescriptor(BrowserScreenProfile screen) => BrowserProviderSettings.For(screen);
+
+    private static string LoopLabel(BrowserSourceProviderKind provider)
     {
-        return Descriptors.TryGetValue(screen.ProviderKind, out var knownDescriptor)
-            ? knownDescriptor
-            : Descriptors[BrowserSourceProviderKind.YouTube];
+        return provider == BrowserSourceProviderKind.GenericWeb ? "Loop media" : "Loop video";
     }
 
     /// <summary>
@@ -109,7 +99,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             uiState.UrlDraftSource = url;
         }
 
-        var committedSourceValid = descriptor.SourceDescriptor.TryParse(url, out var committedSource);
+        var committedSourceValid = BrowserSourceDescriptors.Get(descriptor.ProviderKind).TryParse(url, out var committedSource);
         var draft = uiState.UrlDraft;
 
         Ui.RowLabel("Link", LabelWidth, LabelGap);
@@ -205,6 +195,9 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
     {
         screen.ProviderKind = detected.ProviderKind;
         GetDescriptor(screen).SetUrl(screen, detected.Url);
+        // A link the user loads no longer needs the approval an IPC-set page does.
+        if (detected.ProviderKind == BrowserSourceProviderKind.GenericWeb)
+            screen.GenericWebUrlFromIpc = false;
         screen.PlaybackPaused = false;
         uiState.UrlDraft = detected.Url;
         uiState.UrlDraftSource = detected.Url;
@@ -224,7 +217,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
     private void DrawBrowserControlsRow(
         BrowserScreenProfile screen,
-        BrowserSourceUiDescriptor descriptor,
+        BrowserProviderSettings descriptor,
         BrowserProviderCapabilities capabilities)
     {
         if (!capabilities.SupportsBrowserControls || !renderer.AreBrowserControlsAvailable(screen))
@@ -246,18 +239,22 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
     }
 
-    private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor, bool sourceLocked)
+    private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserProviderSettings descriptor, bool sourceLocked)
     {
         Ui.RowLabel("Resolution", LabelWidth, LabelGap);
         return SourceControlUi.DrawResolutionPreset(
             $"##{descriptor.ProviderKind}Resolution",
             descriptor.GetBrowserWidth(screen),
             descriptor.GetBrowserHeight(screen),
-            (width, height) => descriptor.SetBrowserResolution(screen, width, height),
+            (width, height) =>
+            {
+                descriptor.SetBrowserWidth(screen, width);
+                descriptor.SetBrowserHeight(screen, height);
+            },
             sourceLocked);
     }
 
-    private bool DrawCaptureFps(BrowserScreenProfile screen, BrowserSourceUiDescriptor descriptor)
+    private bool DrawCaptureFps(BrowserScreenProfile screen, BrowserProviderSettings descriptor)
     {
         var changed = false;
         Ui.RowLabel("Capture FPS", LabelWidth, LabelGap);
@@ -296,7 +293,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
 
     private static bool DrawSourceOptions(
         BrowserScreenProfile screen,
-        BrowserSourceUiDescriptor descriptor,
+        BrowserProviderSettings descriptor,
         BrowserProviderCapabilities capabilities,
         bool sourceLocked)
     {
@@ -312,7 +309,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         if (capabilities.SupportsLoop)
         {
             var loop = descriptor.GetLoop(screen);
-            Ui.RowLabel(descriptor.LoopLabel, LabelWidth, LabelGap);
+            Ui.RowLabel(LoopLabel(descriptor.ProviderKind), LabelWidth, LabelGap);
             if (Ui.Switch($"##{descriptor.ProviderKind}Loop", ref loop, sourceLocked))
             {
                 descriptor.SetLoop(screen, loop);
@@ -321,8 +318,8 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
 
         if (capabilities.SupportsPlaylist
-            && descriptor.SourceDescriptor.TryParse(descriptor.GetUrl(screen), out var source)
-            && descriptor.ShowPlaylistAutoplayNext(source))
+            && BrowserSourceDescriptors.Get(descriptor.ProviderKind).TryParse(descriptor.GetUrl(screen), out var source)
+            && source is YouTubeSourceReference { Kind: YouTubeSourceKind.Playlist })
         {
             var playlistAutoplayNext = descriptor.GetPlaylistAutoplayNext(screen);
             Ui.RowLabel("Play next in playlist", LabelWidth, LabelGap);
@@ -376,188 +373,11 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         return state;
     }
 
-    private static BrowserSourceUiDescriptor CreateYouTubeDescriptor()
-    {
-        return new BrowserSourceUiDescriptor
-        {
-            ProviderKind = BrowserSourceProviderKind.YouTube,
-            SourceDescriptor = BrowserSourceDescriptors.YouTube,
-            LoopLabel = "Loop video",
-            RequireDurationForSeek = false,
-            GetUrl = screen => screen.YouTubeUrl,
-            SetUrl = (screen, value) => screen.YouTubeUrl = value,
-            GetBrowserWidth = screen => screen.YouTubeBrowserWidth,
-            GetBrowserHeight = screen => screen.YouTubeBrowserHeight,
-            SetBrowserResolution = (screen, width, height) =>
-            {
-                screen.YouTubeBrowserWidth = width;
-                screen.YouTubeBrowserHeight = height;
-            },
-            GetCaptureFps = screen => screen.YouTubeCaptureFps,
-            SetCaptureFps = (screen, value) => screen.YouTubeCaptureFps = value,
-            GetCaptureFpsManual = screen => screen.YouTubeCaptureFpsManual,
-            SetCaptureFpsManual = (screen, value) => screen.YouTubeCaptureFpsManual = value,
-            GetAutoplay = screen => screen.YouTubeAutoplay,
-            SetAutoplay = (screen, value) => screen.YouTubeAutoplay = value,
-            GetLoop = screen => screen.LoopYouTube,
-            SetLoop = (screen, value) => screen.LoopYouTube = value,
-            GetPlaylistAutoplayNext = screen => screen.YouTubePlaylistAutoplayNext,
-            SetPlaylistAutoplayNext = (screen, value) => screen.YouTubePlaylistAutoplayNext = value,
-            ShowPlaylistAutoplayNext = source => source is YouTubeSourceReference { Kind: YouTubeSourceKind.Playlist },
-            GetPlaybackRate = screen => screen.YouTubePlaybackRate,
-            SetPlaybackRate = (screen, value) => screen.YouTubePlaybackRate = value,
-        };
-    }
-
-    private static BrowserSourceUiDescriptor CreateTwitchDescriptor()
-    {
-        return new BrowserSourceUiDescriptor
-        {
-            ProviderKind = BrowserSourceProviderKind.Twitch,
-            SourceDescriptor = BrowserSourceDescriptors.Twitch,
-            LoopLabel = string.Empty,
-            RequireDurationForSeek = true,
-            GetUrl = screen => screen.TwitchUrl,
-            SetUrl = (screen, value) => screen.TwitchUrl = value,
-            GetBrowserWidth = screen => screen.TwitchBrowserWidth,
-            GetBrowserHeight = screen => screen.TwitchBrowserHeight,
-            SetBrowserResolution = (screen, width, height) =>
-            {
-                screen.TwitchBrowserWidth = width;
-                screen.TwitchBrowserHeight = height;
-            },
-            GetCaptureFps = screen => screen.TwitchCaptureFps,
-            SetCaptureFps = (screen, value) => screen.TwitchCaptureFps = value,
-            GetCaptureFpsManual = screen => screen.TwitchCaptureFpsManual,
-            SetCaptureFpsManual = (screen, value) => screen.TwitchCaptureFpsManual = value,
-            GetAutoplay = screen => screen.TwitchAutoplay,
-            SetAutoplay = (screen, value) => screen.TwitchAutoplay = value,
-        };
-    }
-
-    private static BrowserSourceUiDescriptor CreateDailymotionDescriptor()
-    {
-        return new BrowserSourceUiDescriptor
-        {
-            ProviderKind = BrowserSourceProviderKind.Dailymotion,
-            SourceDescriptor = BrowserSourceDescriptors.Dailymotion,
-            LoopLabel = "Loop video",
-            RequireDurationForSeek = true,
-            GetUrl = screen => screen.DailymotionUrl,
-            SetUrl = (screen, value) => screen.DailymotionUrl = value,
-            GetBrowserWidth = screen => screen.DailymotionBrowserWidth,
-            GetBrowserHeight = screen => screen.DailymotionBrowserHeight,
-            SetBrowserResolution = (screen, width, height) =>
-            {
-                screen.DailymotionBrowserWidth = width;
-                screen.DailymotionBrowserHeight = height;
-            },
-            GetCaptureFps = screen => screen.DailymotionCaptureFps,
-            SetCaptureFps = (screen, value) => screen.DailymotionCaptureFps = value,
-            GetCaptureFpsManual = screen => screen.DailymotionCaptureFpsManual,
-            SetCaptureFpsManual = (screen, value) => screen.DailymotionCaptureFpsManual = value,
-            GetAutoplay = screen => screen.DailymotionAutoplay,
-            SetAutoplay = (screen, value) => screen.DailymotionAutoplay = value,
-            GetLoop = screen => screen.LoopDailymotion,
-            SetLoop = (screen, value) => screen.LoopDailymotion = value,
-        };
-    }
-
-    private static BrowserSourceUiDescriptor CreateVimeoDescriptor()
-    {
-        return new BrowserSourceUiDescriptor
-        {
-            ProviderKind = BrowserSourceProviderKind.Vimeo,
-            SourceDescriptor = BrowserSourceDescriptors.Vimeo,
-            LoopLabel = "Loop video",
-            RequireDurationForSeek = true,
-            GetUrl = screen => screen.VimeoUrl,
-            SetUrl = (screen, value) => screen.VimeoUrl = value,
-            GetBrowserWidth = screen => screen.VimeoBrowserWidth,
-            GetBrowserHeight = screen => screen.VimeoBrowserHeight,
-            SetBrowserResolution = (screen, width, height) =>
-            {
-                screen.VimeoBrowserWidth = width;
-                screen.VimeoBrowserHeight = height;
-            },
-            GetCaptureFps = screen => screen.VimeoCaptureFps,
-            SetCaptureFps = (screen, value) => screen.VimeoCaptureFps = value,
-            GetCaptureFpsManual = screen => screen.VimeoCaptureFpsManual,
-            SetCaptureFpsManual = (screen, value) => screen.VimeoCaptureFpsManual = value,
-            GetAutoplay = screen => screen.VimeoAutoplay,
-            SetAutoplay = (screen, value) => screen.VimeoAutoplay = value,
-            GetLoop = screen => screen.LoopVimeo,
-            SetLoop = (screen, value) => screen.LoopVimeo = value,
-            GetPlaybackRate = screen => screen.VimeoPlaybackRate,
-            SetPlaybackRate = (screen, value) => screen.VimeoPlaybackRate = value,
-        };
-    }
-
-    private static BrowserSourceUiDescriptor CreateGenericWebDescriptor()
-    {
-        return new BrowserSourceUiDescriptor
-        {
-            ProviderKind = BrowserSourceProviderKind.GenericWeb,
-            SourceDescriptor = BrowserSourceDescriptors.GenericWeb,
-            LoopLabel = "Loop media",
-            RequireDurationForSeek = true,
-            GetUrl = screen => screen.GenericWebUrl,
-            SetUrl = (screen, value) =>
-            {
-                screen.GenericWebUrl = value;
-                screen.GenericWebUrlFromIpc = false;
-            },
-            GetBrowserWidth = screen => screen.GenericWebBrowserWidth,
-            GetBrowserHeight = screen => screen.GenericWebBrowserHeight,
-            SetBrowserResolution = (screen, width, height) =>
-            {
-                screen.GenericWebBrowserWidth = width;
-                screen.GenericWebBrowserHeight = height;
-            },
-            GetCaptureFps = screen => screen.GenericWebCaptureFps,
-            SetCaptureFps = (screen, value) => screen.GenericWebCaptureFps = value,
-            GetCaptureFpsManual = screen => screen.GenericWebCaptureFpsManual,
-            SetCaptureFpsManual = (screen, value) => screen.GenericWebCaptureFpsManual = value,
-            GetAutoplay = screen => screen.GenericWebAutoplay,
-            SetAutoplay = (screen, value) => screen.GenericWebAutoplay = value,
-            GetLoop = screen => screen.LoopGenericWeb,
-            SetLoop = (screen, value) => screen.LoopGenericWeb = value,
-            GetPlaybackRate = screen => screen.GenericWebPlaybackRate,
-            SetPlaybackRate = (screen, value) => screen.GenericWebPlaybackRate = value,
-        };
-    }
-
     private sealed class BrowserSourceUiState
     {
         public string UrlDraft { get; set; } = string.Empty;
         public string UrlDraftSource { get; set; } = string.Empty;
         public long SourceCopiedAtTick { get; set; }
         public string? ConfirmGenericWebUrl { get; set; }
-    }
-
-    private sealed class BrowserSourceUiDescriptor
-    {
-        public required BrowserSourceProviderKind ProviderKind { get; init; }
-        public required BrowserSourceDescriptor SourceDescriptor { get; init; }
-        public required string LoopLabel { get; init; }
-        public required bool RequireDurationForSeek { get; init; }
-        public required Func<BrowserScreenProfile, string> GetUrl { get; init; }
-        public required Action<BrowserScreenProfile, string> SetUrl { get; init; }
-        public required Func<BrowserScreenProfile, int> GetBrowserWidth { get; init; }
-        public required Func<BrowserScreenProfile, int> GetBrowserHeight { get; init; }
-        public required Action<BrowserScreenProfile, int, int> SetBrowserResolution { get; init; }
-        public required Func<BrowserScreenProfile, float> GetCaptureFps { get; init; }
-        public required Action<BrowserScreenProfile, float> SetCaptureFps { get; init; }
-        public required Func<BrowserScreenProfile, bool> GetCaptureFpsManual { get; init; }
-        public required Action<BrowserScreenProfile, bool> SetCaptureFpsManual { get; init; }
-        public required Func<BrowserScreenProfile, bool> GetAutoplay { get; init; }
-        public required Action<BrowserScreenProfile, bool> SetAutoplay { get; init; }
-        public Func<BrowserScreenProfile, bool> GetLoop { get; init; } = _ => false;
-        public Action<BrowserScreenProfile, bool> SetLoop { get; init; } = (_, _) => { };
-        public Func<BrowserScreenProfile, bool> GetPlaylistAutoplayNext { get; init; } = _ => true;
-        public Action<BrowserScreenProfile, bool> SetPlaylistAutoplayNext { get; init; } = (_, _) => { };
-        public Func<IBrowserSourceReference, bool> ShowPlaylistAutoplayNext { get; init; } = _ => false;
-        public Func<BrowserScreenProfile, float> GetPlaybackRate { get; init; } = _ => 1.0f;
-        public Action<BrowserScreenProfile, float> SetPlaybackRate { get; init; } = (_, _) => { };
     }
 }

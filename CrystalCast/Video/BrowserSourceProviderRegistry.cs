@@ -67,7 +67,7 @@ internal static class BrowserSourceProviderRegistry
         return string.Join('|',
             ScreenSourceKind.Browser,
             screen.ProviderKind,
-            provider.GetUrl(screen),
+            provider.Settings.GetUrl(screen),
             dimensions.Width,
             dimensions.Height,
             enginePreference,
@@ -82,7 +82,7 @@ internal static class BrowserSourceProviderRegistry
             runtime = runtime with { Loop = false };
 
         return new BrowserScreenRuntimeSnapshot(
-            provider.GetUrl(screen),
+            provider.Settings.GetUrl(screen),
             provider.GetDimensions(screen),
             runtime,
             provider.GetCaptureSettings(screen));
@@ -91,29 +91,13 @@ internal static class BrowserSourceProviderRegistry
     /// <summary>Sets the link for <paramref name="provider"/> without changing the screen's other settings.</summary>
     public static void SetUrl(BrowserScreenProfile screen, BrowserSourceProviderKind provider, string url)
     {
-        switch (provider)
-        {
-            case BrowserSourceProviderKind.YouTube:
-                screen.YouTubeUrl = url;
-                break;
-            case BrowserSourceProviderKind.Twitch:
-                screen.TwitchUrl = url;
-                break;
-            case BrowserSourceProviderKind.Dailymotion:
-                screen.DailymotionUrl = url;
-                break;
-            case BrowserSourceProviderKind.Vimeo:
-                screen.VimeoUrl = url;
-                break;
-            case BrowserSourceProviderKind.GenericWeb:
-                screen.GenericWebUrl = url;
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unsupported browser source provider.");
-        }
+        if (!BrowserProviderSettings.IsSupported(provider))
+            throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unsupported browser source provider.");
+
+        BrowserProviderSettings.For(provider).SetUrl(screen, url);
     }
 
-    public static string GetUrl(BrowserScreenProfile screen) => GetProvider(screen.ProviderKind).GetUrl(screen);
+    public static string GetUrl(BrowserScreenProfile screen) => BrowserProviderSettings.For(screen).GetUrl(screen);
 
     public static BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen) => GetSnapshot(screen).Dimensions;
 
@@ -145,12 +129,13 @@ internal static class BrowserSourceProviderRegistry
         var changed = false;
         foreach (var provider in Providers.Values)
         {
-            changed |= NormalizeInt(provider.GetWidth, provider.SetWidth, screen, MinBrowserWidth, MaxBrowserWidth, provider.DefaultDimensions.Width);
-            changed |= NormalizeInt(provider.GetHeight, provider.SetHeight, screen, MinBrowserHeight, MaxBrowserHeight, provider.DefaultDimensions.Height);
-            changed |= NormalizeFloat(provider.GetCaptureFps, provider.SetCaptureFps, screen, MinCaptureFps, MaxCaptureFps);
-            changed |= NormalizeFloat(provider.GetVolume, provider.SetVolume, screen, 0.0f, 1.0f);
-            if (provider.GetPlaybackRate != null && provider.SetPlaybackRate != null)
-                changed |= NormalizeFloat(provider.GetPlaybackRate, provider.SetPlaybackRate, screen, 0.25f, 2.0f);
+            var settings = provider.Settings;
+            changed |= NormalizeInt(settings.GetBrowserWidth, settings.SetBrowserWidth, screen, MinBrowserWidth, MaxBrowserWidth, provider.DefaultDimensions.Width);
+            changed |= NormalizeInt(settings.GetBrowserHeight, settings.SetBrowserHeight, screen, MinBrowserHeight, MaxBrowserHeight, provider.DefaultDimensions.Height);
+            changed |= NormalizeFloat(settings.GetCaptureFps, settings.SetCaptureFps, screen, MinCaptureFps, MaxCaptureFps);
+            changed |= NormalizeFloat(settings.GetVolume, settings.SetVolume, screen, 0.0f, 1.0f);
+            if (settings.HasPlaybackRate)
+                changed |= NormalizeFloat(settings.GetPlaybackRate, settings.SetPlaybackRate, screen, 0.25f, 2.0f);
         }
 
         return changed;
@@ -205,118 +190,79 @@ internal static class BrowserSourceProviderRegistry
                 "YouTube",
                 new BrowserProviderCapabilities(true, true, true, true),
                 new BrowserSourceDimensions(1280, 720),
-                screen => screen.YouTubeUrl,
-                screen => new(screen.YouTubeBrowserWidth, screen.YouTubeBrowserHeight),
-                screen => new(screen.YouTubeAudioEnabled, screen.YouTubeVolume, screen.YouTubePlaybackRate, screen.LoopYouTube, screen.YouTubePlaylistAutoplayNext),
-                screen => new(screen.YouTubeCaptureFpsManual, screen.YouTubeCaptureFps),
-                (screen, engine) => new(
-                    BrowserSourceProviderKind.YouTube, BrowserSourceDescriptors.YouTube, screen.YouTubeUrl,
-                    screen.YouTubeBrowserWidth, screen.YouTubeBrowserHeight, screen.YouTubeCaptureFps, engine,
-                    screen.YouTubeAutoplay, screen.LoopYouTube, screen.YouTubePlaylistAutoplayNext,
-                    screen.YouTubeAudioEnabled, screen.YouTubeVolume, screen.YouTubePlaybackRate),
-                screen => screen.YouTubeBrowserWidth, (screen, value) => screen.YouTubeBrowserWidth = value,
-                screen => screen.YouTubeBrowserHeight, (screen, value) => screen.YouTubeBrowserHeight = value,
-                screen => screen.YouTubeCaptureFps, (screen, value) => screen.YouTubeCaptureFps = value,
-                screen => screen.YouTubeVolume, (screen, value) => screen.YouTubeVolume = value,
-                screen => screen.YouTubePlaybackRate, (screen, value) => screen.YouTubePlaybackRate = value),
+                BrowserSourceDescriptors.YouTube),
             new(
                 BrowserSourceProviderKind.Twitch,
                 "Twitch",
                 new BrowserProviderCapabilities(false, false, false, true),
                 new BrowserSourceDimensions(1920, 1080),
-                screen => screen.TwitchUrl,
-                screen => new(screen.TwitchBrowserWidth, screen.TwitchBrowserHeight),
-                screen => new(screen.TwitchAudioEnabled, screen.TwitchVolume, 1.0f, false, true),
-                screen => new(screen.TwitchCaptureFpsManual, screen.TwitchCaptureFps),
-                (screen, engine) => new(
-                    BrowserSourceProviderKind.Twitch, BrowserSourceDescriptors.Twitch, screen.TwitchUrl,
-                    screen.TwitchBrowserWidth, screen.TwitchBrowserHeight, screen.TwitchCaptureFps, engine,
-                    screen.TwitchAutoplay, false, false, screen.TwitchAudioEnabled, screen.TwitchVolume, 1.0f),
-                screen => screen.TwitchBrowserWidth, (screen, value) => screen.TwitchBrowserWidth = value,
-                screen => screen.TwitchBrowserHeight, (screen, value) => screen.TwitchBrowserHeight = value,
-                screen => screen.TwitchCaptureFps, (screen, value) => screen.TwitchCaptureFps = value,
-                screen => screen.TwitchVolume, (screen, value) => screen.TwitchVolume = value,
-                null, null),
+                BrowserSourceDescriptors.Twitch,
+                PlaylistAutoplayNextInRequest: false),
             new(
                 BrowserSourceProviderKind.Dailymotion,
                 "Dailymotion",
                 new BrowserProviderCapabilities(false, true, false, true),
                 new BrowserSourceDimensions(1280, 720),
-                screen => screen.DailymotionUrl,
-                screen => new(screen.DailymotionBrowserWidth, screen.DailymotionBrowserHeight),
-                screen => new(screen.DailymotionAudioEnabled, screen.DailymotionVolume, 1.0f, screen.LoopDailymotion, true),
-                screen => new(screen.DailymotionCaptureFpsManual, screen.DailymotionCaptureFps),
-                (screen, engine) => new(
-                    BrowserSourceProviderKind.Dailymotion, BrowserSourceDescriptors.Dailymotion, screen.DailymotionUrl,
-                    screen.DailymotionBrowserWidth, screen.DailymotionBrowserHeight, screen.DailymotionCaptureFps, engine,
-                    screen.DailymotionAutoplay, screen.LoopDailymotion, true,
-                    screen.DailymotionAudioEnabled, screen.DailymotionVolume, 1.0f),
-                screen => screen.DailymotionBrowserWidth, (screen, value) => screen.DailymotionBrowserWidth = value,
-                screen => screen.DailymotionBrowserHeight, (screen, value) => screen.DailymotionBrowserHeight = value,
-                screen => screen.DailymotionCaptureFps, (screen, value) => screen.DailymotionCaptureFps = value,
-                screen => screen.DailymotionVolume, (screen, value) => screen.DailymotionVolume = value,
-                null, null),
+                BrowserSourceDescriptors.Dailymotion),
             new(
                 BrowserSourceProviderKind.Vimeo,
                 "Vimeo",
                 new BrowserProviderCapabilities(true, true, false, true),
                 new BrowserSourceDimensions(1280, 720),
-                screen => screen.VimeoUrl,
-                screen => new(screen.VimeoBrowserWidth, screen.VimeoBrowserHeight),
-                screen => new(screen.VimeoAudioEnabled, screen.VimeoVolume, screen.VimeoPlaybackRate, screen.LoopVimeo, true),
-                screen => new(screen.VimeoCaptureFpsManual, screen.VimeoCaptureFps),
-                (screen, engine) => new(
-                    BrowserSourceProviderKind.Vimeo, BrowserSourceDescriptors.Vimeo, screen.VimeoUrl,
-                    screen.VimeoBrowserWidth, screen.VimeoBrowserHeight, screen.VimeoCaptureFps, engine,
-                    screen.VimeoAutoplay, screen.LoopVimeo, true,
-                    screen.VimeoAudioEnabled, screen.VimeoVolume, screen.VimeoPlaybackRate),
-                screen => screen.VimeoBrowserWidth, (screen, value) => screen.VimeoBrowserWidth = value,
-                screen => screen.VimeoBrowserHeight, (screen, value) => screen.VimeoBrowserHeight = value,
-                screen => screen.VimeoCaptureFps, (screen, value) => screen.VimeoCaptureFps = value,
-                screen => screen.VimeoVolume, (screen, value) => screen.VimeoVolume = value,
-                screen => screen.VimeoPlaybackRate, (screen, value) => screen.VimeoPlaybackRate = value),
+                BrowserSourceDescriptors.Vimeo),
             new(
                 BrowserSourceProviderKind.GenericWeb,
                 "Generic Web",
                 new BrowserProviderCapabilities(true, true, false, true),
                 new BrowserSourceDimensions(1280, 720),
-                screen => screen.GenericWebUrl,
-                screen => new(screen.GenericWebBrowserWidth, screen.GenericWebBrowserHeight),
-                screen => new(screen.GenericWebAudioEnabled, screen.GenericWebVolume, screen.GenericWebPlaybackRate, screen.LoopGenericWeb, true),
-                screen => new(screen.GenericWebCaptureFpsManual, screen.GenericWebCaptureFps),
-                (screen, engine) => new(
-                    BrowserSourceProviderKind.GenericWeb, null, screen.GenericWebUrl,
-                    screen.GenericWebBrowserWidth, screen.GenericWebBrowserHeight, screen.GenericWebCaptureFps, engine,
-                    screen.GenericWebAutoplay, screen.LoopGenericWeb, true,
-                    screen.GenericWebAudioEnabled, screen.GenericWebVolume, screen.GenericWebPlaybackRate),
-                screen => screen.GenericWebBrowserWidth, (screen, value) => screen.GenericWebBrowserWidth = value,
-                screen => screen.GenericWebBrowserHeight, (screen, value) => screen.GenericWebBrowserHeight = value,
-                screen => screen.GenericWebCaptureFps, (screen, value) => screen.GenericWebCaptureFps = value,
-                screen => screen.GenericWebVolume, (screen, value) => screen.GenericWebVolume = value,
-                screen => screen.GenericWebPlaybackRate, (screen, value) => screen.GenericWebPlaybackRate = value),
+                RequestDescriptor: null),
         ];
     }
 
+    /// <summary>
+    /// What the registry knows about a provider beyond its per-screen settings, which
+    /// <see cref="BrowserProviderSettings"/> reads.
+    /// </summary>
+    /// <param name="RequestDescriptor">The player page descriptor; null for Generic Web, which loads the page itself.</param>
+    /// <param name="PlaylistAutoplayNextInRequest">False when a new frame source always starts with the setting off.</param>
     private sealed record BrowserSourceProviderDefinition(
         BrowserSourceProviderKind Kind,
         string DisplayName,
         BrowserProviderCapabilities Capabilities,
         BrowserSourceDimensions DefaultDimensions,
-        Func<BrowserScreenProfile, string> GetUrl,
-        Func<BrowserScreenProfile, BrowserSourceDimensions> GetDimensions,
-        Func<BrowserScreenProfile, BrowserSourceRuntimeSettings> GetRuntimeSettings,
-        Func<BrowserScreenProfile, BrowserCaptureSettings> GetCaptureSettings,
-        Func<BrowserScreenProfile, BrowserMediaEngine, BrowserFrameSourceRequest> CreateRequest,
-        Func<BrowserScreenProfile, int> GetWidth,
-        Action<BrowserScreenProfile, int> SetWidth,
-        Func<BrowserScreenProfile, int> GetHeight,
-        Action<BrowserScreenProfile, int> SetHeight,
-        Func<BrowserScreenProfile, float> GetCaptureFps,
-        Action<BrowserScreenProfile, float> SetCaptureFps,
-        Func<BrowserScreenProfile, float> GetVolume,
-        Action<BrowserScreenProfile, float> SetVolume,
-        Func<BrowserScreenProfile, float>? GetPlaybackRate,
-        Action<BrowserScreenProfile, float>? SetPlaybackRate);
+        BrowserSourceDescriptor? RequestDescriptor,
+        bool PlaylistAutoplayNextInRequest = true)
+    {
+        public BrowserProviderSettings Settings { get; } = BrowserProviderSettings.For(Kind);
+
+        public BrowserSourceDimensions GetDimensions(BrowserScreenProfile screen) =>
+            new(Settings.GetBrowserWidth(screen), Settings.GetBrowserHeight(screen));
+
+        public BrowserSourceRuntimeSettings GetRuntimeSettings(BrowserScreenProfile screen) => new(
+            Settings.GetAudioEnabled(screen),
+            Settings.GetVolume(screen),
+            Settings.GetPlaybackRate(screen),
+            Settings.GetLoop(screen),
+            Settings.GetPlaylistAutoplayNext(screen));
+
+        public BrowserCaptureSettings GetCaptureSettings(BrowserScreenProfile screen) =>
+            new(Settings.GetCaptureFpsManual(screen), Settings.GetCaptureFps(screen));
+
+        public BrowserFrameSourceRequest CreateRequest(BrowserScreenProfile screen, BrowserMediaEngine engine) => new(
+            Kind,
+            RequestDescriptor,
+            Settings.GetUrl(screen),
+            Settings.GetBrowserWidth(screen),
+            Settings.GetBrowserHeight(screen),
+            Settings.GetCaptureFps(screen),
+            engine,
+            Settings.GetAutoplay(screen),
+            Settings.GetLoop(screen),
+            PlaylistAutoplayNextInRequest && Settings.GetPlaylistAutoplayNext(screen),
+            Settings.GetAudioEnabled(screen),
+            Settings.GetVolume(screen),
+            Settings.GetPlaybackRate(screen));
+    }
 }
 
 internal readonly record struct BrowserProviderOption(

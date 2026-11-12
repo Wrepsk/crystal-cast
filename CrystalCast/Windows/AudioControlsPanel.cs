@@ -1,5 +1,6 @@
 using System.Numerics;
 using CrystalCast.Rendering;
+using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using static CrystalCast.Windows.CrystalCastUiTheme;
@@ -14,21 +15,21 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
 
     public bool Draw(BrowserScreenProfile activeScreen)
     {
-        var audio = GetAudioSettings(activeScreen);
+        var audio = BrowserProviderSettings.For(activeScreen);
         var changed = DrawPlaybackVolume(activeScreen, audio);
         Ui.VerticalSpace(24.0f);
         changed |= DrawSpatialAudio(activeScreen);
         return changed;
     }
 
-    private static bool DrawPlaybackVolume(BrowserScreenProfile screen, AudioSettingsAccessor audio)
+    private static bool DrawPlaybackVolume(BrowserScreenProfile screen, BrowserProviderSettings audio)
     {
         var changed = false;
-        var audioEnabled = audio.GetEnabled(screen);
+        var audioEnabled = audio.GetAudioEnabled(screen);
         Ui.RowLabel("Browser audio", LabelWidth, LabelGap);
         if (Ui.Switch("##CrystalCastBrowserAudio", ref audioEnabled))
         {
-            audio.SetEnabled(screen, audioEnabled);
+            audio.SetAudioEnabled(screen, audioEnabled);
             changed = true;
         }
 
@@ -40,7 +41,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
                 0.0f,
                 1.0f,
                 FormatPercent,
-                disabled: !audio.GetEnabled(screen)))
+                disabled: !audio.GetAudioEnabled(screen)))
         {
             audio.SetVolume(screen, Math.Clamp(volume, 0.0f, 1.0f));
             changed = true;
@@ -64,15 +65,15 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
     {
         sliderActive = false;
         var changed = false;
-        var audio = GetAudioSettings(screen);
-        var enabled = audio.GetEnabled(screen);
+        var audio = BrowserProviderSettings.For(screen);
+        var enabled = audio.GetAudioEnabled(screen);
         if (Ui.IconButton(
                 $"##Mute{idSuffix}",
                 enabled ? FontAwesomeIcon.VolumeUp : FontAwesomeIcon.VolumeMute,
                 enabled ? "Mute browser audio" : "Turn browser audio on",
                 disabled: disabled))
         {
-            audio.SetEnabled(screen, !enabled);
+            audio.SetAudioEnabled(screen, !enabled);
             changed = true;
         }
 
@@ -89,7 +90,7 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         {
             // Keep the cap clear of the clip edge while revealing.
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + S(2.0f));
-            moved = Ui.Slider($"##Volume{idSuffix}", ref volume, 0.0f, 1.0f, FormatPercent, disabled: disabled || !audio.GetEnabled(screen), readoutWidth: 0.0f, trackWidth: sliderWidth - S(4.0f));
+            moved = Ui.Slider($"##Volume{idSuffix}", ref volume, 0.0f, 1.0f, FormatPercent, disabled: disabled || !audio.GetAudioEnabled(screen), readoutWidth: 0.0f, trackWidth: sliderWidth - S(4.0f));
             sliderActive = ImGui.IsItemActive();
         }
 
@@ -149,28 +150,6 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
         Ui.RowText(text, TextSecondary, f => f.Mono);
     }
 
-    internal static AudioSettingsAccessor GetAudioSettings(BrowserScreenProfile screen)
-    {
-        return screen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.Twitch => new AudioSettingsAccessor(
-                s => s.TwitchAudioEnabled, (s, v) => s.TwitchAudioEnabled = v,
-                s => s.TwitchVolume, (s, v) => s.TwitchVolume = v),
-            BrowserSourceProviderKind.Dailymotion => new AudioSettingsAccessor(
-                s => s.DailymotionAudioEnabled, (s, v) => s.DailymotionAudioEnabled = v,
-                s => s.DailymotionVolume, (s, v) => s.DailymotionVolume = v),
-            BrowserSourceProviderKind.Vimeo => new AudioSettingsAccessor(
-                s => s.VimeoAudioEnabled, (s, v) => s.VimeoAudioEnabled = v,
-                s => s.VimeoVolume, (s, v) => s.VimeoVolume = v),
-            BrowserSourceProviderKind.GenericWeb => new AudioSettingsAccessor(
-                s => s.GenericWebAudioEnabled, (s, v) => s.GenericWebAudioEnabled = v,
-                s => s.GenericWebVolume, (s, v) => s.GenericWebVolume = v),
-            _ => new AudioSettingsAccessor(
-                s => s.YouTubeAudioEnabled, (s, v) => s.YouTubeAudioEnabled = v,
-                s => s.YouTubeVolume, (s, v) => s.YouTubeVolume = v),
-        };
-    }
-
     internal static string FormatPercent(float value)
     {
         if (!float.IsFinite(value) || value <= 0.0f)
@@ -181,10 +160,4 @@ internal sealed class AudioControlsPanel(WorldScreenManager renderer)
             ? "<1%"
             : $"{percent:0}%";
     }
-
-    internal sealed record AudioSettingsAccessor(
-        Func<BrowserScreenProfile, bool> GetEnabled,
-        Action<BrowserScreenProfile, bool> SetEnabled,
-        Func<BrowserScreenProfile, float> GetVolume,
-        Action<BrowserScreenProfile, float> SetVolume);
 }

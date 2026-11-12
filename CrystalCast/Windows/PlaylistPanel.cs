@@ -390,17 +390,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         return string.Join(" · ", parts);
     }
 
-    private static bool IsVideoLoopOn(BrowserScreenProfile screen)
-    {
-        return screen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.YouTube => screen.LoopYouTube,
-            BrowserSourceProviderKind.Dailymotion => screen.LoopDailymotion,
-            BrowserSourceProviderKind.Vimeo => screen.LoopVimeo,
-            BrowserSourceProviderKind.GenericWeb => screen.LoopGenericWeb,
-            _ => false,
-        };
-    }
+    private static bool IsVideoLoopOn(BrowserScreenProfile screen) => BrowserProviderSettings.For(screen).GetLoop(screen);
 
     private PlaylistUiState GetUiState(string screenId)
     {

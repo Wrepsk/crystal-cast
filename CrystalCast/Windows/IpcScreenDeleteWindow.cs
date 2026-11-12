@@ -1,4 +1,5 @@
 using System.Numerics;
+using CrystalCast.Video;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using static CrystalCast.Windows.CrystalCastUiTheme;
@@ -120,14 +121,7 @@ internal sealed class IpcScreenDeleteWindow : Window, IDisposable
 
     private static string DescribeSource(BrowserScreenProfile screen)
     {
-        var url = screen.ProviderKind switch
-        {
-            BrowserSourceProviderKind.Twitch => screen.TwitchUrl,
-            BrowserSourceProviderKind.Dailymotion => screen.DailymotionUrl,
-            BrowserSourceProviderKind.Vimeo => screen.VimeoUrl,
-            BrowserSourceProviderKind.GenericWeb => screen.GenericWebUrl,
-            _ => screen.YouTubeUrl,
-        };
+        var url = BrowserProviderSettings.For(screen).GetUrl(screen);
         return $"{screen.ProviderKind}{(string.IsNullOrWhiteSpace(url) ? string.Empty : $" · {url}")}";
     }
 

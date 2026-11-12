@@ -126,55 +126,16 @@ Playlist entries show the video's title, channel, length and thumbnail. For YouT
 
 ## For plugin developers (IPC)
 
-CrystalCast exposes state-only IPC for media-screen synchronization:
+CrystalCast provides a Dalamud IPC interface (API version 11) that lets other plugins read its screens, create and control their own, manage playlists, and follow changes. It exchanges screen pose, source identity, playback state and visual settings only; pixels and audio are never shared. **Settings > IPC** can turn the whole interface off; screens created through IPC are removed while it is off.
 
-- `CrystalCast.ApiVersion`
-- `CrystalCast.GetCapabilities`
+- `CrystalCast.ApiVersion`, `CrystalCast.GetCapabilities`
 - `CrystalCast.Ready` / `CrystalCast.Disposed` (events)
-- `CrystalCast.Screen.GetSnapshot`
-- `CrystalCast.Screen.ApplyState`
-- `CrystalCast.Screen.ApplyStateDetailed`
-- `CrystalCast.Screen.Remove`
-- `CrystalCast.Screen.LocalStateChanged`
-- `CrystalCast.Screen.Create`
-- `CrystalCast.Screen.Update`
-- `CrystalCast.Screen.UpdateSource`
-- `CrystalCast.Screen.SetSourceLock`
-- `CrystalCast.Screen.GetSourceState`
-- `CrystalCast.Screen.Changed`
+- `CrystalCast.Screen.GetSnapshot`, `CrystalCast.Screen.ApplyState`
+- `CrystalCast.Screen.Create` / `Update` / `UpdateSource` / `SetSourceLock` / `GetSourceState` / `Remove`
+- `CrystalCast.Screen.Changed` (event)
 - `CrystalCast.Screen.Playlist.Get` / `Add` / `Remove` / `Clear` / `Skip` / `Move` / `SetOptions`
 
-The IPC payload intentionally exchanges screen pose, source identity, playback state, sequence, host timestamp, and visual flags only. Received states are retained for snapshot consumers; CrystalCast does not automatically render remote states. It does not sync raw pixels or audio. **Settings > IPC** can turn the whole interface off; screens created through IPC are removed while it is off.
-
-API version 10 runs every call on the game's main thread, so other plugins may call from any thread: calls from other threads wait up to 5 seconds for it and otherwise return an error. Every JSON argument is limited to 64 KiB and screen IDs to 256 characters.
-
-`CrystalCast.Ready` is sent when the IPC becomes available (plugin load, or IPC switched on in settings) and `CrystalCast.Disposed` before it goes away, so integrations can connect without polling `ApiVersion`. `CrystalCast.GetCapabilities` returns JSON with the API and plugin versions, supported providers, optional `features` (`createIfMissing`, `removalReason`), screen and payload limits, and the browser situation: Wine, configured backend, capture mode, and whether WebView2 is available (with its version or the reason it is not).
-
-The remote-state store validates browser-only remote states, stores at most 256 remote screens keyed by owner session and screen ID, and expires entries five minutes after their last accepted receipt. `ApplyState` remains a compatibility boolean API. `ApplyStateDetailed` accepts the same JSON state and returns a JSON result distinguishing `Applied`, `IgnoredDuplicate`, `IgnoredStale`, `IgnoredSelf`, `RejectedInvalid`, and `RejectedCapacity`.
-
-`CrystalCast.Screen.Create`, `CrystalCast.Screen.Update`, `CrystalCast.Screen.UpdateSource`, and `CrystalCast.Screen.SetSourceLock` accept camel-case JSON strings and return a JSON result with `success`, `error`, `screenId`, and a screen summary when applicable. IPC-created browser screens are marked separately from user-created screens: the normal UI creation limit remains 8 screens, IPC can create up to 56 screens, and the combined render cap is 64.
-
-`Create`/`Update` support `name`, `ownerId`, `enabled`, `activate`, `sourceControlsLocked`, `sourceControlsOwnerId`, `placement`, `provider`, `youtube`, `twitch`, `dailymotion`, `vimeo`, and `genericWeb` settings, plus `playlistAllowUserAdds` on screens created through IPC (off by default; ignored on the user's own screens). On a screen created through IPC the Playlist tab is read-only for the user, and `playlistAllowUserAdds` unblocks only adding videos. `UpdateSource` supports `screenId`, `ownerId`, `activate`, `provider`, `youtube`, `twitch`, `dailymotion`, `vimeo`, and `genericWeb` for source-only updates. Source locks protect owner-controlled source and placement fields such as URL, play/pause, seek/progress, loop, autoplay, playback rate, world position, rotation, size, and visual placement from the local UI only; IPC updates remain authoritative. Audio, spatial-audio, browser resolution, and capture FPS remain locally adjustable. Screens created through IPC start with spatial audio on.
-
-`Screen.Update` with `createIfMissing: true` creates the screen with that `screenId` when it does not exist, so a sync plugin can send the same call every time instead of falling back to `Create` itself.
-
-When the user deletes a screen created through IPC, a window asks whether to keep it hidden this session (on by default). With **Delete and hide**, `Create` and `Update` with `createIfMissing` for that `screenId` are refused with `hiddenByUser: true` until the game restarts or the user picks **Settings > IPC > Hidden screens > Show them again**; the screen then comes back on the plugin's next call. With the switch off it comes back on the next call right away. A plugin removing its own screen with `Screen.Remove` never hides it.
-
-A Generic Web address set through IPC needs the user's approval before it loads, on any screen, not only on IPC-created ones. It stays that way until the user types an address for that screen.
-
-`ownerId` identifies the external integration or sync owner associated with a screen. It is coordination metadata and is not a security boundary. `sourceControlsOwnerId` is displayed in the UI when source controls are locked.
-
-`CrystalCast.Screen.GetSourceState` accepts a screen ID and returns the current provider and source-specific state. For browser screens this includes the configured URL, canonical URL/source identity, title, playback state, position, duration, rate, and host timestamp when available.
-
-`CrystalCast.Screen.Playlist.Get` accepts a screen ID and returns the playlist: `shuffle`, `loop`, `allowIpcAdds` (always false on screens created through IPC), `allowUserAdds` (whether the user may add videos in the UI), `currentEntryId`, the limits, and `entries` (each with `entryId`, `provider`, `url`, `title`, `author`, `thumbnailUrl`, `durationSeconds`, `addedByIpc`, `addedBy`, `played`, and `current`). `title` is the one given to `Add`, else the site's title, else what the link points at; details arrive shortly after adding and are announced with a `Playlist` change. The other playlist calls accept a JSON request with `screenId`, `ownerId`, and the call's fields (`url` and an optional `title` for `Add`; `entryId` for `Remove`; `entryId` and `index` for `Move`; `shuffle` and/or `loop` for `SetOptions`), and return `success`, `error`, `screenId`, `entryId`, and the playlist. Unlike source locks, these calls are checked:
-
-- `Add` needs the screen's **Let other plugins add videos** switch, which only the user can change and is off by default, or the caller's `ownerId` must match the screen's source-lock owner. Screens created through IPC have no such switch: the `ownerId` that created the screen and the source-lock owner can add to them. Only full links are accepted and a playlist holds at most 100 videos. Web pages added this way still need the user's approval before they open.
-- `Remove` works on entries added under the same `ownerId`; the screen's owner can remove any entry.
-- `Skip`, `Move`, `Clear`, and `SetOptions` are for the screen's owner: the source-lock owner, or on a screen created through IPC, the `ownerId` that created it.
-
-`ownerId` is still reported by the calling plugin, so these checks keep cooperating integrations apart; the user's switch is what controls access. On the user's own screens the user can always remove videos, clear the playlist, and turn the switch off, even when the screen is locked.
-
-`CrystalCast.Screen.Changed` broadcasts a JSON event when CrystalCast observes placement, visual, source, playback, source-lock, IPC-created-screen, or screen-availability changes. Changes made inside the player itself are included as well: pausing in browser controls, a video ending, the next playlist item, a title loading, and seeks (a position more than 2 seconds from where playback should be). These are checked four times a second; normal playback progress does not send events. The event includes `changes` and the current screen state envelope. Playlist edits, the next video starting, and option changes are reported with `Playlist` in `changes`. When a previously visible local screen is disabled, deleted, or made unavailable by disabling CrystalCast, `changes` contains `Unavailable` and `state` is `null` so sync consumers can refresh snapshots and remove stale remote screens. `removalReason` says why: `RemovedByIpc` (`Screen.Remove`), `RemovedByUser` (deleted; creating it again brings it back), `HiddenByUser` (deleted and kept hidden; stop sending it), or `None` for anything else.
+The full reference, with every channel's parameters, return values, error cases and C# examples, is in [docs/ipc-api.md](docs/ipc-api.md).
 
 ## Development
 
@@ -209,4 +170,4 @@ Pushing a numeric version tag (for example `0.9.1`) runs a Release build, tests,
 
 Configurations created before browser-only version 2 are migrated automatically. Existing browser screens are retained. If the active legacy source was local video, its screens are disabled during migration so browser media does not begin playing unexpectedly; the legacy placement is retained on the first browser screen, but local file and FFmpeg settings are discarded.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release instructions, [CHANGELOG.md](CHANGELOG.md) for notable changes, [SECURITY.md](SECURITY.md) for vulnerability reporting and security boundaries, [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency provenance, and [dependency audit notes](docs/DEPENDENCY_AUDIT.md).
+See [docs/architecture.md](docs/architecture.md) for how the code is organized, [CONTRIBUTING.md](CONTRIBUTING.md) for development and release instructions, [CHANGELOG.md](CHANGELOG.md) for notable changes, [SECURITY.md](SECURITY.md) for vulnerability reporting and security boundaries, [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency provenance, and [dependency audit notes](docs/DEPENDENCY_AUDIT.md).

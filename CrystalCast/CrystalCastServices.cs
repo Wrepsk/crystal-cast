@@ -1,8 +1,8 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using CrystalCast.Video;
+using CrystalCast.Browser;
+using CrystalCast.Ipc;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
 
 namespace CrystalCast;
 

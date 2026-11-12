@@ -1,13 +1,16 @@
 using System.Numerics;
-using CrystalCast.Video;
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-internal sealed class WineWebView2SetupWindow : Window, IDisposable
+internal sealed class WineWebView2SetupWindow : CrystalCastWindow, IDisposable
 {
     private readonly Plugin plugin;
     private string runtimeStatus = string.Empty;
@@ -49,16 +52,6 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 
     public void Dispose()
     {
-    }
-
-    public override void PreDraw()
-    {
-        PushWindowStyle(S(28.0f, 24.0f));
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
     }
 
     public override void Draw()

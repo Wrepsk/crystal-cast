@@ -1,6 +1,8 @@
 using Dalamud.Configuration;
 using CrystalCast.Playlist;
-using CrystalCast.Video;
+using CrystalCast.Rendering;
+using CrystalCast.Sources;
+using CrystalCast.Sources.Providers;
 using System;
 
 namespace CrystalCast;
@@ -100,6 +102,15 @@ public class Configuration : IPluginConfiguration
         Normalize();
         return BrowserScreens.FirstOrDefault(screen => screen.ScreenId == ActiveBrowserScreenId)
             ?? BrowserScreens.FirstOrDefault();
+    }
+
+    /// <summary>The screen with this ID, or null. Does not normalize the configuration first.</summary>
+    public BrowserScreenProfile? FindBrowserScreen(string? screenId)
+    {
+        if (string.IsNullOrWhiteSpace(screenId))
+            return null;
+
+        return BrowserScreens.FirstOrDefault(screen => string.Equals(screen.ScreenId, screenId, StringComparison.Ordinal));
     }
 
     public BrowserScreenProfile CreateDefaultBrowserScreen(string name, bool createdByIpc = false)

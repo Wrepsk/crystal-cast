@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using CrystalCast.Browser.WebKitGtk;
 using CrystalCast.Video;
 
 // Usage under Wine: WebKitGtkHostSmoke.exe <native dir> [seconds] [width] [height]

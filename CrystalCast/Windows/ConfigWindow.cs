@@ -1,16 +1,19 @@
 using System.Numerics;
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Ipc;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-public sealed class ConfigWindow : Window, IDisposable
+public sealed class ConfigWindow : CrystalCastWindow, IDisposable
 {
     private const float LabelWidth = SettingsLabelWidth;
     private const float LabelGap = SettingsLabelGap;
@@ -82,15 +85,8 @@ public sealed class ConfigWindow : Window, IDisposable
     {
     }
 
-    public override void PreDraw()
-    {
-        PushWindowStyle(Vector2.Zero);
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
-    }
+    /// <summary>This window draws its own title bar and paddings.</summary>
+    protected override Vector2 WindowPadding => Vector2.Zero;
 
     public override void Draw()
     {

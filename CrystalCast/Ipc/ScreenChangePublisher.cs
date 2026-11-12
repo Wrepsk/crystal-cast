@@ -1,0 +1,313 @@
+using Dalamud.Plugin.Ipc;
+
+namespace CrystalCast.Ipc;
+
+internal sealed class ScreenChangePublisher
+{
+    private readonly Configuration configuration;
+    private readonly Action<string> sendMessage;
+    private readonly string ownerSessionId;
+    private readonly Dictionary<string, ScreenChangeFingerprint> localScreenFingerprints = new(StringComparer.Ordinal);
+    private readonly HashSet<string> knownLocalScreenIds = new(StringComparer.Ordinal);
+
+    public ScreenChangePublisher(
+        Configuration configuration,
+        ICallGateProvider<string, object> screenChangedProvider,
+        string ownerSessionId)
+    {
+        this.configuration = configuration;
+        sendMessage = screenChangedProvider.SendMessage;
+        this.ownerSessionId = ownerSessionId;
+    }
+
+    internal ScreenChangePublisher(
+        Configuration configuration,
+        string ownerSessionId,
+        Action<string> sendMessage)
+    {
+        this.configuration = configuration;
+        this.ownerSessionId = ownerSessionId;
+        this.sendMessage = sendMessage;
+    }
+
+    public void Clear()
+    {
+        localScreenFingerprints.Clear();
+        knownLocalScreenIds.Clear();
+    }
+
+    public void SendUnavailableAndForget(
+        string screenId,
+        BrowserScreenProfile? screen = null,
+        ScreenIpcRemovalReason reason = ScreenIpcRemovalReason.None)
+    {
+        SendScreenUnavailable(screenId, screen ?? configuration.FindBrowserScreen(screenId), reason);
+        localScreenFingerprints.Remove(screenId);
+        knownLocalScreenIds.Remove(screenId);
+    }
+
+    public bool MaybeSendScreenChanged(
+        ScreenStateEnvelope state,
+        string? forcedScreenId,
+        IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)
+    {
+        var screen = configuration.FindBrowserScreen(state.ScreenId);
+        var next = BuildFingerprint(state, screen);
+        if (!localScreenFingerprints.TryGetValue(state.ScreenId, out var previous))
+        {
+            localScreenFingerprints[state.ScreenId] = next;
+            SendScreenChanged(
+                state,
+                screen,
+                IsForcedScreen(state.ScreenId, forcedScreenId, forcedChanges)
+                    ? forcedChanges!
+                    : GetCreateChangeKinds());
+
+            return true;
+        }
+
+        localScreenFingerprints[state.ScreenId] = next;
+        if (IsForcedScreen(state.ScreenId, forcedScreenId, forcedChanges))
+        {
+            SendScreenChanged(state, screen, forcedChanges!);
+            return true;
+        }
+
+        var changes = GetFingerprintChanges(previous, next);
+        if (changes.Count > 0)
+        {
+            SendScreenChanged(state, screen, changes);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Sends what <see cref="ScreenPlaybackWatcher"/> saw change inside the player. Only screens already
+    /// announced get events; announcing new screens stays with the regular publish.
+    /// </summary>
+    public bool SendObservedChanges(ScreenStateEnvelope state, IReadOnlyCollection<ScreenIpcChangeKind> observedChanges)
+    {
+        if (observedChanges.Count == 0 || !localScreenFingerprints.ContainsKey(state.ScreenId))
+            return false;
+
+        var screen = configuration.FindBrowserScreen(state.ScreenId);
+        localScreenFingerprints[state.ScreenId] = BuildFingerprint(state, screen);
+        SendScreenChanged(state, screen, observedChanges);
+        return true;
+    }
+
+    public void SendUnavailableEventsForMissingLocalScreens(HashSet<string> currentScreenIds)
+    {
+        foreach (var screenId in knownLocalScreenIds.Except(currentScreenIds, StringComparer.Ordinal).ToList())
+        {
+            SendUnavailableAndForget(screenId);
+        }
+    }
+
+    public void RememberKnownLocalScreens(IEnumerable<string> screenIds)
+    {
+        foreach (var screenId in screenIds)
+        {
+            if (!string.IsNullOrWhiteSpace(screenId))
+                knownLocalScreenIds.Add(screenId);
+        }
+    }
+
+    public static ScreenIpcChangeKind[] GetCreateChangeKinds()
+    {
+        return
+        [
+            ScreenIpcChangeKind.Created,
+            ScreenIpcChangeKind.Placement,
+            ScreenIpcChangeKind.Source,
+            ScreenIpcChangeKind.Playback,
+        ];
+    }
+
+    public static ScreenIpcChangeKind[] GetMutationChangeKinds(ScreenIpcMutationRequest request)
+    {
+        var changes = new List<ScreenIpcChangeKind>();
+        if (request.Placement != null)
+            changes.Add(ScreenIpcChangeKind.Placement);
+        if (request.SourceControlsLocked.HasValue || !string.IsNullOrWhiteSpace(request.SourceControlsOwnerId))
+            changes.Add(ScreenIpcChangeKind.SourceLock);
+        if (request.PlaylistAllowUserAdds.HasValue)
+            changes.Add(ScreenIpcChangeKind.Playlist);
+        AddSourceChangeKinds(changes, request.Provider.HasValue, request.Source);
+
+        return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
+    }
+
+    public static ScreenIpcChangeKind[] GetSourceUpdateChangeKinds(ScreenIpcSourceUpdateRequest request)
+    {
+        var changes = new List<ScreenIpcChangeKind>();
+        AddSourceChangeKinds(changes, request.Provider.HasValue, request.Source);
+        return changes.Count == 0 ? [ScreenIpcChangeKind.Source] : changes.Distinct().ToArray();
+    }
+
+    private static void AddSourceChangeKinds(List<ScreenIpcChangeKind> changes, bool providerChanged, ScreenSourcePatchDto? patch)
+    {
+        if (providerChanged)
+            changes.Add(ScreenIpcChangeKind.Source);
+
+        if (patch == null)
+            return;
+
+        if (patch.Url != null
+            || patch.Autoplay.HasValue
+            || patch.Loop.HasValue
+            || patch.BrowserWidth.HasValue
+            || patch.BrowserHeight.HasValue
+            || patch.CaptureFps.HasValue
+            || patch.CaptureFpsManual.HasValue)
+        {
+            changes.Add(ScreenIpcChangeKind.Source);
+        }
+
+        if (patch.PlaybackPaused.HasValue
+            || patch.PositionMs.HasValue
+            || patch.Restart
+            || patch.PlaybackRate.HasValue
+            || patch.PlaylistAutoplayNext.HasValue)
+        {
+            changes.Add(ScreenIpcChangeKind.Playback);
+        }
+    }
+
+    private static bool IsForcedScreen(
+        string screenId,
+        string? forcedScreenId,
+        IReadOnlyCollection<ScreenIpcChangeKind>? forcedChanges)
+    {
+        return forcedChanges is { Count: > 0 }
+            && string.Equals(screenId, IpcJsonService.NormalizeText(forcedScreenId), StringComparison.Ordinal);
+    }
+
+    private void SendScreenChanged(
+        ScreenStateEnvelope state,
+        BrowserScreenProfile? screen,
+        IReadOnlyCollection<ScreenIpcChangeKind> changes)
+    {
+        var distinctChanges = changes.Distinct().ToArray();
+        if (distinctChanges.Length == 0)
+            return;
+
+        Send(state.ScreenId, screen, distinctChanges, ScreenIpcRemovalReason.None, state);
+    }
+
+    private void SendScreenUnavailable(string screenId, BrowserScreenProfile? screen, ScreenIpcRemovalReason reason)
+    {
+        Send(screenId, screen, [ScreenIpcChangeKind.Unavailable], reason, state: null);
+    }
+
+    private void Send(
+        string screenId,
+        BrowserScreenProfile? screen,
+        ScreenIpcChangeKind[] changes,
+        ScreenIpcRemovalReason reason,
+        ScreenStateEnvelope? state)
+    {
+        var evt = new ScreenIpcChangeEvent
+        {
+            ScreenId = screenId,
+            OwnerSessionId = ownerSessionId,
+            CreatedByIpc = screen?.CreatedByIpc ?? false,
+            OwnerId = screen?.IpcOwnerId ?? string.Empty,
+            SourceControlsLocked = screen?.SourceControlsLocked ?? false,
+            SourceControlsOwnerId = screen?.SourceControlsOwnerId ?? string.Empty,
+            Changes = changes,
+            RemovalReason = reason,
+            State = state,
+            TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+        sendMessage(IpcJsonService.Serialize(evt));
+    }
+
+    private static ScreenChangeFingerprint BuildFingerprint(ScreenStateEnvelope state, BrowserScreenProfile? screen)
+    {
+        var sourceParts = new List<object?>
+        {
+            state.Source.Kind,
+            state.Source.Provider,
+            state.Source.Identity,
+            state.Source.Title,
+            state.Source.Url,
+            state.Source.VideoId,
+        };
+        BrowserSourceIpcAdapters.AddFingerprintParts(screen, sourceParts);
+
+        return new ScreenChangeFingerprint(
+            Placement: string.Join('|',
+                state.Position.X,
+                state.Position.Y,
+                state.Position.Z,
+                state.Rotation.X,
+                state.Rotation.Y,
+                state.Rotation.Z,
+                state.Rotation.W,
+                state.SizeMeters.X,
+                state.SizeMeters.Y),
+            Source: string.Join('|', sourceParts),
+            Playback: string.Join('|',
+                state.Playback.State,
+                state.Playback.PositionMs,
+                state.Playback.DurationMs,
+                state.Playback.Rate,
+                state.Playback.Loop,
+                state.Playback.PlaylistAutoplayNext),
+            Visual: string.Join('|',
+                state.Visual.OccludedAlpha,
+                state.Visual.OcclusionTolerance,
+                state.Visual.ScreenCurveAmountMeters,
+                state.Visual.DistanceFadeEnabled,
+                state.Visual.FadeStartMeters,
+                state.Visual.FadeStopMeters),
+            Lock: string.Join('|',
+                screen?.SourceControlsLocked,
+                screen?.SourceControlsOwnerId),
+            Playlist: BuildPlaylistFingerprint(screen));
+    }
+
+    private static string BuildPlaylistFingerprint(BrowserScreenProfile? screen)
+    {
+        if (screen == null)
+            return string.Empty;
+
+        return string.Join('|',
+            screen.PlaylistShuffle,
+            screen.PlaylistLoop,
+            screen.PlaylistAllowIpcAdds,
+            screen.PlaylistAllowUserAdds,
+            screen.PlaylistCurrentEntryId,
+            string.Join(',', screen.Playlist.Select(entry => entry.Played ? entry.EntryId + "*" : entry.EntryId)));
+    }
+
+    private static List<ScreenIpcChangeKind> GetFingerprintChanges(ScreenChangeFingerprint previous, ScreenChangeFingerprint next)
+    {
+        var changes = new List<ScreenIpcChangeKind>();
+        if (!string.Equals(previous.Placement, next.Placement, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Placement);
+        if (!string.Equals(previous.Source, next.Source, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Source);
+        if (!string.Equals(previous.Playback, next.Playback, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Playback);
+        if (!string.Equals(previous.Visual, next.Visual, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Visual);
+        if (!string.Equals(previous.Lock, next.Lock, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.SourceLock);
+        if (!string.Equals(previous.Playlist, next.Playlist, StringComparison.Ordinal))
+            changes.Add(ScreenIpcChangeKind.Playlist);
+
+        return changes;
+    }
+
+    private readonly record struct ScreenChangeFingerprint(
+        string Placement,
+        string Source,
+        string Playback,
+        string Visual,
+        string Lock,
+        string Playlist);
+}

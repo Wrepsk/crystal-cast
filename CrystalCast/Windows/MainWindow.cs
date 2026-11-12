@@ -1,17 +1,18 @@
 using System.Numerics;
+using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
+using CrystalCast.Windows.Panels;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-public sealed class MainWindow : Window, IDisposable
+public sealed class MainWindow : CrystalCastWindow, IDisposable
 {
 #if DEBUG
     private const string DebugIpcOwnerId = "CrystalCast.Debug";
@@ -35,7 +36,7 @@ public sealed class MainWindow : Window, IDisposable
     private readonly AudioControlsPanel audioControlsPanel;
     private readonly PlacementPanel placementPanel;
     private readonly PlaylistPanel playlistPanel;
-    private readonly SourceControlsPanel sourceControlsPanel;
+    private readonly BrowserSourceControlsPanel sourceControlsPanel;
     private readonly Dictionary<string, SourceProgressUiState> progressStates = new(StringComparer.Ordinal);
     private readonly ComReferenceHold previewHold = new();
     private float volumeReveal;
@@ -60,7 +61,7 @@ public sealed class MainWindow : Window, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);
-        sourceControlsPanel = new SourceControlsPanel(renderer);
+        sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
         SizeCondition = ImGuiCond.FirstUseEver;
@@ -81,15 +82,8 @@ public sealed class MainWindow : Window, IDisposable
         previewHold.Hold(0);
     }
 
-    public override void PreDraw()
-    {
-        PushWindowStyle(Vector2.Zero);
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
-    }
+    /// <summary>This window draws its own title bar and paddings.</summary>
+    protected override Vector2 WindowPadding => Vector2.Zero;
 
     public override void Draw()
     {

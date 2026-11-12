@@ -4,6 +4,16 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- IPC API version 11. No released plugin used the earlier versions, so the interface was tidied without a compatibility layer; see [docs/ipc-api.md](docs/ipc-api.md).
+  - `Screen.Create`, `Screen.Update` and `Screen.UpdateSource` take one `source` object instead of a `youTube`, `twitch`, `dailymotion`, `vimeo` or `genericWeb` object. `provider` now alone decides the provider; a provider left out keeps the screen's current one.
+  - `Screen.GetSourceState` answers with one `source` object instead of one per provider.
+  - `Screen.ApplyState` returns the JSON result `Screen.ApplyStateDetailed` used to return; `Screen.ApplyStateDetailed` is gone.
+  - `Screen.Remove` returns a JSON result with `success`, `error` and `screenId` instead of a boolean.
+  - `Screen.LocalStateChanged` is gone; `Screen.Changed` carries the same state.
+  - `Screen.GetSnapshot` returns `localScreens` and `remoteScreens`; the single `local` screen and `remote` are gone.
+
 ## 0.9.1.4 - 2026-11-11
 
 ### Added

@@ -13,15 +13,15 @@ public sealed class ScreenIpcMutationRequest
     /// so a sync plugin can send the same call every time. Refused while the user keeps that screen hidden.
     /// </summary>
     public bool CreateIfMissing { get; set; }
+
+    /// <summary>The provider <see cref="Source"/> is for. Leave out to keep the screen's current provider.</summary>
     public BrowserSourceProviderKind? Provider { get; set; }
     public bool? SourceControlsLocked { get; set; }
     public string SourceControlsOwnerId { get; set; } = string.Empty;
     public ScreenPlacementPatchDto? Placement { get; set; }
-    public YouTubeScreenPatchDto? YouTube { get; set; }
-    public TwitchScreenPatchDto? Twitch { get; set; }
-    public DailymotionScreenPatchDto? Dailymotion { get; set; }
-    public VimeoScreenPatchDto? Vimeo { get; set; }
-    public GenericWebScreenPatchDto? GenericWeb { get; set; }
+
+    /// <summary>Source, playback, capture and audio settings to change.</summary>
+    public ScreenSourcePatchDto? Source { get; set; }
 
     /// <summary>
     /// Screens created through IPC only: lets the user add videos. Everything else in that screen's playlist
@@ -43,12 +43,10 @@ public sealed class ScreenIpcSourceUpdateRequest
     public string ScreenId { get; set; } = string.Empty;
     public string OwnerId { get; set; } = string.Empty;
     public bool Activate { get; set; }
+
+    /// <summary>The provider <see cref="Source"/> is for. Leave out to keep the screen's current provider.</summary>
     public BrowserSourceProviderKind? Provider { get; set; }
-    public YouTubeScreenPatchDto? YouTube { get; set; }
-    public TwitchScreenPatchDto? Twitch { get; set; }
-    public DailymotionScreenPatchDto? Dailymotion { get; set; }
-    public VimeoScreenPatchDto? Vimeo { get; set; }
-    public GenericWebScreenPatchDto? GenericWeb { get; set; }
+    public ScreenSourcePatchDto? Source { get; set; }
 }
 
 public sealed class ScreenIpcMutationResponse
@@ -79,11 +77,9 @@ public sealed class ScreenIpcSourceStateResponse
     public string Provider { get; set; } = string.Empty;
     public string SourceName { get; set; } = string.Empty;
     public string SourceStatus { get; set; } = string.Empty;
-    public YouTubeSourceStateDto? YouTube { get; set; }
-    public TwitchSourceStateDto? Twitch { get; set; }
-    public DailymotionSourceStateDto? Dailymotion { get; set; }
-    public VimeoSourceStateDto? Vimeo { get; set; }
-    public GenericWebSourceStateDto? GenericWeb { get; set; }
+
+    /// <summary>What the screen is showing and where playback is. Null when the call failed.</summary>
+    public ScreenSourceDetailsDto? Source { get; set; }
 }
 
 public sealed class ScreenIpcScreenSummary
@@ -137,11 +133,22 @@ public sealed class ScreenPlacementStateDto
     public float FadeStopMeters { get; set; }
 }
 
-public sealed class YouTubeScreenPatchDto
+/// <summary>
+/// Source settings for <c>Screen.Create</c>, <c>Screen.Update</c> and <c>Screen.UpdateSource</c>. Every field
+/// is optional: a field left out keeps its current value. A field the screen's provider does not have
+/// (<see cref="Loop"/> on Twitch, <see cref="PlaybackRate"/> on Twitch and Dailymotion,
+/// <see cref="PlaylistAutoplayNext"/> outside YouTube) is ignored.
+/// </summary>
+public sealed class ScreenSourcePatchDto
 {
+    /// <summary>A link or ID the provider accepts. An empty string unloads the source.</summary>
     public string? Url { get; set; }
     public bool? PlaybackPaused { get; set; }
+
+    /// <summary>Seek to this position. Ignored when <see cref="Restart"/> is set.</summary>
     public long? PositionMs { get; set; }
+
+    /// <summary>Reload the player. Not stored; acts once.</summary>
     public bool Restart { get; set; }
     public bool? Autoplay { get; set; }
     public bool? Loop { get; set; }
@@ -158,109 +165,23 @@ public sealed class YouTubeScreenPatchDto
     public float? SpatialAudioSilentRadiusMeters { get; set; }
 }
 
-public sealed class YouTubeSourceStateDto
+/// <summary>The source part of a <c>Screen.GetSourceState</c> answer.</summary>
+public sealed class ScreenSourceDetailsDto
 {
+    /// <summary>The link or ID as configured on the screen.</summary>
     public string Url { get; set; } = string.Empty;
+
+    /// <summary>A full link to what is playing now; empty when the configured source is not valid.</summary>
     public string CanonicalUrl { get; set; } = string.Empty;
     public string VideoId { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
-    public long PositionMs { get; set; }
-    public long DurationMs { get; set; }
-    public float Rate { get; set; } = 1.0f;
-    public long HostTimestampUnixMs { get; set; }
-}
 
-public sealed class TwitchScreenPatchDto
-{
-    public string? Url { get; set; }
-    public bool? PlaybackPaused { get; set; }
-    public long? PositionMs { get; set; }
-    public bool Restart { get; set; }
-    public bool? Autoplay { get; set; }
-    public int? BrowserWidth { get; set; }
-    public int? BrowserHeight { get; set; }
-    public float? CaptureFps { get; set; }
-    public bool? CaptureFpsManual { get; set; }
-    public bool? AudioEnabled { get; set; }
-    public float? Volume { get; set; }
-    public bool? SpatialAudioEnabled { get; set; }
-    public float? SpatialAudioFullVolumeRadiusMeters { get; set; }
-    public float? SpatialAudioSilentRadiusMeters { get; set; }
-}
-
-public sealed class TwitchSourceStateDto
-{
-    public string Url { get; set; } = string.Empty;
-    public string CanonicalUrl { get; set; } = string.Empty;
-    public string VideoId { get; set; } = string.Empty;
+    /// <summary>Twitch only: the channel, when the source is a channel.</summary>
     public string ChannelName { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
-    public long PositionMs { get; set; }
-    public long DurationMs { get; set; }
-    public float Rate { get; set; } = 1.0f;
-    public long HostTimestampUnixMs { get; set; }
-}
 
-public sealed class DailymotionScreenPatchDto
-{
-    public string? Url { get; set; }
-    public bool? PlaybackPaused { get; set; }
-    public long? PositionMs { get; set; }
-    public bool Restart { get; set; }
-    public bool? Autoplay { get; set; }
-    public bool? Loop { get; set; }
-    public int? BrowserWidth { get; set; }
-    public int? BrowserHeight { get; set; }
-    public float? CaptureFps { get; set; }
-    public bool? CaptureFpsManual { get; set; }
-    public bool? AudioEnabled { get; set; }
-    public float? Volume { get; set; }
-    public bool? SpatialAudioEnabled { get; set; }
-    public float? SpatialAudioFullVolumeRadiusMeters { get; set; }
-    public float? SpatialAudioSilentRadiusMeters { get; set; }
-}
-
-public sealed class DailymotionSourceStateDto
-{
-    public string Url { get; set; } = string.Empty;
-    public string CanonicalUrl { get; set; } = string.Empty;
-    public string VideoId { get; set; } = string.Empty;
+    /// <summary>Dailymotion only: the playlist, when the source is a playlist.</summary>
     public string PlaylistId { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
-    public long PositionMs { get; set; }
-    public long DurationMs { get; set; }
-    public float Rate { get; set; } = 1.0f;
-    public long HostTimestampUnixMs { get; set; }
-}
 
-public sealed class VimeoScreenPatchDto
-{
-    public string? Url { get; set; }
-    public bool? PlaybackPaused { get; set; }
-    public long? PositionMs { get; set; }
-    public bool Restart { get; set; }
-    public bool? Autoplay { get; set; }
-    public bool? Loop { get; set; }
-    public float? PlaybackRate { get; set; }
-    public int? BrowserWidth { get; set; }
-    public int? BrowserHeight { get; set; }
-    public float? CaptureFps { get; set; }
-    public bool? CaptureFpsManual { get; set; }
-    public bool? AudioEnabled { get; set; }
-    public float? Volume { get; set; }
-    public bool? SpatialAudioEnabled { get; set; }
-    public float? SpatialAudioFullVolumeRadiusMeters { get; set; }
-    public float? SpatialAudioSilentRadiusMeters { get; set; }
-}
-
-public sealed class VimeoSourceStateDto
-{
-    public string Url { get; set; } = string.Empty;
-    public string CanonicalUrl { get; set; } = string.Empty;
-    public string VideoId { get; set; } = string.Empty;
+    /// <summary>Vimeo only: the private-link hash, when the link has one.</summary>
     public string Hash { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
@@ -270,36 +191,17 @@ public sealed class VimeoSourceStateDto
     public long HostTimestampUnixMs { get; set; }
 }
 
-public sealed class GenericWebScreenPatchDto
+/// <summary>Answer of <c>CrystalCast.Screen.GetSnapshot</c>.</summary>
+public sealed class ScreenIpcSnapshot
 {
-    public string? Url { get; set; }
-    public bool? PlaybackPaused { get; set; }
-    public long? PositionMs { get; set; }
-    public bool Restart { get; set; }
-    public bool? Autoplay { get; set; }
-    public bool? Loop { get; set; }
-    public float? PlaybackRate { get; set; }
-    public int? BrowserWidth { get; set; }
-    public int? BrowserHeight { get; set; }
-    public float? CaptureFps { get; set; }
-    public bool? CaptureFpsManual { get; set; }
-    public bool? AudioEnabled { get; set; }
-    public float? Volume { get; set; }
-    public bool? SpatialAudioEnabled { get; set; }
-    public float? SpatialAudioFullVolumeRadiusMeters { get; set; }
-    public float? SpatialAudioSilentRadiusMeters { get; set; }
-}
+    public int SchemaVersion { get; set; } = 1;
+    public int ApiVersion { get; set; }
 
-public sealed class GenericWebSourceStateDto
-{
-    public string Url { get; set; } = string.Empty;
-    public string CanonicalUrl { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public ScreenPlaybackState State { get; set; } = ScreenPlaybackState.Stopped;
-    public long PositionMs { get; set; }
-    public long DurationMs { get; set; }
-    public float Rate { get; set; } = 1.0f;
-    public long HostTimestampUnixMs { get; set; }
+    /// <summary>This player's enabled screens that could be placed, in screen-list order.</summary>
+    public ScreenStateEnvelope[] LocalScreens { get; set; } = [];
+
+    /// <summary>States other plugins handed in with <c>Screen.ApplyState</c>, ordered by owner session and screen ID.</summary>
+    public ScreenStateEnvelope[] RemoteScreens { get; set; } = [];
 }
 
 /// <summary>Answer of <c>CrystalCast.GetCapabilities</c>.</summary>

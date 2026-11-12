@@ -18,7 +18,7 @@ public sealed class ScreenPatchApplierTests
                 PositionX = 2.5f,
                 WidthMeters = 4.0f,
             },
-            YouTube = new YouTubeScreenPatchDto
+            Source = new ScreenSourcePatchDto
             {
                 Url = "https://youtu.be/dQw4w9WgXcQ",
                 AudioEnabled = true,
@@ -64,7 +64,7 @@ public sealed class ScreenPatchApplierTests
         {
             Name = "Changed",
             Provider = BrowserSourceProviderKind.YouTube,
-            YouTube = new YouTubeScreenPatchDto { Url = "not a youtube source" },
+            Source = new ScreenSourcePatchDto { Url = "not a youtube source" },
         };
 
         Assert.False(ScreenPatchApplier.TryApplyScreenMutation(screen, request, out _, out _));

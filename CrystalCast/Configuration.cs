@@ -102,6 +102,15 @@ public class Configuration : IPluginConfiguration
             ?? BrowserScreens.FirstOrDefault();
     }
 
+    /// <summary>The screen with this ID, or null. Does not normalize the configuration first.</summary>
+    public BrowserScreenProfile? FindBrowserScreen(string? screenId)
+    {
+        if (string.IsNullOrWhiteSpace(screenId))
+            return null;
+
+        return BrowserScreens.FirstOrDefault(screen => string.Equals(screen.ScreenId, screenId, StringComparison.Ordinal));
+    }
+
     public BrowserScreenProfile CreateDefaultBrowserScreen(string name, bool createdByIpc = false)
     {
         var screen = new BrowserScreenProfile

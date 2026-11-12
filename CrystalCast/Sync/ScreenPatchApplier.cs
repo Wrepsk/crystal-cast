@@ -25,16 +25,8 @@ internal static class ScreenPatchApplier
         out string error)
     {
         updated = current.Clone();
-        if (request.Provider is { } provider && !IsSupportedBrowserProvider(provider))
-        {
-            error = $"Unsupported browser source provider '{provider}'.";
-            updated = current;
-            return false;
-        }
-
-        var providerKind = ResolveRequestedProvider(updated, request.Provider, request);
-        updated.ProviderKind = providerKind;
-        if (!ApplyProviderPatch(updated, providerKind, request, out error))
+        if (!TrySelectProvider(updated, request.Provider, out error)
+            || !BrowserSourceIpcAdapters.Get(updated.ProviderKind).ApplyPatch(updated, request.Source, out error))
         {
             updated = current;
             return false;
@@ -43,19 +35,21 @@ internal static class ScreenPatchApplier
         return true;
     }
 
+    public static void ApplySourceLock(BrowserScreenProfile screen, ScreenIpcSourceLockRequest request)
+    {
+        screen.SourceControlsLocked = request.Locked;
+        screen.SourceControlsOwnerId = request.Locked
+            ? IpcJsonService.FirstNonEmpty(request.OwnerId, screen.SourceControlsOwnerId, screen.IpcOwnerId)
+            : string.Empty;
+    }
+
     private static bool ApplyScreenMutationInPlace(
         BrowserScreenProfile screen,
         ScreenIpcMutationRequest request,
         out string error)
     {
-        error = string.Empty;
-        if (request.Provider is { } provider && !IsSupportedBrowserProvider(provider))
-        {
-            error = $"Unsupported browser source provider '{provider}'.";
+        if (!TrySelectProvider(screen, request.Provider, out error))
             return false;
-        }
-
-        screen.ProviderKind = ResolveRequestedProvider(screen, request.Provider, request);
 
         var name = IpcJsonService.NormalizeText(request.Name);
         if (!string.IsNullOrWhiteSpace(name))
@@ -85,60 +79,29 @@ internal static class ScreenPatchApplier
             screen.PlaylistAllowUserAdds = allowUserAdds;
 
         ApplyPlacementPatch(screen.Placement, request.Placement);
-        return ApplyProviderPatch(screen, screen.ProviderKind, request, out error);
+        return BrowserSourceIpcAdapters.Get(screen.ProviderKind).ApplyPatch(screen, request.Source, out error);
     }
 
-    public static void ApplySourceLock(BrowserScreenProfile screen, ScreenIpcSourceLockRequest request)
+    /// <summary>Switches the screen to <paramref name="provider"/> when one is named; a provider left out keeps the current one.</summary>
+    private static bool TrySelectProvider(BrowserScreenProfile screen, BrowserSourceProviderKind? provider, out string error)
     {
-        screen.SourceControlsLocked = request.Locked;
-        screen.SourceControlsOwnerId = request.Locked
-            ? IpcJsonService.FirstNonEmpty(request.OwnerId, screen.SourceControlsOwnerId, screen.IpcOwnerId)
-            : string.Empty;
+        error = string.Empty;
+        if (provider is not { } requested)
+            return true;
+
+        if (!BrowserSourceIpcAdapters.IsSupported(requested))
+        {
+            error = UnsupportedProviderMessage(requested);
+            return false;
+        }
+
+        screen.ProviderKind = requested;
+        return true;
     }
 
-    public static bool IsSupportedBrowserProvider(BrowserSourceProviderKind provider)
+    public static string UnsupportedProviderMessage(BrowserSourceProviderKind provider)
     {
-        return BrowserSourceIpcAdapters.IsSupported(provider);
-    }
-
-    public static BrowserSourceProviderKind ResolveRequestedProvider(
-        BrowserScreenProfile screen,
-        BrowserSourceProviderKind? provider,
-        ScreenIpcMutationRequest request)
-    {
-        return BrowserSourceIpcAdapters.ResolveRequestedProvider(screen, provider, request);
-    }
-
-    public static BrowserSourceProviderKind ResolveRequestedProvider(
-        BrowserScreenProfile screen,
-        BrowserSourceProviderKind? provider,
-        ScreenIpcSourceUpdateRequest request)
-    {
-        return BrowserSourceIpcAdapters.ResolveRequestedProvider(screen, provider, request);
-    }
-
-    public static bool ApplyProviderPatch(
-        BrowserScreenProfile screen,
-        BrowserSourceProviderKind provider,
-        ScreenIpcMutationRequest request,
-        out string error)
-    {
-        if (!BrowserSourceIpcAdapters.IsSupported(provider))
-            return UnsupportedProvider(provider, out error);
-
-        return BrowserSourceIpcAdapters.Get(provider).ApplyPatch(screen, request, out error);
-    }
-
-    public static bool ApplyProviderPatch(
-        BrowserScreenProfile screen,
-        BrowserSourceProviderKind provider,
-        ScreenIpcSourceUpdateRequest request,
-        out string error)
-    {
-        if (!BrowserSourceIpcAdapters.IsSupported(provider))
-            return UnsupportedProvider(provider, out error);
-
-        return BrowserSourceIpcAdapters.Get(provider).ApplyPatch(screen, request, out error);
+        return $"Unsupported browser source provider '{provider}'.";
     }
 
     private static void ApplyPlacementPatch(ScreenPlacementSettings placement, ScreenPlacementPatchDto? patch)
@@ -179,11 +142,4 @@ internal static class ScreenPatchApplier
 
         placement.Normalize();
     }
-
-    private static bool UnsupportedProvider(BrowserSourceProviderKind provider, out string error)
-    {
-        error = $"Unsupported browser source provider '{provider}'.";
-        return false;
-    }
-
 }

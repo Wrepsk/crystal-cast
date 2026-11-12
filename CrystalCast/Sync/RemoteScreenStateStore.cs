@@ -1,15 +1,5 @@
 namespace CrystalCast.Sync;
 
-internal enum RemoteScreenApplyResult
-{
-    RejectedInvalid,
-    RejectedCapacity,
-    IgnoredSelf,
-    IgnoredDuplicate,
-    IgnoredStale,
-    Applied,
-}
-
 internal readonly record struct RemoteScreenKey(string OwnerSessionId, string ScreenId);
 
 internal sealed class RemoteScreenStateStore
@@ -31,7 +21,7 @@ internal sealed class RemoteScreenStateStore
         return entries.Values.Select(entry => entry.State).ToArray();
     }
 
-    public RemoteScreenApplyResult Apply(
+    public ScreenIpcApplyStateResult Apply(
         ScreenStateEnvelope? candidate,
         string localOwnerSessionId,
         out string error)
@@ -39,7 +29,7 @@ internal sealed class RemoteScreenStateStore
         var nowUnixMs = getNowUnixMs();
         PruneExpired(nowUnixMs);
         if (!ScreenStateValidator.TryValidate(candidate, nowUnixMs, out error))
-            return RemoteScreenApplyResult.RejectedInvalid;
+            return ScreenIpcApplyStateResult.RejectedInvalid;
 
         var state = candidate!;
         var key = new RemoteScreenKey(state.OwnerSessionId, state.ScreenId);
@@ -48,33 +38,33 @@ internal sealed class RemoteScreenStateStore
         if (decision == RemoteScreenStateDecision.IgnoreSelf)
         {
             error = string.Empty;
-            return RemoteScreenApplyResult.IgnoredSelf;
+            return ScreenIpcApplyStateResult.IgnoredSelf;
         }
 
         if (decision == RemoteScreenStateDecision.IgnoreStale)
         {
             error = string.Empty;
-            return RemoteScreenApplyResult.IgnoredStale;
+            return ScreenIpcApplyStateResult.IgnoredStale;
         }
 
         if (decision == RemoteScreenStateDecision.IgnoreDuplicate)
         {
             error = string.Empty;
-            return RemoteScreenApplyResult.IgnoredDuplicate;
+            return ScreenIpcApplyStateResult.IgnoredDuplicate;
         }
 
         if (decision != RemoteScreenStateDecision.Accept)
-            return RemoteScreenApplyResult.RejectedInvalid;
+            return ScreenIpcApplyStateResult.RejectedInvalid;
 
         if (existingEntry == null && entries.Count >= MaxRemoteScreens)
         {
             error = $"Remote screen capacity of {MaxRemoteScreens} has been reached.";
-            return RemoteScreenApplyResult.RejectedCapacity;
+            return ScreenIpcApplyStateResult.RejectedCapacity;
         }
 
         entries[key] = new Entry(state, nowUnixMs);
         error = string.Empty;
-        return RemoteScreenApplyResult.Applied;
+        return ScreenIpcApplyStateResult.Applied;
     }
 
     public bool RemoveByScreenId(string screenId)

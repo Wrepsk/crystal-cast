@@ -10,8 +10,8 @@ public sealed class RemoteScreenStateStoreTests
         long now = 1_000_000;
         var store = new RemoteScreenStateStore(() => now);
 
-        Assert.Equal(RemoteScreenApplyResult.Applied, store.Apply(CreateState("owner-a", "screen", 1, now), "local", out _));
-        Assert.Equal(RemoteScreenApplyResult.Applied, store.Apply(CreateState("owner-b", "screen", 1, now), "local", out _));
+        Assert.Equal(ScreenIpcApplyStateResult.Applied, store.Apply(CreateState("owner-a", "screen", 1, now), "local", out _));
+        Assert.Equal(ScreenIpcApplyStateResult.Applied, store.Apply(CreateState("owner-b", "screen", 1, now), "local", out _));
 
         Assert.Equal(2, store.GetSnapshot().Count);
     }
@@ -25,7 +25,7 @@ public sealed class RemoteScreenStateStoreTests
 
         var result = store.Apply(CreateState("owner", "screen", 10, now), "local", out _);
 
-        Assert.Equal(RemoteScreenApplyResult.IgnoredDuplicate, result);
+        Assert.Equal(ScreenIpcApplyStateResult.IgnoredDuplicate, result);
         Assert.Single(store.GetSnapshot());
     }
 
@@ -36,7 +36,7 @@ public sealed class RemoteScreenStateStoreTests
         var store = new RemoteScreenStateStore(() => now);
         store.Apply(CreateState("owner", "screen", 10, now), "local", out _);
 
-        Assert.Equal(RemoteScreenApplyResult.IgnoredStale, store.Apply(CreateState("owner", "screen", 9, now), "local", out _));
+        Assert.Equal(ScreenIpcApplyStateResult.IgnoredStale, store.Apply(CreateState("owner", "screen", 9, now), "local", out _));
     }
 
     [Fact]
@@ -45,11 +45,11 @@ public sealed class RemoteScreenStateStoreTests
         long now = 1_000_000;
         var store = new RemoteScreenStateStore(() => now);
         for (var i = 0; i < RemoteScreenStateStore.MaxRemoteScreens; i++)
-            Assert.Equal(RemoteScreenApplyResult.Applied, store.Apply(CreateState("owner", $"screen-{i}", 1, now), "local", out _));
+            Assert.Equal(ScreenIpcApplyStateResult.Applied, store.Apply(CreateState("owner", $"screen-{i}", 1, now), "local", out _));
 
-        Assert.Equal(RemoteScreenApplyResult.RejectedCapacity, store.Apply(CreateState("owner", "overflow", 1, now), "local", out var error));
+        Assert.Equal(ScreenIpcApplyStateResult.RejectedCapacity, store.Apply(CreateState("owner", "overflow", 1, now), "local", out var error));
         Assert.NotEmpty(error);
-        Assert.Equal(RemoteScreenApplyResult.Applied, store.Apply(CreateState("owner", "screen-0", 2, now), "local", out _));
+        Assert.Equal(ScreenIpcApplyStateResult.Applied, store.Apply(CreateState("owner", "screen-0", 2, now), "local", out _));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class RemoteScreenStateStoreTests
         var state = CreateState("owner", "screen", 1, now);
         state.Source.Url = "file:///local/video.mp4";
 
-        Assert.Equal(RemoteScreenApplyResult.RejectedInvalid, store.Apply(state, "local", out var error));
+        Assert.Equal(ScreenIpcApplyStateResult.RejectedInvalid, store.Apply(state, "local", out var error));
         Assert.NotEmpty(error);
         Assert.Empty(store.GetSnapshot());
     }
@@ -83,7 +83,7 @@ public sealed class RemoteScreenStateStoreTests
         long now = 1_000_000;
         var store = new RemoteScreenStateStore(() => now);
 
-        Assert.Equal(RemoteScreenApplyResult.IgnoredSelf, store.Apply(CreateState("local", "screen", 1, now), "local", out _));
+        Assert.Equal(ScreenIpcApplyStateResult.IgnoredSelf, store.Apply(CreateState("local", "screen", 1, now), "local", out _));
         Assert.Empty(store.GetSnapshot());
     }
 

@@ -3,13 +3,18 @@ using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Sync;
 
+/// <summary>
+/// The calls that create, change and remove screens: <c>Screen.Create</c>, <c>Screen.Update</c>,
+/// <c>Screen.UpdateSource</c>, <c>Screen.SetSourceLock</c>, <c>Screen.Remove</c>, and the
+/// <c>Screen.GetSourceState</c> read.
+/// </summary>
 internal sealed class ScreenIpcMutationService
 {
     private readonly Configuration configuration;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateBuilder stateBuilder;
     private readonly ScreenChangePublisher changePublisher;
-    private readonly Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState;
+    private readonly Action<string?, IReadOnlyCollection<ScreenIpcChangeKind>?> publishLocalState;
     private readonly IPluginLog log;
     private readonly HiddenIpcScreens hiddenScreens;
 
@@ -18,7 +23,7 @@ internal sealed class ScreenIpcMutationService
         WorldScreenManager renderer,
         ScreenStateBuilder stateBuilder,
         ScreenChangePublisher changePublisher,
-        Func<string?, IReadOnlyCollection<ScreenIpcChangeKind>?, string> publishLocalState,
+        Action<string?, IReadOnlyCollection<ScreenIpcChangeKind>?> publishLocalState,
         IPluginLog log,
         HiddenIpcScreens hiddenScreens)
     {
@@ -31,6 +36,7 @@ internal sealed class ScreenIpcMutationService
         this.log = log;
     }
 
+    /// <summary>Removes a screen created through IPC. The user's own screens are left alone.</summary>
     public bool Remove(string screenId)
     {
         screenId = IpcJsonService.NormalizeText(screenId);
@@ -38,7 +44,7 @@ internal sealed class ScreenIpcMutationService
             return false;
 
         configuration.Normalize();
-        var screen = FindBrowserScreen(screenId);
+        var screen = configuration.FindBrowserScreen(screenId);
         if (screen is not { CreatedByIpc: true })
             return false;
 
@@ -64,20 +70,95 @@ internal sealed class ScreenIpcMutationService
             hide ? ScreenIpcRemovalReason.HiddenByUser : ScreenIpcRemovalReason.RemovedByUser);
     }
 
-    public string CreateScreenJson(string json)
+    public string CreateScreenJson(string json) =>
+        Handle<ScreenIpcMutationRequest>(json, "create", "screen", CreateScreen);
+
+    public string UpdateScreenJson(string json) => Handle<ScreenIpcMutationRequest>(json, "update", "screen", request =>
+    {
+        configuration.Normalize();
+        var screenId = IpcJsonService.NormalizeText(request.ScreenId);
+        var screen = configuration.FindBrowserScreen(screenId);
+        if (screen == null)
+        {
+            return request.CreateIfMissing && !string.IsNullOrWhiteSpace(screenId)
+                ? CreateScreen(request)
+                : NotFound(screenId);
+        }
+
+        if (!ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updatedScreen, out var error))
+            return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
+
+        return Commit(
+            screen,
+            updatedScreen,
+            request.Activate,
+            request.Source,
+            ScreenChangePublisher.GetMutationChangeKinds(request));
+    });
+
+    public string UpdateSourceJson(string json) => Handle<ScreenIpcSourceUpdateRequest>(json, "update", "source", request =>
+    {
+        configuration.Normalize();
+        var screenId = IpcJsonService.NormalizeText(request.ScreenId);
+        var screen = configuration.FindBrowserScreen(screenId);
+        if (screen == null)
+            return NotFound(screenId);
+
+        if (!ScreenPatchApplier.TryApplySourceMutation(screen, request, out var updatedScreen, out var error))
+            return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
+
+        return Commit(
+            screen,
+            updatedScreen,
+            request.Activate,
+            request.Source,
+            ScreenChangePublisher.GetSourceUpdateChangeKinds(request));
+    });
+
+    public string SetSourceLockJson(string json) => Handle<ScreenIpcSourceLockRequest>(json, "update", "source lock", request =>
+    {
+        configuration.Normalize();
+        var screenId = IpcJsonService.NormalizeText(request.ScreenId);
+        var screen = configuration.FindBrowserScreen(screenId);
+        if (screen == null)
+            return NotFound(screenId);
+
+        ScreenPatchApplier.ApplySourceLock(screen, request);
+
+        configuration.Save();
+        publishLocalState(screen.ScreenId, [ScreenIpcChangeKind.SourceLock]);
+        return IpcJsonService.SerializeMutationSuccess(screen, created: false);
+    });
+
+    public string GetSourceStateJson(string screenId)
     {
         try
         {
-            var request = IpcJsonService.Deserialize<ScreenIpcMutationRequest>(json);
-            if (request == null)
-                return IpcJsonService.SerializeMutationError("Request body is empty.");
+            configuration.Normalize();
+            var screen = string.IsNullOrWhiteSpace(screenId)
+                ? configuration.GetActiveBrowserScreen()
+                : configuration.FindBrowserScreen(screenId);
+            if (screen == null)
+            {
+                return IpcJsonService.Serialize(new ScreenIpcSourceStateResponse
+                {
+                    Success = false,
+                    Error = $"Screen '{screenId}' was not found.",
+                    ScreenId = IpcJsonService.NormalizeText(screenId),
+                });
+            }
 
-            return CreateScreen(request);
+            return IpcJsonService.Serialize(stateBuilder.BuildSourceStateResponse(screen));
         }
         catch (Exception ex)
         {
-            log.Warning(ex, "Failed to create CrystalCast screen through IPC.");
-            return IpcJsonService.SerializeMutationError($"Failed to create screen: {ex.Message}");
+            log.Warning(ex, "Failed to read CrystalCast source state through IPC.");
+            return IpcJsonService.Serialize(new ScreenIpcSourceStateResponse
+            {
+                Success = false,
+                Error = $"Failed to get source state: {ex.Message}",
+                ScreenId = IpcJsonService.NormalizeText(screenId),
+            });
         }
     }
 
@@ -93,11 +174,11 @@ internal sealed class ScreenIpcMutationService
                 return IpcJsonService.SerializeMutationError($"CrystalCast can create at most {Configuration.MaxIpcBrowserScreens} IPC browser screens and {Configuration.MaxRenderableBrowserScreens} browser screens in total.");
 
             var requestedScreenId = IpcJsonService.NormalizeText(request.ScreenId);
-            if (!string.IsNullOrWhiteSpace(requestedScreenId) && FindBrowserScreen(requestedScreenId) != null)
+            if (configuration.FindBrowserScreen(requestedScreenId) != null)
                 return IpcJsonService.SerializeMutationError($"Screen '{requestedScreenId}' already exists.", requestedScreenId);
 
-            if (request.Provider is { } provider && !ScreenPatchApplier.IsSupportedBrowserProvider(provider))
-                return IpcJsonService.SerializeMutationError($"Unsupported browser source provider '{provider}'.");
+            if (request.Provider is { } provider && !BrowserSourceIpcAdapters.IsSupported(provider))
+                return IpcJsonService.SerializeMutationError(ScreenPatchApplier.UnsupportedProviderMessage(provider));
 
             var name = IpcJsonService.NormalizeText(request.Name);
             if (string.IsNullOrWhiteSpace(name))
@@ -131,162 +212,50 @@ internal sealed class ScreenIpcMutationService
         }
     }
 
-    public string UpdateScreenJson(string json)
-    {
-        try
-        {
-            var request = IpcJsonService.Deserialize<ScreenIpcMutationRequest>(json);
-            if (request == null)
-                return IpcJsonService.SerializeMutationError("Request body is empty.");
-
-            configuration.Normalize();
-            var screenId = IpcJsonService.NormalizeText(request.ScreenId);
-            var screen = FindBrowserScreen(screenId);
-            if (screen == null)
-            {
-                return request.CreateIfMissing && !string.IsNullOrWhiteSpace(screenId)
-                    ? CreateScreen(request)
-                    : IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
-            }
-
-            if (!ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updatedScreen, out var error))
-                return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
-
-            ReplaceBrowserScreen(screen, updatedScreen);
-            if (request.Activate)
-                configuration.ActiveBrowserScreenId = updatedScreen.ScreenId;
-
-            configuration.Normalize();
-            configuration.Save();
-            ApplyRuntimeControls(updatedScreen, request);
-            publishLocalState(updatedScreen.ScreenId, ScreenChangePublisher.GetMutationChangeKinds(request));
-            return IpcJsonService.SerializeMutationSuccess(updatedScreen, created: false);
-        }
-        catch (Exception ex)
-        {
-            log.Warning(ex, "Failed to update CrystalCast screen through IPC.");
-            return IpcJsonService.SerializeMutationError($"Failed to update screen: {ex.Message}");
-        }
-    }
-
-    public string SetSourceLockJson(string json)
-    {
-        try
-        {
-            var request = IpcJsonService.Deserialize<ScreenIpcSourceLockRequest>(json);
-            if (request == null)
-                return IpcJsonService.SerializeMutationError("Request body is empty.");
-
-            configuration.Normalize();
-            var screenId = IpcJsonService.NormalizeText(request.ScreenId);
-            var screen = FindBrowserScreen(screenId);
-            if (screen == null)
-                return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
-
-            ScreenPatchApplier.ApplySourceLock(screen, request);
-
-            configuration.Save();
-            publishLocalState(screen.ScreenId, [ScreenIpcChangeKind.SourceLock]);
-            return IpcJsonService.SerializeMutationSuccess(screen, created: false);
-        }
-        catch (Exception ex)
-        {
-            log.Warning(ex, "Failed to update CrystalCast source lock through IPC.");
-            return IpcJsonService.SerializeMutationError($"Failed to update source lock: {ex.Message}");
-        }
-    }
-
-    public string UpdateSourceJson(string json)
-    {
-        try
-        {
-            var request = IpcJsonService.Deserialize<ScreenIpcSourceUpdateRequest>(json);
-            if (request == null)
-                return IpcJsonService.SerializeMutationError("Request body is empty.");
-
-            configuration.Normalize();
-            var screenId = IpcJsonService.NormalizeText(request.ScreenId);
-            var screen = FindBrowserScreen(screenId);
-            if (screen == null)
-                return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
-
-            if (!ScreenPatchApplier.TryApplySourceMutation(screen, request, out var updatedScreen, out var error))
-                return IpcJsonService.SerializeMutationError(error, screen.ScreenId);
-
-            ReplaceBrowserScreen(screen, updatedScreen);
-            if (request.Activate)
-                configuration.ActiveBrowserScreenId = updatedScreen.ScreenId;
-
-            configuration.Normalize();
-            configuration.Save();
-            ApplyRuntimeControls(updatedScreen, request);
-            publishLocalState(updatedScreen.ScreenId, ScreenChangePublisher.GetSourceUpdateChangeKinds(request));
-            return IpcJsonService.SerializeMutationSuccess(updatedScreen, created: false);
-        }
-        catch (Exception ex)
-        {
-            log.Warning(ex, "Failed to update CrystalCast source through IPC.");
-            return IpcJsonService.SerializeMutationError($"Failed to update source: {ex.Message}");
-        }
-    }
-
-    public string GetSourceStateJson(string screenId)
-    {
-        try
-        {
-            configuration.Normalize();
-            var screen = string.IsNullOrWhiteSpace(screenId)
-                ? configuration.GetActiveBrowserScreen()
-                : FindBrowserScreen(screenId);
-            if (screen == null)
-            {
-                return IpcJsonService.Serialize(new ScreenIpcSourceStateResponse
-                {
-                    Success = false,
-                    Error = $"Screen '{screenId}' was not found.",
-                    ScreenId = IpcJsonService.NormalizeText(screenId),
-                });
-            }
-
-            return IpcJsonService.Serialize(stateBuilder.BuildSourceStateResponse(screen));
-        }
-        catch (Exception ex)
-        {
-            log.Warning(ex, "Failed to read CrystalCast source state through IPC.");
-            return IpcJsonService.Serialize(new ScreenIpcSourceStateResponse
-            {
-                Success = false,
-                Error = $"Failed to get source state: {ex.Message}",
-                ScreenId = IpcJsonService.NormalizeText(screenId),
-            });
-        }
-    }
-
-    private void ApplyRuntimeControls(BrowserScreenProfile screen, ScreenIpcMutationRequest request)
-    {
-        BrowserSourceIpcAdapters.Get(screen.ProviderKind).ApplyRuntimeControls(renderer, screen, request);
-    }
-
-    private void ApplyRuntimeControls(BrowserScreenProfile screen, ScreenIpcSourceUpdateRequest request)
-    {
-        BrowserSourceIpcAdapters.Get(screen.ProviderKind).ApplyRuntimeControls(renderer, screen, request);
-    }
-
-    private BrowserScreenProfile? FindBrowserScreen(string screenId)
-    {
-        if (string.IsNullOrWhiteSpace(screenId))
-            return null;
-
-        return configuration.BrowserScreens.FirstOrDefault(screen => string.Equals(screen.ScreenId, screenId, StringComparison.Ordinal));
-    }
-
-    private void ReplaceBrowserScreen(BrowserScreenProfile current, BrowserScreenProfile updated)
+    /// <summary>Stores a changed screen, sends the patch's player commands, and announces the change.</summary>
+    private string Commit(
+        BrowserScreenProfile current,
+        BrowserScreenProfile updated,
+        bool activate,
+        ScreenSourcePatchDto? sourcePatch,
+        ScreenIpcChangeKind[] changes)
     {
         var index = configuration.BrowserScreens.IndexOf(current);
         if (index < 0)
             throw new InvalidOperationException($"Screen '{current.ScreenId}' is no longer part of the configuration.");
 
         configuration.BrowserScreens[index] = updated;
+        if (activate)
+            configuration.ActiveBrowserScreenId = updated.ScreenId;
+
+        configuration.Normalize();
+        configuration.Save();
+        BrowserSourceIpcAdapters.ApplyRuntimeControls(renderer, updated, sourcePatch);
+        publishLocalState(updated.ScreenId, changes);
+        return IpcJsonService.SerializeMutationSuccess(updated, created: false);
+    }
+
+    /// <summary>Parses the request and runs the handler, turning a missing body or an exception into an error answer.</summary>
+    private string Handle<TRequest>(string json, string verb, string subject, Func<TRequest, string> handler)
+        where TRequest : class
+    {
+        try
+        {
+            var request = IpcJsonService.Deserialize<TRequest>(json);
+            return request == null
+                ? IpcJsonService.SerializeMutationError("Request body is empty.")
+                : handler(request);
+        }
+        catch (Exception ex)
+        {
+            log.Warning(ex, "Failed to {Verb:l} CrystalCast {Subject:l} through IPC.", verb, subject);
+            return IpcJsonService.SerializeMutationError($"Failed to {verb} {subject}: {ex.Message}");
+        }
+    }
+
+    private static string NotFound(string screenId)
+    {
+        return IpcJsonService.SerializeMutationError($"Screen '{screenId}' was not found.", screenId);
     }
 
     private string GetNextIpcScreenName()

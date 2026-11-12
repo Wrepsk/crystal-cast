@@ -39,7 +39,7 @@ internal sealed class ScreenPlaylistIpcService
             return Error(error);
 
         configuration.Normalize();
-        var screen = Find(IpcJsonService.NormalizeText(screenId));
+        var screen = configuration.FindBrowserScreen(IpcJsonService.NormalizeText(screenId));
         return screen == null
             ? Error($"Screen '{screenId}' was not found.", screenId)
             : Success(screen);
@@ -179,7 +179,7 @@ internal sealed class ScreenPlaylistIpcService
 
             configuration.Normalize();
             var screenId = IpcJsonService.NormalizeText(request.ScreenId);
-            var screen = Find(screenId);
+            var screen = configuration.FindBrowserScreen(screenId);
             return screen == null
                 ? Error($"Screen '{screenId}' was not found.", screenId)
                 : handler(screen, request);
@@ -196,14 +196,6 @@ internal sealed class ScreenPlaylistIpcService
         configuration.Normalize();
         configuration.Save();
         onPlaylistChanged(screen.ScreenId);
-    }
-
-    private BrowserScreenProfile? Find(string screenId)
-    {
-        if (string.IsNullOrWhiteSpace(screenId))
-            return null;
-
-        return configuration.BrowserScreens.FirstOrDefault(screen => string.Equals(screen.ScreenId, screenId, StringComparison.Ordinal));
     }
 
     private static string Success(BrowserScreenProfile screen, string entryId = "")

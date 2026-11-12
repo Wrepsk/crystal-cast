@@ -12,7 +12,7 @@ public sealed class IpcHardeningTests
         var request = new ScreenIpcMutationRequest
         {
             Provider = BrowserSourceProviderKind.GenericWeb,
-            GenericWeb = new GenericWebScreenPatchDto { Url = "https://example.com/page" },
+            Source = new ScreenSourcePatchDto { Url = "https://example.com/page" },
         };
 
         Assert.True(ScreenPatchApplier.TryApplyScreenMutation(screen, request, out var updated, out var error), error);
@@ -29,7 +29,7 @@ public sealed class IpcHardeningTests
         var request = new ScreenIpcSourceUpdateRequest
         {
             Provider = BrowserSourceProviderKind.GenericWeb,
-            GenericWeb = new GenericWebScreenPatchDto { Url = "https://example.com/page" },
+            Source = new ScreenSourcePatchDto { Url = "https://example.com/page" },
         };
 
         Assert.True(ScreenPatchApplier.TryApplySourceMutation(screen, request, out var updated, out var error), error);

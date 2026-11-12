@@ -26,15 +26,6 @@ internal sealed class ScreenStateBuilder
         this.placementResolver = placementResolver;
     }
 
-    public ScreenStateEnvelope BuildLocalState()
-    {
-        return BuildLocalStates().FirstOrDefault() ?? new ScreenStateEnvelope
-        {
-            OwnerSessionId = ownerSessionId,
-            TerritoryId = (ushort)clientState.TerritoryType,
-        };
-    }
-
     public IEnumerable<ScreenStateEnvelope> BuildLocalStates()
     {
         configuration.Normalize();
@@ -104,12 +95,7 @@ internal sealed class ScreenStateBuilder
 
     public ScreenIpcSourceStateResponse BuildSourceStateResponse(BrowserScreenProfile screen)
     {
-        var telemetry = renderer.GetPlaybackTelemetry(screen);
-        var adapter = BrowserSourceIpcAdapters.Get(screen.ProviderKind);
-        var source = adapter.BuildSourceState(screen, telemetry);
-        var playback = adapter.BuildPlaybackState(screen, telemetry);
-
-        var response = new ScreenIpcSourceStateResponse
+        return new ScreenIpcSourceStateResponse
         {
             Success = true,
             ScreenId = screen.ScreenId,
@@ -123,9 +109,9 @@ internal sealed class ScreenStateBuilder
             Provider = screen.ProviderKind.ToString(),
             SourceName = renderer.GetSourceName(screen),
             SourceStatus = renderer.GetSourceStatus(screen),
+            Source = BrowserSourceIpcAdapters.Get(screen.ProviderKind)
+                .BuildSourceDetails(screen, renderer.GetPlaybackTelemetry(screen)),
         };
-        adapter.PopulateSourceStateResponse(response, screen, source, playback);
-        return response;
     }
 
     public bool TryResolveForIpc(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)

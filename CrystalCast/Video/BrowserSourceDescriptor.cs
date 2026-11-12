@@ -83,7 +83,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "YouTube",
         InvalidSourceMessage = "invalid YouTube URL, video ID, playlist, or live channel",
         LoadReason = "new video",
-        TryParse = TryParseYouTube,
+        TryParse = Parser<YouTubeSourceReference>(YouTubeVideoId.TryParseSource),
         BuildHtml = (source, settings) => YouTubePlayerPage.BuildHtml(
             (YouTubeSourceReference)source,
             settings.Autoplay,
@@ -105,7 +105,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Twitch",
         InvalidSourceMessage = "invalid Twitch channel or VOD URL",
         LoadReason = "new source",
-        TryParse = TryParseTwitch,
+        TryParse = Parser<TwitchSourceReference>(TwitchVideoId.TryParseSource),
         BuildHtml = (source, settings) => TwitchPlayerPage.BuildHtml(
             (TwitchSourceReference)source,
             settings.Autoplay,
@@ -124,7 +124,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Dailymotion",
         InvalidSourceMessage = "invalid Dailymotion URL, video ID, or playlist",
         LoadReason = "new source",
-        TryParse = TryParseDailymotion,
+        TryParse = Parser<DailymotionSourceReference>(DailymotionVideoId.TryParseSource),
         BuildHtml = (source, settings) => DailymotionPlayerPage.BuildHtml(
             (DailymotionSourceReference)source,
             settings.Autoplay,
@@ -145,7 +145,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Vimeo",
         InvalidSourceMessage = "invalid Vimeo URL or video ID",
         LoadReason = "new source",
-        TryParse = TryParseVimeo,
+        TryParse = Parser<VimeoSourceReference>(VimeoVideoId.TryParseSource),
         BuildHtml = (source, settings) => VimeoPlayerPage.BuildHtml(
             (VimeoSourceReference)source,
             settings.Autoplay,
@@ -166,7 +166,7 @@ internal static class BrowserSourceDescriptors
         DisplayName = "Generic Web",
         InvalidSourceMessage = "invalid Generic Web URL",
         LoadReason = "new page",
-        TryParse = TryParseGenericWeb,
+        TryParse = Parser<GenericWebSourceReference>(GenericWebUrl.TryParseSource),
         BuildHtml = (_, _) => string.Empty,
         BuildCanonicalSourceUrl = (source, _) => ((GenericWebSourceReference)source).Url,
         IsValidVideoId = _ => true,
@@ -195,64 +195,23 @@ internal static class BrowserSourceDescriptors
         };
     }
 
-    private static bool TryParseYouTube(string input, out IBrowserSourceReference source)
+    private delegate bool TryParseTypedSource<TSource>(string input, out TSource source);
+
+    /// <summary>Lets a provider's typed link parser answer as the descriptor's parser.</summary>
+    private static TryParseBrowserSource Parser<TSource>(TryParseTypedSource<TSource> tryParse)
+        where TSource : struct, IBrowserSourceReference
     {
-        if (YouTubeVideoId.TryParseSource(input, out var parsed))
+        return (string input, out IBrowserSourceReference source) =>
         {
-            source = parsed;
-            return true;
-        }
+            if (tryParse(input, out var parsed))
+            {
+                source = parsed;
+                return true;
+            }
 
-        source = default!;
-        return false;
-    }
-
-    private static bool TryParseTwitch(string input, out IBrowserSourceReference source)
-    {
-        if (TwitchVideoId.TryParseSource(input, out var parsed))
-        {
-            source = parsed;
-            return true;
-        }
-
-        source = default!;
-        return false;
-    }
-
-    private static bool TryParseDailymotion(string input, out IBrowserSourceReference source)
-    {
-        if (DailymotionVideoId.TryParseSource(input, out var parsed))
-        {
-            source = parsed;
-            return true;
-        }
-
-        source = default!;
-        return false;
-    }
-
-    private static bool TryParseVimeo(string input, out IBrowserSourceReference source)
-    {
-        if (VimeoVideoId.TryParseSource(input, out var parsed))
-        {
-            source = parsed;
-            return true;
-        }
-
-        source = default!;
-        return false;
-    }
-
-    private static bool TryParseGenericWeb(string input, out IBrowserSourceReference source)
-    {
-        if (GenericWebUrl.TryParseSource(input, out var parsed))
-        {
-            source = parsed;
-            return true;
-        }
-
-        source = default!;
-        return false;
+            source = default!;
+            return false;
+        };
     }
 
     private static string DescribeProviderError(JsonElement root, string providerName, string apiName)

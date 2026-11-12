@@ -39,8 +39,8 @@ public static partial class YouTubeVideoId
             return false;
         }
 
-        var query = ParseQuery(uri.Query);
-        var segments = GetPathSegments(uri);
+        var query = ProviderUrlParsing.ParseQuery(uri.Query);
+        var segments = ProviderUrlParsing.GetPathSegments(uri);
         var videoId = GetVideoId(host, query, segments);
         var playlistId = GetPlaylistId(query);
         var liveChannelId = GetLiveChannelId(query, segments);
@@ -169,31 +169,6 @@ public static partial class YouTubeVideoId
 
         videoId = segments[index];
         return true;
-    }
-
-    private static string[] GetPathSegments(Uri uri)
-    {
-        return uri.AbsolutePath
-            .Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(Uri.UnescapeDataString)
-            .ToArray();
-    }
-
-    private static Dictionary<string, string> ParseQuery(string query)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(query))
-            return result;
-
-        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = pair.Split('=', 2);
-            var key = Uri.UnescapeDataString(parts[0].Replace("+", " ", StringComparison.Ordinal));
-            var value = parts.Length == 2 ? Uri.UnescapeDataString(parts[1].Replace("+", " ", StringComparison.Ordinal)) : string.Empty;
-            result[key] = value;
-        }
-
-        return result;
     }
 
     [GeneratedRegex("^[A-Za-z0-9_-]{11}$", RegexOptions.CultureInvariant)]

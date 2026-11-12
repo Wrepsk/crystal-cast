@@ -11,10 +11,8 @@ namespace CrystalCast.Windows;
 /// Asks before deleting a screen another plugin created: delete it so it may come back on that plugin's next
 /// update, or delete it and keep it hidden for the session.
 /// </summary>
-internal sealed class IpcScreenDeleteWindow : Window, IDisposable
+internal sealed class IpcScreenDeleteWindow : CrystalCastWindow, IDisposable
 {
-    private const float LabelWidth = 140.0f;
-    private const float LabelGap = 16.0f;
 
     private readonly Configuration configuration;
     private string screenId = string.Empty;
@@ -57,16 +55,6 @@ internal sealed class IpcScreenDeleteWindow : Window, IDisposable
     public override void OnClose()
     {
         onDelete = null;
-    }
-
-    public override void PreDraw()
-    {
-        PushWindowStyle(S(28.0f, 24.0f));
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
     }
 
     public override void Draw()
@@ -123,11 +111,5 @@ internal sealed class IpcScreenDeleteWindow : Window, IDisposable
     {
         var url = BrowserProviderSettings.For(screen).GetUrl(screen);
         return $"{screen.ProviderKind}{(string.IsNullOrWhiteSpace(url) ? string.Empty : $" · {url}")}";
-    }
-
-    private static void DrawDetail(string label, string value)
-    {
-        Ui.RowLabel(label, LabelWidth, LabelGap);
-        Ui.RowText(value, CrystalCastUiTheme.Text, f => f.Body, wrap: true);
     }
 }

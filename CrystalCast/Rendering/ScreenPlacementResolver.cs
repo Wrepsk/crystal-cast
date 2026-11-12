@@ -93,7 +93,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         placement.PositionX = Vector3.Dot(offset, right);
         placement.PositionY = offset.Y;
         placement.PositionZ = Vector3.Dot(offset, forward);
-        placement.YawRadians = NormalizeRadians(worldPlacement.YawRadians - frameYaw);
+        placement.YawRadians = PlacementMath.NormalizeRadians(worldPlacement.YawRadians - frameYaw);
         placement.PitchRadians = worldPlacement.PitchRadians;
         placement.RollRadians = worldPlacement.RollRadians;
         placement.Normalize();
@@ -102,7 +102,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
     public bool TryApplyWorldPositionPreservingMode(ScreenPlacementSettings placement, Vector3 worldPosition)
     {
-        if (!IsFinite(worldPosition))
+        if (!PlacementMath.IsFinite(worldPosition))
             return false;
 
         if (placement.Mode == ScreenPlacementMode.World)
@@ -135,12 +135,12 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             if (!TryGetPlacementFrame(placement.Mode, out _, out var frameYaw, out _, out _))
                 return false;
 
-            yawRadians = NormalizeRadians(yawRadians - frameYaw);
+            yawRadians = PlacementMath.NormalizeRadians(yawRadians - frameYaw);
         }
 
-        placement.YawRadians = NormalizeRadians(yawRadians);
-        placement.PitchRadians = NormalizeRadians(pitchRadians);
-        placement.RollRadians = NormalizeRadians(rollRadians);
+        placement.YawRadians = PlacementMath.NormalizeRadians(yawRadians);
+        placement.PitchRadians = PlacementMath.NormalizeRadians(pitchRadians);
+        placement.RollRadians = PlacementMath.NormalizeRadians(rollRadians);
         placement.Normalize();
         return true;
     }
@@ -206,12 +206,12 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             viewer = TryGetCurrentCameraOrigin(control->ViewProjectionMatrix, renderCamera->ProjectionMatrix, out var origin)
                 ? origin
                 : (Vector3)renderCamera->Origin;
-            if (IsFinite(viewer))
+            if (PlacementMath.IsFinite(viewer))
                 return true;
         }
 
         viewer = objectTable.LocalPlayer?.Position ?? default;
-        return objectTable.LocalPlayer != null && IsFinite(viewer);
+        return objectTable.LocalPlayer != null && PlacementMath.IsFinite(viewer);
     }
 
     private static void ApplyWorldPlacement(ScreenPlacementSettings placement, ResolvedScreenPlacement worldPlacement)
@@ -244,7 +244,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
         position = player.Position;
         yaw = player.Rotation;
-        if (!IsFinite(position) || !float.IsFinite(yaw))
+        if (!PlacementMath.IsFinite(position) || !float.IsFinite(yaw))
             return ClearFrame(out position, out yaw, out forward, out right);
 
         TryApplyPlayerRenderTransform(player.Address, ref position, ref yaw);
@@ -264,7 +264,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             return;
 
         var renderPosition = (Vector3)drawObject->Position;
-        if (!IsFinite(renderPosition)
+        if (!PlacementMath.IsFinite(renderPosition)
             || Vector3.DistanceSquared(renderPosition, position) > MaxRenderPositionOffsetMeters * MaxRenderPositionOffsetMeters)
         {
             return;
@@ -273,7 +273,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         position = renderPosition;
         var renderRotation = (Quaternion)drawObject->Rotation;
         if (!TryGetYawPitchRoll(renderRotation, out var renderYaw, out _, out _)
-            || MathF.Abs(NormalizeRadians(renderYaw - yaw)) > MaxRenderYawDifferenceRadians)
+            || MathF.Abs(PlacementMath.NormalizeRadians(renderYaw - yaw)) > MaxRenderYawDifferenceRadians)
         {
             return;
         }
@@ -297,7 +297,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             return ClearFrame(out position, out yaw, out forward, out right);
 
         position = player.Position;
-        if (!IsFinite(position))
+        if (!PlacementMath.IsFinite(position))
             return ClearFrame(out position, out yaw, out forward, out right);
 
         var renderCamera = camera->SceneCamera.RenderCamera;
@@ -306,7 +306,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             var cameraOrigin = TryGetCurrentCameraOrigin(control->ViewProjectionMatrix, renderCamera->ProjectionMatrix, out var currentCameraOrigin)
                 ? currentCameraOrigin
                 : (Vector3)renderCamera->Origin;
-            if (!IsFinite(cameraOrigin))
+            if (!PlacementMath.IsFinite(cameraOrigin))
                 return ClearFrame(out position, out yaw, out forward, out right);
 
             var cameraToPlayer = position - cameraOrigin;
@@ -372,7 +372,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
     private static bool TryGetCurrentCameraOrigin(Matrix4x4 viewProjection, Matrix4x4 projection, out Vector3 origin)
     {
-        if (!IsFinite(viewProjection) || !IsFinite(projection))
+        if (!PlacementMath.IsFinite(viewProjection) || !PlacementMath.IsFinite(projection))
         {
             origin = default;
             return false;
@@ -392,35 +392,12 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         }
 
         origin = new Vector3(inverseView.M41, inverseView.M42, inverseView.M43);
-        return IsFinite(origin);
-    }
-
-    private static bool IsFinite(Vector3 value)
-    {
-        return float.IsFinite(value.X)
-            && float.IsFinite(value.Y)
-            && float.IsFinite(value.Z);
-    }
-
-    private static bool IsFinite(Quaternion value)
-    {
-        return float.IsFinite(value.X)
-            && float.IsFinite(value.Y)
-            && float.IsFinite(value.Z)
-            && float.IsFinite(value.W);
-    }
-
-    private static bool IsFinite(Matrix4x4 value)
-    {
-        return float.IsFinite(value.M11) && float.IsFinite(value.M12) && float.IsFinite(value.M13) && float.IsFinite(value.M14)
-            && float.IsFinite(value.M21) && float.IsFinite(value.M22) && float.IsFinite(value.M23) && float.IsFinite(value.M24)
-            && float.IsFinite(value.M31) && float.IsFinite(value.M32) && float.IsFinite(value.M33) && float.IsFinite(value.M34)
-            && float.IsFinite(value.M41) && float.IsFinite(value.M42) && float.IsFinite(value.M43) && float.IsFinite(value.M44);
+        return PlacementMath.IsFinite(origin);
     }
 
     private static bool TryGetYawPitchRoll(Quaternion rotation, out float yawRadians, out float pitchRadians, out float rollRadians)
     {
-        if (!IsFinite(rotation) || rotation.LengthSquared() <= 0.000001f)
+        if (!PlacementMath.IsFinite(rotation) || rotation.LengthSquared() <= 0.000001f)
         {
             yawRadians = 0.0f;
             pitchRadians = 0.0f;
@@ -450,14 +427,4 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         right = default;
         return false;
     }
-
-    private static float NormalizeRadians(float value)
-    {
-        while (value <= -MathF.PI)
-            value += MathF.Tau;
-        while (value > MathF.PI)
-            value -= MathF.Tau;
-        return value;
-    }
-
 }

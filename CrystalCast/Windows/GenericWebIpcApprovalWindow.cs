@@ -7,10 +7,8 @@ using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
+internal sealed class GenericWebIpcApprovalWindow : CrystalCastWindow, IDisposable
 {
-    private const float LabelWidth = 140.0f;
-    private const float LabelGap = 16.0f;
 
     private readonly GenericWebIpcApprovalService approvals;
     private long displayedRequestId;
@@ -53,16 +51,6 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
         IsOpen = false;
     }
 
-    public override void PreDraw()
-    {
-        PushWindowStyle(S(28.0f, 24.0f));
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
-    }
-
     public override void Draw()
     {
         if (!approvals.TryGetCurrent(out var request))
@@ -80,7 +68,7 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
         DrawDetail("Reported source", string.IsNullOrWhiteSpace(request.ReportedOwnerId) ? "Unknown IPC caller" : request.ReportedOwnerId);
         DrawDetail("Destination", request.Origin);
 
-        Ui.RowLabel("Full address", LabelWidth, LabelGap);
+        Ui.RowLabel("Full address", DetailLabelWidth, DetailLabelGap);
         var pos = ImGui.GetCursorScreenPos();
         var width = ImGui.GetContentRegionAvail().X;
         float textHeight;
@@ -122,11 +110,5 @@ internal sealed class GenericWebIpcApprovalWindow : Window, IDisposable
 
     public void Dispose()
     {
-    }
-
-    private static void DrawDetail(string label, string value)
-    {
-        Ui.RowLabel(label, LabelWidth, LabelGap);
-        Ui.RowText(value, CrystalCastUiTheme.Text, f => f.Body, wrap: true);
     }
 }

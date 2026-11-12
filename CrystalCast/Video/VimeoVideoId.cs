@@ -25,9 +25,9 @@ public static partial class VimeoVideoId
             return false;
         }
 
-        var query = ParseQuery(uri.Query);
-        var segments = GetPathSegments(uri);
-        var hash = TryGetQueryValue(query, "h", out var queryHash) && IsValidHash(queryHash)
+        var query = ProviderUrlParsing.ParseQuery(uri.Query);
+        var segments = ProviderUrlParsing.GetPathSegments(uri);
+        var hash = query.TryGetValue("h", out var queryHash) && IsValidHash(queryHash)
             ? queryHash
             : string.Empty;
 
@@ -88,36 +88,6 @@ public static partial class VimeoVideoId
         }
 
         return false;
-    }
-
-    private static string[] GetPathSegments(Uri uri)
-    {
-        return uri.AbsolutePath
-            .Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(Uri.UnescapeDataString)
-            .ToArray();
-    }
-
-    private static bool TryGetQueryValue(Dictionary<string, string> query, string key, out string value)
-    {
-        return query.TryGetValue(key, out value!);
-    }
-
-    private static Dictionary<string, string> ParseQuery(string query)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(query))
-            return result;
-
-        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = pair.Split('=', 2);
-            var key = Uri.UnescapeDataString(parts[0].Replace("+", " ", StringComparison.Ordinal));
-            var value = parts.Length == 2 ? Uri.UnescapeDataString(parts[1].Replace("+", " ", StringComparison.Ordinal)) : string.Empty;
-            result[key] = value;
-        }
-
-        return result;
     }
 
     [GeneratedRegex("^[0-9]{1,18}$", RegexOptions.CultureInvariant)]

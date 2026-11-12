@@ -571,34 +571,6 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             }
         }
 
-        private static void BestEffort(Action step)
-        {
-            try
-            {
-                step();
-            }
-            catch
-            {
-                // Best-effort browser cleanup during plugin unload/source changes.
-            }
-        }
-
-        private static void TrackBrowserProcesses(CoreWebView2Environment environment)
-        {
-            try
-            {
-                foreach (var info in environment.GetProcessInfos())
-                {
-                    if (info.Kind == CoreWebView2ProcessKind.Browser)
-                        WebView2ProcessTracker.Track(info.ProcessId);
-                }
-            }
-            catch
-            {
-                // Older runtimes lack process info; the browser id is recorded again once the view exists.
-            }
-        }
-
         private void ThreadMain()
         {
             var context = new BrowserSynchronizationContext();
@@ -644,7 +616,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
             {
                 // Each step on its own, closing the browser first: a failure in one step must never leave a
                 // browser running with nobody to close it.
-                BestEffort(() =>
+                WebView2BrowserGuards.BestEffort(() =>
                 {
                     if (webView != null)
                     {
@@ -653,16 +625,16 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                         webView.NavigationStarting -= OnNavigationStarting;
                         webView.NavigationCompleted -= OnNavigationCompleted;
                         webView.ProcessFailed -= OnProcessFailed;
-                        webView.NewWindowRequested -= OnNewWindowRequested;
-                        webView.PermissionRequested -= OnPermissionRequested;
-                        webView.DownloadStarting -= OnDownloadStarting;
+                        webView.NewWindowRequested -= WebView2BrowserGuards.OnNewWindowRequested;
+                        webView.PermissionRequested -= WebView2BrowserGuards.OnPermissionRequested;
+                        webView.DownloadStarting -= WebView2BrowserGuards.OnDownloadStarting;
                     }
                 });
                 webView = null;
-                BestEffort(() => controller?.Close());
+                WebView2BrowserGuards.BestEffort(() => controller?.Close());
                 controller = null;
-                BestEffort(DisposeWindowCaptureSession);
-                BestEffort(() =>
+                WebView2BrowserGuards.BestEffort(DisposeWindowCaptureSession);
+                WebView2BrowserGuards.BestEffort(() =>
                 {
                     if (hostWindow != null)
                         hostWindow.InteractionDismissed -= OnInteractionDismissed;
@@ -694,7 +666,7 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine(owner.descriptor.WebView2AdditionalBrowserArguments));
                 environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
-                TrackBrowserProcesses(environment);
+                WebView2BrowserGuards.TrackBrowserProcesses(environment);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
@@ -706,15 +678,15 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
 
                 webView = controller.CoreWebView2;
                 WebView2ProcessTracker.Track((int)webView.BrowserProcessId);
-                ConfigureWebView(webView);
+                WebView2BrowserGuards.ConfigureWebView(webView);
                 ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;
                 webView.NavigationStarting += OnNavigationStarting;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
-                webView.NewWindowRequested += OnNewWindowRequested;
-                webView.PermissionRequested += OnPermissionRequested;
-                webView.DownloadStarting += OnDownloadStarting;
+                webView.NewWindowRequested += WebView2BrowserGuards.OnNewWindowRequested;
+                webView.PermissionRequested += WebView2BrowserGuards.OnPermissionRequested;
+                webView.DownloadStarting += WebView2BrowserGuards.OnDownloadStarting;
                 webView.WebResourceRequested += OnWebResourceRequested;
                 var page = owner.playerPage ?? throw new InvalidOperationException("Player page was not created.");
                 webView.AddWebResourceRequestedFilter(page.Url, CoreWebView2WebResourceContext.Document);
@@ -826,18 +798,6 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 windowCaptureSession?.Dispose();
 
             windowCaptureSession = null;
-        }
-
-        private static void ConfigureWebView(CoreWebView2 webView)
-        {
-            webView.Settings.AreDefaultContextMenusEnabled = false;
-            webView.Settings.AreDevToolsEnabled = false;
-            webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
-            webView.Settings.IsStatusBarEnabled = false;
-            webView.Settings.IsZoomControlEnabled = false;
-            webView.Settings.AreHostObjectsAllowed = false;
-            webView.Settings.IsGeneralAutofillEnabled = false;
-            webView.Settings.IsPasswordAutosaveEnabled = false;
         }
 
         private void ApplyBrowserMute(bool audioEnabled, float volume)
@@ -998,23 +958,6 @@ internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVid
                 args.Cancel = true;
                 owner.browserStatus = "blocked browser navigation outside the provider player";
             }
-        }
-
-        private static void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs args)
-        {
-            args.Handled = true;
-        }
-
-        private static void OnPermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs args)
-        {
-            args.State = BrowserPermissionPolicy.IsAllowed(args.PermissionKind.ToString())
-                ? CoreWebView2PermissionState.Allow
-                : CoreWebView2PermissionState.Deny;
-        }
-
-        private static void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs args)
-        {
-            args.Cancel = true;
         }
 
         private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs args)

@@ -7,7 +7,7 @@ using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 
-internal sealed class WineWebView2SetupWindow : Window, IDisposable
+internal sealed class WineWebView2SetupWindow : CrystalCastWindow, IDisposable
 {
     private readonly Plugin plugin;
     private string runtimeStatus = string.Empty;
@@ -49,16 +49,6 @@ internal sealed class WineWebView2SetupWindow : Window, IDisposable
 
     public void Dispose()
     {
-    }
-
-    public override void PreDraw()
-    {
-        PushWindowStyle(S(28.0f, 24.0f));
-    }
-
-    public override void PostDraw()
-    {
-        PopWindowStyle();
     }
 
     public override void Draw()

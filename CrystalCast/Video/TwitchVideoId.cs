@@ -33,7 +33,7 @@ public static partial class TwitchVideoId
         if (!BrowserUriPolicy.IsHostOrSubdomain(uri, "twitch.tv"))
             return false;
 
-        var segments = GetPathSegments(uri);
+        var segments = ProviderUrlParsing.GetPathSegments(uri);
         if (segments.Length == 0)
             return false;
 
@@ -111,14 +111,6 @@ public static partial class TwitchVideoId
     private static bool IsValidNumericVideoId(string videoId)
     {
         return !string.IsNullOrWhiteSpace(videoId) && NumericVideoIdRegex().IsMatch(videoId);
-    }
-
-    private static string[] GetPathSegments(Uri uri)
-    {
-        return uri.AbsolutePath
-            .Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(Uri.UnescapeDataString)
-            .ToArray();
     }
 
     [GeneratedRegex("^v[0-9]{1,24}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

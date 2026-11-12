@@ -31,7 +31,7 @@ internal sealed class FollowFramePredictor
 
     public void Apply(ref Vector3 position, ref float yaw, float predictionSeconds, double nowSeconds)
     {
-        if (!IsFinite(position) || !float.IsFinite(yaw) || !double.IsFinite(nowSeconds))
+        if (!PlacementMath.IsFinite(position) || !float.IsFinite(yaw) || !double.IsFinite(nowSeconds))
         {
             Reset();
             return;
@@ -72,9 +72,9 @@ internal sealed class FollowFramePredictor
             yawVelocity * (outputLatencySeconds + YawSmoothingSeconds),
             -MaxYawLeadRadians,
             MaxYawLeadRadians);
-        var yawTarget = NormalizeRadians(yaw + yawLead);
+        var yawTarget = PlacementMath.NormalizeRadians(yaw + yawLead);
         var yawBlend = GetFilterBlend(evaluationDelta, YawSmoothingSeconds);
-        filteredYaw = NormalizeRadians(filteredYaw + (NormalizeRadians(yawTarget - filteredYaw) * yawBlend));
+        filteredYaw = PlacementMath.NormalizeRadians(filteredYaw + (PlacementMath.NormalizeRadians(yawTarget - filteredYaw) * yawBlend));
 
         position = filteredPosition;
         yaw = filteredYaw;
@@ -125,7 +125,7 @@ internal sealed class FollowFramePredictor
 
     private void UpdateYaw(float yaw, double nowSeconds, double evaluationDelta)
     {
-        var yawStep = NormalizeRadians(yaw - lastYaw);
+        var yawStep = PlacementMath.NormalizeRadians(yaw - lastYaw);
         if (MathF.Abs(yawStep) >= YawChangeEpsilonRadians)
         {
             var sampleDelta = nowSeconds - lastYawSampleSeconds;
@@ -182,21 +182,5 @@ internal sealed class FollowFramePredictor
     private static float GetFilterBlend(double evaluationSeconds, float smoothingSeconds)
     {
         return 1.0f - MathF.Exp(-(float)evaluationSeconds / smoothingSeconds);
-    }
-
-    private static bool IsFinite(Vector3 value)
-    {
-        return float.IsFinite(value.X)
-            && float.IsFinite(value.Y)
-            && float.IsFinite(value.Z);
-    }
-
-    private static float NormalizeRadians(float value)
-    {
-        while (value <= -MathF.PI)
-            value += MathF.Tau;
-        while (value > MathF.PI)
-            value -= MathF.Tau;
-        return value;
     }
 }

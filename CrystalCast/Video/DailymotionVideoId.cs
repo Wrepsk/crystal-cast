@@ -29,7 +29,7 @@ public static partial class DailymotionVideoId
         var host = uri.IdnHost.ToLowerInvariant();
         if (BrowserUriPolicy.IsExactHost(uri, "dai.ly", "www.dai.ly"))
         {
-            var shortSegments = GetPathSegments(uri);
+            var shortSegments = ProviderUrlParsing.GetPathSegments(uri);
             if (TryExtractVideoId(shortSegments.FirstOrDefault(), out var shortVideoId))
             {
                 source = new DailymotionSourceReference(DailymotionSourceKind.Video, shortVideoId, string.Empty);
@@ -44,15 +44,15 @@ public static partial class DailymotionVideoId
             return false;
         }
 
-        var query = ParseQuery(uri.Query);
-        var segments = GetPathSegments(uri);
-        if (TryGetQueryValue(query, "video", out var queryVideoId) && TryExtractVideoId(queryVideoId, out var videoId))
+        var query = ProviderUrlParsing.ParseQuery(uri.Query);
+        var segments = ProviderUrlParsing.GetPathSegments(uri);
+        if (query.TryGetValue("video", out var queryVideoId) && TryExtractVideoId(queryVideoId, out var videoId))
         {
             source = new DailymotionSourceReference(DailymotionSourceKind.Video, videoId, string.Empty);
             return true;
         }
 
-        if (TryGetQueryValue(query, "playlist", out var queryPlaylistId) && TryExtractPlaylistId(queryPlaylistId, out var playlistId))
+        if (query.TryGetValue("playlist", out var queryPlaylistId) && TryExtractPlaylistId(queryPlaylistId, out var playlistId))
         {
             source = new DailymotionSourceReference(DailymotionSourceKind.Playlist, string.Empty, playlistId);
             return true;
@@ -201,36 +201,6 @@ public static partial class DailymotionVideoId
             return value[..underscoreIndex];
 
         return value;
-    }
-
-    private static string[] GetPathSegments(Uri uri)
-    {
-        return uri.AbsolutePath
-            .Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(Uri.UnescapeDataString)
-            .ToArray();
-    }
-
-    private static bool TryGetQueryValue(Dictionary<string, string> query, string key, out string value)
-    {
-        return query.TryGetValue(key, out value!);
-    }
-
-    private static Dictionary<string, string> ParseQuery(string query)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(query))
-            return result;
-
-        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = pair.Split('=', 2);
-            var key = Uri.UnescapeDataString(parts[0].Replace("+", " ", StringComparison.Ordinal));
-            var value = parts.Length == 2 ? Uri.UnescapeDataString(parts[1].Replace("+", " ", StringComparison.Ordinal)) : string.Empty;
-            result[key] = value;
-        }
-
-        return result;
     }
 
     [GeneratedRegex("^x[A-Za-z0-9]{2,31}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

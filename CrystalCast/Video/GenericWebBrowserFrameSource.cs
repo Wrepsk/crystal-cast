@@ -67,8 +67,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         playbackIntent = new BrowserPlaybackIntent(autoplay);
         this.loop = loop;
         this.audioEnabled = audioEnabled;
-        this.volume = QuantizeVolume(volume);
-        this.playbackRate = ClampPlaybackRate(playbackRate);
+        this.volume = BrowserPlayerState.QuantizeVolume(volume);
+        this.playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
         this.captureMode = captureMode;
         this.log = log;
         this.isNavigationAllowed = isNavigationAllowed;
@@ -165,8 +165,8 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
     public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
-        volume = QuantizeVolume(volume);
-        playbackRate = ClampPlaybackRate(playbackRate);
+        volume = BrowserPlayerState.QuantizeVolume(volume);
+        playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
 
         if (settingsPublished
             && this.audioEnabled == audioEnabled
@@ -394,7 +394,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 State = state,
                 PositionMs = positionMs,
                 DurationMs = durationMs,
-                Rate = ClampPlaybackRate(rate),
+                Rate = BrowserPlayerState.ClampPlaybackRate(rate),
                 Title = title,
                 VideoId = string.Empty,
                 CanonicalUrl = parsed.Url,
@@ -435,30 +435,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             return telemetry.DurationMs;
         }
-    }
-
-    private static float ClampPlaybackRate(float rate)
-    {
-        if (!float.IsFinite(rate))
-            return 1.0f;
-
-        return Math.Clamp(rate, 0.25f, 2.0f);
-    }
-
-    private static float ClampVolume(float volume)
-    {
-        if (!float.IsFinite(volume))
-            return 0.0f;
-
-        return Math.Clamp(volume, 0.0f, 1.0f);
-    }
-
-    private static float QuantizeVolume(float volume)
-    {
-        var clamped = ClampVolume(volume);
-        return clamped <= 0.0f
-            ? 0.0f
-            : MathF.Ceiling(clamped * 100.0f) / 100.0f;
     }
 
     private sealed class BrowserThread : IDisposable
@@ -675,34 +651,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             }
         }
 
-        private static void BestEffort(Action step)
-        {
-            try
-            {
-                step();
-            }
-            catch
-            {
-                // Best-effort browser cleanup during plugin unload/source changes.
-            }
-        }
-
-        private static void TrackBrowserProcesses(CoreWebView2Environment environment)
-        {
-            try
-            {
-                foreach (var info in environment.GetProcessInfos())
-                {
-                    if (info.Kind == CoreWebView2ProcessKind.Browser)
-                        WebView2ProcessTracker.Track(info.ProcessId);
-                }
-            }
-            catch
-            {
-                // Older runtimes lack process info; the browser id is recorded again once the view exists.
-            }
-        }
-
         private void ThreadMain()
         {
             var context = new BrowserSynchronizationContext();
@@ -748,7 +696,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
             {
                 // Each step on its own, closing the browser first: a failure in one step must never leave a
                 // browser running with nobody to close it.
-                BestEffort(() =>
+                WebView2BrowserGuards.BestEffort(() =>
                 {
                     if (webView != null)
                     {
@@ -756,16 +704,16 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                         webView.NavigationStarting -= OnNavigationStarting;
                         webView.NavigationCompleted -= OnNavigationCompleted;
                         webView.ProcessFailed -= OnProcessFailed;
-                        webView.NewWindowRequested -= OnNewWindowRequested;
-                        webView.PermissionRequested -= OnPermissionRequested;
-                        webView.DownloadStarting -= OnDownloadStarting;
+                        webView.NewWindowRequested -= WebView2BrowserGuards.OnNewWindowRequested;
+                        webView.PermissionRequested -= WebView2BrowserGuards.OnPermissionRequested;
+                        webView.DownloadStarting -= WebView2BrowserGuards.OnDownloadStarting;
                     }
                 });
                 webView = null;
-                BestEffort(() => controller?.Close());
+                WebView2BrowserGuards.BestEffort(() => controller?.Close());
                 controller = null;
-                BestEffort(DisposeWindowCaptureSession);
-                BestEffort(() =>
+                WebView2BrowserGuards.BestEffort(DisposeWindowCaptureSession);
+                WebView2BrowserGuards.BestEffort(() =>
                 {
                     if (hostWindow != null)
                         hostWindow.InteractionDismissed -= OnInteractionDismissed;
@@ -792,7 +740,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 var environmentOptions = new CoreWebView2EnvironmentOptions(
                     additionalBrowserArguments: WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required"));
                 var environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
-                TrackBrowserProcesses(environment);
+                WebView2BrowserGuards.TrackBrowserProcesses(environment);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
@@ -807,15 +755,15 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
 
                 webView = controller.CoreWebView2;
                 WebView2ProcessTracker.Track((int)webView.BrowserProcessId);
-                ConfigureWebView(webView);
+                WebView2BrowserGuards.ConfigureWebView(webView);
                 ApplyBrowserMute(owner.audioEnabled, owner.volume);
                 webView.WebMessageReceived += OnWebMessageReceived;
                 webView.NavigationStarting += OnNavigationStarting;
                 webView.NavigationCompleted += OnNavigationCompleted;
                 webView.ProcessFailed += OnProcessFailed;
-                webView.NewWindowRequested += OnNewWindowRequested;
-                webView.PermissionRequested += OnPermissionRequested;
-                webView.DownloadStarting += OnDownloadStarting;
+                webView.NewWindowRequested += WebView2BrowserGuards.OnNewWindowRequested;
+                webView.PermissionRequested += WebView2BrowserGuards.OnPermissionRequested;
+                webView.DownloadStarting += WebView2BrowserGuards.OnDownloadStarting;
                 await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript(owner.messageNonce));
                 cancellationToken.ThrowIfCancellationRequested();
                 playerReady = false;
@@ -914,18 +862,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 windowCaptureSession?.Dispose();
 
             windowCaptureSession = null;
-        }
-
-        private static void ConfigureWebView(CoreWebView2 webView)
-        {
-            webView.Settings.AreDefaultContextMenusEnabled = false;
-            webView.Settings.AreDevToolsEnabled = false;
-            webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
-            webView.Settings.IsStatusBarEnabled = false;
-            webView.Settings.IsZoomControlEnabled = false;
-            webView.Settings.AreHostObjectsAllowed = false;
-            webView.Settings.IsGeneralAutofillEnabled = false;
-            webView.Settings.IsPasswordAutosaveEnabled = false;
         }
 
         private void ApplyBrowserMute(bool audioEnabled, float volume)
@@ -1114,22 +1050,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
                 owner.UpdateFromWebMessage(document!.RootElement);
         }
 
-        private static void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs args)
-        {
-            args.Handled = true;
-        }
-
-        private static void OnPermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs args)
-        {
-            args.State = BrowserPermissionPolicy.IsAllowed(args.PermissionKind.ToString())
-                ? CoreWebView2PermissionState.Allow
-                : CoreWebView2PermissionState.Deny;
-        }
-
-        private static void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs args)
-        {
-            args.Cancel = true;
-        }
     }
 
     private static string BuildControllerScript(string nonce)

@@ -145,11 +145,6 @@ public sealed class WorldScreenManager : IDisposable
         }
     }
 
-    public bool PlaceInFrontOfPlayer(float distanceMeters = 3.0f)
-    {
-        return ActiveInstance?.PlaceInFrontOfPlayer(distanceMeters) == true;
-    }
-
     public bool PlaceBrowserScreenInFrontOfPlayer(BrowserScreenProfile screen, float distanceMeters = 3.0f)
     {
         SyncBrowserScreens();
@@ -770,7 +765,7 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool TryPrepareFrame(out PreparedScreenTexture texture)
         {
-            if (!IsEnabled())
+            if (!browserScreen.Enabled)
             {
                 LastDrawStatus = "disabled";
                 Stop();
@@ -862,7 +857,7 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool TryPlayDynamicSource()
         {
-            SetPlaybackPaused(false);
+            browserScreen.PlaybackPaused = false;
             lastPauseCommandUnixMs = 0;
             if (frameSource is not IMediaPlaybackController controller)
                 return false;
@@ -873,7 +868,7 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool TryPauseDynamicSource()
         {
-            SetPlaybackPaused(true);
+            browserScreen.PlaybackPaused = true;
             return TrySendPauseCommand(force: true);
         }
 
@@ -897,7 +892,7 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool TryRestartDynamicSource()
         {
-            SetPlaybackPaused(false);
+            browserScreen.PlaybackPaused = false;
             lastPauseCommandUnixMs = 0;
             if (frameSource is not IMediaPlaybackController controller)
                 return false;
@@ -1021,7 +1016,7 @@ public sealed class WorldScreenManager : IDisposable
             }
 
             ApplyLiveSourceSettings();
-            if (IsPlaybackPaused())
+            if (browserScreen.PlaybackPaused)
             {
                 frameSource.Stop();
                 TrySendPauseCommand(force: false);
@@ -1271,7 +1266,7 @@ public sealed class WorldScreenManager : IDisposable
         private float CalculateEffectiveAudioVolume(float baseVolume, bool smooth = true)
         {
             var targetVolume = Math.Clamp(baseVolume, 0.0f, 1.0f) * SpatialAudioAttenuation;
-            if (!smooth || !IsSpatialAudioEnabled())
+            if (!smooth || !browserScreen.SpatialAudioEnabled)
             {
                 SetEffectiveAudioVolume(targetVolume);
                 return EffectiveAudioVolume;
@@ -1314,7 +1309,7 @@ public sealed class WorldScreenManager : IDisposable
 
         private float CalculateSpatialAudioAttenuation()
         {
-            if (!IsSpatialAudioEnabled())
+            if (!browserScreen.SpatialAudioEnabled)
             {
                 AudioDistanceMeters = 0.0f;
                 return 1.0f;
@@ -1328,8 +1323,8 @@ public sealed class WorldScreenManager : IDisposable
             }
 
             AudioDistanceMeters = DistanceToScreen(player.Position);
-            var fullRadius = Math.Max(0.0f, GetSpatialFullVolumeRadiusMeters());
-            var silentRadius = Math.Max(fullRadius + 0.1f, GetSpatialSilentRadiusMeters());
+            var fullRadius = Math.Max(0.0f, browserScreen.SpatialAudioFullVolumeRadiusMeters);
+            var silentRadius = Math.Max(fullRadius + 0.1f, browserScreen.SpatialAudioSilentRadiusMeters);
 
             if (AudioDistanceMeters <= fullRadius)
                 return 1.0f;
@@ -1439,8 +1434,8 @@ public sealed class WorldScreenManager : IDisposable
             {
                 OccludedAlpha = Math.Clamp(placement.OccludedAlpha, 0.0f, 1.0f),
                 OcclusionTolerance = Math.Max(0.0f, placement.OcclusionTolerance),
-                FadeStart = GetDistanceFadeEnabled() ? Math.Max(0.0f, placement.FadeStartMeters) : float.PositiveInfinity,
-                FadeStop = GetDistanceFadeEnabled()
+                FadeStart = browserScreen.Placement.EnableDistanceFade ? Math.Max(0.0f, placement.FadeStartMeters) : float.PositiveInfinity,
+                FadeStop = browserScreen.Placement.EnableDistanceFade
                     ? Math.Max(placement.FadeStartMeters + 0.01f, placement.FadeStopMeters)
                     : float.PositiveInfinity,
             };
@@ -1448,20 +1443,20 @@ public sealed class WorldScreenManager : IDisposable
 
         private Vector2 GetPanelSize(PreparedScreenTexture texture)
         {
-            return ScreenPanelSizeResolver.Resolve(GetPlacementSettings(), texture.Width, texture.Height);
+            return ScreenPanelSizeResolver.Resolve(browserScreen.Placement, texture.Width, texture.Height);
         }
 
         private Vector2 GetPanelSizeForSource()
         {
             return ScreenPanelSizeResolver.Resolve(
-                GetPlacementSettings(),
+                browserScreen.Placement,
                 frameSource?.Width ?? 0,
                 frameSource?.Height ?? 0);
         }
 
         private float GetScreenCurveAmount(float width)
         {
-            return Math.Clamp(GetScreenCurveAmountMeters(), 0.0f, GetMaxScreenCurveAmount(width));
+            return Math.Clamp(browserScreen.Placement.ScreenCurveAmountMeters, 0.0f, GetMaxScreenCurveAmount(width));
         }
 
         private static (float Radius, float HalfAngle) BuildCurve(float width, float curveAmount)
@@ -1524,35 +1519,14 @@ public sealed class WorldScreenManager : IDisposable
             BrowserSourceProviderRegistry.ApplyCaptureFps(frameSource, browserScreen);
         }
 
-        private bool IsEnabled() => browserScreen.Enabled;
-        private bool IsPlaybackPaused() => browserScreen.PlaybackPaused;
-
-        private void SetPlaybackPaused(bool paused)
-        {
-            browserScreen.PlaybackPaused = paused;
-        }
-
-        private bool IsSpatialAudioEnabled() => browserScreen.SpatialAudioEnabled;
-        private float GetSpatialFullVolumeRadiusMeters() => browserScreen.SpatialAudioFullVolumeRadiusMeters;
-        private float GetSpatialSilentRadiusMeters() => browserScreen.SpatialAudioSilentRadiusMeters;
-        private bool GetDistanceFadeEnabled() => browserScreen.Placement.EnableDistanceFade;
-        private float GetWidthMeters() => browserScreen.Placement.WidthMeters;
-        private float GetHeightMeters() => browserScreen.Placement.HeightMeters;
-        private float GetScreenCurveAmountMeters() => browserScreen.Placement.ScreenCurveAmountMeters;
-
-        private ScreenPlacementSettings GetPlacementSettings()
-        {
-            return browserScreen.Placement;
-        }
-
         private bool TryResolvePlacement(out ResolvedScreenPlacement placement)
         {
-            return services.PlacementResolver.TryResolve(GetPlacementSettings(), GetFollowPredictionSeconds(), out placement);
+            return services.PlacementResolver.TryResolve(browserScreen.Placement, GetFollowPredictionSeconds(), out placement);
         }
 
         private float GetFollowPredictionSeconds()
         {
-            if (GetPlacementSettings().Mode == ScreenPlacementMode.World)
+            if (browserScreen.Placement.Mode == ScreenPlacementMode.World)
                 return 0.0f;
 
             if (configuration.OutputMode != ScreenOutputMode.NativeOverlay)

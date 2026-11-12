@@ -41,7 +41,6 @@ public sealed class ScreenIpcSourceLockRequest
 public sealed class ScreenIpcSourceUpdateRequest
 {
     public string ScreenId { get; set; } = string.Empty;
-    public string OwnerId { get; set; } = string.Empty;
     public bool Activate { get; set; }
 
     /// <summary>The provider <see cref="Source"/> is for. Leave out to keep the screen's current provider.</summary>

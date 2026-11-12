@@ -440,7 +440,6 @@ Changes only what a screen plays. Use it for play, pause, seek and loading anoth
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `screenId` | string | Required |
-| `ownerId` | string | Not stored by this call. TODO: currently unused by the handler |
 | `activate` | bool | Also select the screen in the user's UI |
 | `provider` | provider | Switch provider. Leave out to keep the current one |
 | `source` | source patch | |

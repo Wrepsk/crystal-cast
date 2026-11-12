@@ -133,7 +133,7 @@ Playback state flows the other way: the player page posts status messages to the
 ## Threads
 
 - The game's main thread runs the draw callback, all UI, configuration changes, and every IPC handler (`IpcMainThreadDispatcher` moves calls from other threads onto it).
-- Each WebView2 browser has its own STA thread with a message pump (`BrowserThread` inside the two WebView2 frame sources).
+- Each WebView2 browser has its own STA thread with a message pump (`BrowserThread` inside `WebView2FrameSourceBase`).
 - JPEG decoding, window-capture callbacks, the WebKitGTK helper connection, metadata lookups and the WebView2 download run on worker threads and hand results back through thread-safe fields or queues.
 
 ## Platforms

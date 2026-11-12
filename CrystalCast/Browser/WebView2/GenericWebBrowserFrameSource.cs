@@ -1,51 +1,27 @@
-using CrystalCast.Browser.Capture;
 using CrystalCast.Sources;
 using CrystalCast.Sources.Providers;
 using CrystalCast.Video;
-using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Dalamud.Plugin.Services;
 
 namespace CrystalCast.Browser.WebView2;
 
-internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
+/// <summary>
+/// Shows any web page. The page is loaded as it is, and a controller script injected into it finds the
+/// page's media element, carries out play, pause and seek, and reports playback back.
+/// </summary>
+internal sealed class GenericWebBrowserFrameSource : WebView2FrameSourceBase
 {
     private const string PlaybackUnavailableStatus = "Playback sync unavailable for this page";
 
-    private readonly string input;
     private readonly GenericWebSourceReference source;
-    private readonly bool isValidSource;
-    private readonly BrowserPlaybackIntent playbackIntent;
     private readonly string messageNonce = BrowserPageMessaging.CreateNonce();
-    private readonly WebView2CaptureMode captureMode;
-    private readonly JpegCaptureResolution jpegResolution;
-    private readonly IPluginLog log;
     private readonly Func<string, bool>? isNavigationAllowed;
-    private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private readonly object telemetryLock = new();
-    private BrowserThread? browserThread;
-    private VideoFrame? latestFrame;
-    private NativeVideoFrame? latestNativeFrame;
     private MediaPlaybackTelemetry telemetry = new();
-    private bool loop;
-    private bool audioEnabled;
-    private float volume;
-    private float playbackRate;
     private bool settingsPublished;
-    private volatile bool captureEnabled;
-    private volatile string browserStatus = "stopped";
-    private volatile string nativeCaptureFailure = string.Empty;
-    private string? browserExecutableFolder;
     private volatile string playerStatus = "player not ready";
-    private long sequence;
-    private long lastFrameUnixMs;
-    private long captureWindowStartUnixMs;
-    private int captureWindowFrames;
-    private double measuredCaptureFps;
-    private double lastCaptureMilliseconds;
-    private volatile bool disposed;
 
     public GenericWebBrowserFrameSource(
         string input,
@@ -61,275 +37,85 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         IPluginLog log,
         Func<string, bool>? isNavigationAllowed = null,
         JpegCaptureResolution jpegResolution = JpegCaptureResolution.Full1080p)
+        : base(
+            BrowserSourceDescriptors.GenericWeb,
+            input,
+            GenericWebUrl.TryParseSource(input, out var parsedSource),
+            width,
+            height,
+            captureFps,
+            autoplay,
+            loop,
+            audioEnabled,
+            volume,
+            playbackRate,
+            captureMode,
+            log,
+            jpegResolution)
     {
-        this.jpegResolution = jpegResolution;
-        this.input = input;
-        isValidSource = GenericWebUrl.TryParseSource(input, out source);
-        Width = Math.Clamp(width, 320, 3840);
-        Height = Math.Clamp(height, 180, 2160);
-        FramesPerSecond = Math.Clamp(captureFps, 1.0f, 120.0f);
-        playbackIntent = new BrowserPlaybackIntent(autoplay);
-        this.loop = loop;
-        this.audioEnabled = audioEnabled;
-        this.volume = BrowserPlayerState.QuantizeVolume(volume);
-        this.playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
-        this.captureMode = captureMode;
-        this.log = log;
+        source = parsedSource;
         this.isNavigationAllowed = isNavigationAllowed;
-
-        if (!isValidSource)
-            browserStatus = BrowserSourceDescriptors.GenericWeb.InvalidSourceMessage;
-
-        UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, this.playbackRate, string.Empty, input);
+        UpdateTelemetry(ScreenPlaybackState.Stopped, 0, 0, PlaybackRate, string.Empty, input);
     }
 
-    public BrowserSourceProviderKind ProviderKind => BrowserSourceProviderKind.GenericWeb;
-    public string Name => captureMode == WebView2CaptureMode.WindowGraphicsCapture
-        ? "Generic Web browser (WebView2 window capture)"
-        : "Generic Web browser (WebView2 JPEG capture)";
-    public int Width { get; }
-    public int Height { get; }
-    public float FramesPerSecond { get; private set; }
-    public bool IsRunning => captureEnabled;
-    public float DetectedVideoFps => 0.0f;
-    public float MeasuredCaptureFps => (float)Volatile.Read(ref measuredCaptureFps);
-    public bool BrowserControlsAvailable => isValidSource;
-    public bool BrowserControlsVisible => browserThread?.BrowserControlsVisible == true;
+    public override float DetectedVideoFps => 0.0f;
 
-    public string Status
+    protected override string PlayerStatus
+    {
+        get => playerStatus;
+        set => playerStatus = value;
+    }
+
+    protected override string MessageNonce => messageNonce;
+
+    protected override string StartUrl => source.Url;
+
+    protected override string LoadingDescription => "Generic Web page";
+
+    protected override string CaptureLogName => "Generic Web";
+
+    protected override MediaPlaybackTelemetry CurrentTelemetry
     {
         get
         {
-            var frameAge = lastFrameUnixMs == 0
-                ? "no captured frame"
-                : $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameUnixMs} ms frame age";
-            var failureStatus = string.IsNullOrWhiteSpace(nativeCaptureFailure)
-                ? string.Empty
-                : $"; WGC failure {nativeCaptureFailure}";
-            return $"capture {measuredCaptureFps:0.#}/{FramesPerSecond:0.#} fps; {cadenceDiagnostics.Status}; {lastCaptureMilliseconds:0.#} ms; {frameAge}; {browserStatus}{failureStatus}; {playerStatus}";
+            lock (telemetryLock)
+            {
+                return telemetry;
+            }
         }
     }
 
-    public void Start()
-    {
-        var wasCaptureEnabled = captureEnabled;
-        if (!isValidSource)
-        {
-            browserStatus = BrowserSourceDescriptors.GenericWeb.ParseInvalidInputStatus(input);
-            return;
-        }
+    /// <summary>There is no player page to wait for, so window capture starts with the page.</summary>
+    protected override bool StartsWindowCaptureWithPage => true;
 
-        EnsureBrowserThread();
-        if (browserThread == null)
-            return;
+    /// <summary>Each page the user navigates to gets a fresh controller that reports ready again.</summary>
+    protected override bool PlayerRestartsOnNavigation => true;
 
-        captureEnabled = true;
-        if (!wasCaptureEnabled && playbackIntent.IsPlayRequested)
-            browserThread.Play();
-    }
-
-    public void Stop()
-    {
-        var wasCaptureEnabled = captureEnabled;
-        captureEnabled = false;
-        if (wasCaptureEnabled)
-            browserThread?.Pause();
-
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle(), GetTelemetryUrl());
-    }
-
-    public bool TryGetLatestFrame(out VideoFrame frame)
-    {
-        var current = Volatile.Read(ref latestFrame);
-        if (current != null)
-            return current.TryAcquire(out frame);
-
-        frame = null!;
-        return false;
-    }
-
-    public bool TryGetLatestNativeFrame(out NativeVideoFrame frame)
-    {
-        frame = latestNativeFrame!;
-        return frame != null;
-    }
-
-    public void AcknowledgeNativeFrame(IntPtr sharedHandle) =>
-        browserThread?.AcknowledgeNativeFrame(sharedHandle);
-
-    public bool TryGetPlaybackTelemetry(out MediaPlaybackTelemetry currentTelemetry)
-    {
-        lock (telemetryLock)
-        {
-            currentTelemetry = telemetry;
-        }
-
-        return isValidSource;
-    }
-
-    public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
+    public override void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop, bool playlistAutoplayNext)
     {
         volume = BrowserPlayerState.QuantizeVolume(volume);
         playbackRate = BrowserPlayerState.ClampPlaybackRate(playbackRate);
 
-        if (settingsPublished
-            && this.audioEnabled == audioEnabled
-            && Math.Abs(this.volume - volume) < 0.001f
-            && Math.Abs(this.playbackRate - playbackRate) < 0.001f
-            && this.loop == loop)
-        {
+        if (settingsPublished && MatchesPlaybackSettings(audioEnabled, volume, playbackRate, loop))
             return;
-        }
 
-        this.audioEnabled = audioEnabled;
-        this.volume = volume;
-        this.playbackRate = playbackRate;
-        this.loop = loop;
-        browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
+        StorePlaybackSettings(audioEnabled, volume, playbackRate, loop);
+        SendPlaybackSettings(playlistAutoplayNext: true);
         settingsPublished = true;
     }
 
-    public void Play()
+    protected override void OnBrowserThreadCreated()
     {
-        playbackIntent.RequestPlay();
-        EnsureBrowserThread();
-        captureEnabled = true;
-        browserThread?.Play();
-    }
-
-    public void Pause()
-    {
-        playbackIntent.RequestPause();
-        captureEnabled = false;
-        browserThread?.Pause();
-        UpdateTelemetry(ScreenPlaybackState.Paused, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle(), GetTelemetryUrl());
-    }
-
-    public void SeekBy(double seconds)
-    {
-        browserThread?.SeekBy(seconds);
-    }
-
-    public void SeekTo(double seconds)
-    {
-        browserThread?.SeekTo(seconds);
-    }
-
-    public void Restart()
-    {
-        playbackIntent.RequestPlay();
-        EnsureBrowserThread();
-        captureEnabled = true;
-        browserThread?.Restart();
-    }
-
-    public void UpdateCaptureFps(float fps)
-    {
-        var clamped = Math.Clamp(fps, 1.0f, 120.0f);
-        if (Math.Abs(FramesPerSecond - clamped) < 0.01f)
-            return;
-
-        FramesPerSecond = clamped;
-    }
-
-    public bool ShowBrowserControls()
-    {
-        if (!isValidSource)
-        {
-            browserStatus = BrowserSourceDescriptors.GenericWeb.ParseInvalidInputStatus(input);
-            return false;
-        }
-
-        EnsureBrowserThread();
-        if (browserThread == null)
-            return false;
-
-        return browserThread.ShowBrowserControls();
-    }
-
-    public bool HideBrowserControls()
-    {
-        if (browserThread == null)
-            return false;
-
-        browserThread.HideBrowserControls();
-        return true;
-    }
-
-    public void Dispose()
-    {
-        disposed = true;
-        captureEnabled = false;
-        Interlocked.Exchange(ref latestFrame, null)?.Dispose();
-        browserThread?.Dispose();
-        browserThread = null;
-        browserStatus = "disposed";
-        UpdateTelemetry(ScreenPlaybackState.Stopped, GetTelemetryPositionMs(), GetTelemetryDurationMs(), playbackRate, GetTelemetryTitle(), GetTelemetryUrl());
-    }
-
-    private void EnsureBrowserThread()
-    {
-        // A disposed source must never start a new browser: nothing would be left to close it.
-        if (browserThread != null || !isValidSource || disposed)
-            return;
-
-        if (!WebView2BrowserFrameSource.TryGetWebView2Runtime(out var runtimeVersion, out var runtimeError, out var browserFolder))
-        {
-            browserStatus = runtimeError;
-            return;
-        }
-
-        browserExecutableFolder = browserFolder;
-        browserStatus = $"starting WebView2 {runtimeVersion}";
-        browserThread = new BrowserThread(this);
         settingsPublished = false;
-        ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop, true);
+        ApplyPlaybackSettings(AudioEnabled, Volume, PlaybackRate, Loop, true);
     }
 
-    private void PublishFrame(VideoFrame frame)
+    protected override void SetPlaybackState(ScreenPlaybackState state)
     {
-        if (disposed)
-        {
-            frame.Dispose();
-            return;
-        }
-
-        Interlocked.Exchange(ref latestFrame, frame)?.Dispose();
-        if (disposed && Interlocked.CompareExchange(ref latestFrame, null, frame) == frame)
-        {
-            frame.Dispose();
-            return;
-        }
-
-        RecordCapturedFrame(frame.TimestampUnixMs);
+        UpdateTelemetry(state, GetTelemetryPositionMs(), GetTelemetryDurationMs(), PlaybackRate, GetTelemetryTitle(), GetTelemetryUrl());
     }
 
-    private void PublishNativeFrame(IntPtr sharedHandle, int width, int height)
-    {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var frame = new NativeVideoFrame(sharedHandle, width, height, Interlocked.Increment(ref sequence), now);
-        Interlocked.Exchange(ref latestNativeFrame, frame);
-        RecordCapturedFrame(now);
-    }
-
-    private void RecordCapturedFrame(long now)
-    {
-        if (captureWindowStartUnixMs == 0)
-            captureWindowStartUnixMs = now;
-
-        lastFrameUnixMs = now;
-        cadenceDiagnostics.Record(FramesPerSecond);
-        captureWindowFrames++;
-        var elapsedMs = now - captureWindowStartUnixMs;
-        if (elapsedMs >= 1000)
-        {
-            measuredCaptureFps = captureWindowFrames * 1000.0 / elapsedMs;
-            captureWindowFrames = 0;
-            captureWindowStartUnixMs = now;
-        }
-    }
-
-    private void UpdateFromWebMessage(JsonElement root)
+    protected override void HandleWebMessage(JsonElement root)
     {
         if (!BrowserPageMessaging.HasNonce(root, messageNonce)
             || !root.TryGetProperty("type", out var typeProperty))
@@ -340,11 +126,10 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             case "ready":
                 playerStatus = "media controller ready";
-                browserThread?.MarkPlayerReady();
-                browserThread?.ApplyPlaybackSettings(audioEnabled, volume, playbackRate, loop);
+                MarkPlayerReady();
+                SendPlaybackSettings(playlistAutoplayNext: true);
                 settingsPublished = true;
-                if (playbackIntent.IsPlayRequested && captureEnabled)
-                    browserThread?.Play();
+                PlayIfRequested();
                 break;
             case "status":
                 UpdateFromStatusMessage(root);
@@ -358,6 +143,45 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         }
     }
 
+    protected override bool IsFromExpectedDocument(string messageSource, string? currentDocument)
+    {
+        return BrowserNavigationPolicy.IsExpectedMessageSource(messageSource, currentDocument);
+    }
+
+    protected override void OnNavigationStarting(CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (!BrowserNavigationPolicy.IsAllowedGenericDocument(args.Uri))
+        {
+            args.Cancel = true;
+            BrowserStatus = "blocked non-HTTP browser navigation";
+            return;
+        }
+
+        if (isNavigationAllowed?.Invoke(args.Uri) == false)
+        {
+            args.Cancel = true;
+            BrowserStatus = "waiting for approval for cross-domain navigation";
+        }
+    }
+
+    protected override async Task PreparePageAsync(CoreWebView2 webView, CoreWebView2Environment environment)
+    {
+        await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript(messageNonce));
+    }
+
+    protected override async Task OnPageLoadedAsync(CoreWebView2 webView)
+    {
+        BrowserStatus = "WebView2 Generic Web page loaded";
+        try
+        {
+            await webView.ExecuteScriptAsync(BuildControllerScript(messageNonce));
+        }
+        catch (Exception ex)
+        {
+            playerStatus = $"controller injection failed: {ex.Message}";
+        }
+    }
+
     private void UpdateFromStatusMessage(JsonElement root)
     {
         var title = BrowserSourceDescriptors.TryGetString(root, "title", string.Empty);
@@ -365,7 +189,7 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         var noMedia = BrowserSourceDescriptors.TryGetBool(root, "noMedia", false);
         var positionSeconds = BrowserSourceDescriptors.TryGetDouble(root, "positionSeconds", 0.0);
         var durationSeconds = BrowserSourceDescriptors.TryGetDouble(root, "durationSeconds", 0.0);
-        var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", playbackRate);
+        var rate = (float)BrowserSourceDescriptors.TryGetDouble(root, "rate", PlaybackRate);
         var stateCode = BrowserSourceDescriptors.TryGetInt(root, "state", 0);
         var playbackState = noMedia
             ? ScreenPlaybackState.Stopped
@@ -439,621 +263,6 @@ internal sealed class GenericWebBrowserFrameSource : IVideoFrameSource, INativeV
         {
             return telemetry.DurationMs;
         }
-    }
-
-    private sealed class BrowserThread : IDisposable
-    {
-        private readonly GenericWebBrowserFrameSource owner;
-        private readonly Thread thread;
-        private readonly BrowserLifecycle lifecycle = new();
-        private readonly CancellationTokenSource shutdownCancellation = new();
-        private readonly ConcurrentQueue<Func<Task>> pendingActions = new();
-        private readonly Queue<string> pendingPlayerMessages = new();
-        private readonly WebView2JpegFrameCapture jpegCapture = new();
-        private readonly WebView2ScreencastCapture screencast;
-        private readonly WebView2ScreencastSettings screencastSettings;
-        private bool screencastOutcomeLogged;
-        private volatile bool shutdownRequested;
-        private BrowserSynchronizationContext? synchronizationContext;
-        private CoreWebView2Controller? controller;
-        private CoreWebView2? webView;
-        private WebView2HostWindow? hostWindow;
-        private WebView2WindowCaptureSession? windowCaptureSession;
-        private Task? captureLoopTask;
-        private bool playerReady;
-        private volatile bool browserControlsVisible;
-        private long interactionDismissedAtTick;
-
-        public BrowserThread(GenericWebBrowserFrameSource owner)
-        {
-            this.owner = owner;
-            screencastSettings = WebView2ScreencastPolicy.Resolve(
-                owner.Width,
-                owner.Height,
-                owner.jpegResolution,
-                Environment.GetEnvironmentVariable(WebView2ScreencastPolicy.OverrideVariable));
-            screencast = new WebView2ScreencastCapture(
-                owner.PublishFrame,
-                () => Interlocked.Increment(ref owner.sequence),
-                () => owner.FramesPerSecond);
-            lifecycle.TryStart();
-            thread = new Thread(ThreadMain)
-            {
-                IsBackground = true,
-                Name = "CrystalCast WebView2 Generic Web source",
-            };
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-        }
-
-        public bool BrowserControlsVisible => browserControlsVisible;
-
-        public void Play()
-        {
-            PostPlayerMessage(BrowserPageMessaging.Play(owner.messageNonce));
-        }
-
-        public void Pause()
-        {
-            PostPlayerMessage(BrowserPageMessaging.Pause(owner.messageNonce));
-        }
-
-        public void ApplyPlaybackSettings(bool audioEnabled, float volume, float playbackRate, bool loop)
-        {
-            var message = BrowserPageMessaging.Settings(owner.messageNonce, audioEnabled, volume, playbackRate, loop, playlistAutoplayNext: true);
-            Post(() =>
-            {
-                ApplyBrowserMute(audioEnabled, volume);
-                SendOrQueuePlayerMessage(message);
-                return Task.CompletedTask;
-            });
-        }
-
-        public void SeekBy(double seconds)
-        {
-            PostPlayerMessage(BrowserPageMessaging.SeekBy(owner.messageNonce, seconds));
-        }
-
-        public void SeekTo(double seconds)
-        {
-            PostPlayerMessage(BrowserPageMessaging.SeekTo(owner.messageNonce, seconds));
-        }
-
-        public void Restart()
-        {
-            PostPlayerMessage(BrowserPageMessaging.Restart(owner.messageNonce));
-        }
-
-        public bool ShowBrowserControls()
-        {
-            if (!WebView2HostWindow.CanReopenInteraction(
-                    Volatile.Read(ref interactionDismissedAtTick),
-                    Environment.TickCount64))
-            {
-                return false;
-            }
-
-            browserControlsVisible = true;
-            Post(() =>
-            {
-                if (hostWindow != null && controller != null)
-                {
-                    var (width, height) = hostWindow.GetInteractionClientSize();
-                    controller.Bounds = new System.Drawing.Rectangle(0, 0, width, height);
-                    hostWindow.ShowForInteraction(width, height);
-                }
-
-                owner.browserStatus = "WebView2 browser controls visible";
-                return Task.CompletedTask;
-            });
-            return true;
-        }
-
-        public void HideBrowserControls()
-        {
-            browserControlsVisible = false;
-            Post(() =>
-            {
-                ReturnToCaptureMode();
-                return Task.CompletedTask;
-            });
-        }
-
-        private void OnInteractionDismissed()
-        {
-            if (!browserControlsVisible)
-                return;
-
-            Volatile.Write(ref interactionDismissedAtTick, Environment.TickCount64);
-            browserControlsVisible = false;
-            ReturnToCaptureMode();
-        }
-
-        private void ReturnToCaptureMode()
-        {
-            if (hostWindow != null && controller != null)
-            {
-                controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
-                hostWindow.ReturnToCapture();
-            }
-
-            owner.browserStatus = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                ? "WebView2 window capture controls hidden"
-                : "WebView2 JPEG capture controls hidden";
-        }
-
-        public void Dispose()
-        {
-            if (!lifecycle.TryBeginStopping())
-                return;
-
-            shutdownRequested = true;
-            shutdownCancellation.Cancel();
-            synchronizationContext?.Post(_ => { }, null);
-        }
-
-        private void Post(Func<Task> action)
-        {
-            if (!lifecycle.CanAcceptCommands)
-                return;
-
-            pendingActions.Enqueue(action);
-            synchronizationContext?.Post(_ => DrainPostedActions(), null);
-        }
-
-        private void PostPlayerMessage(string json)
-        {
-            Post(() =>
-            {
-                SendOrQueuePlayerMessage(json);
-                return Task.CompletedTask;
-            });
-        }
-
-        private void SendOrQueuePlayerMessage(string json)
-        {
-            if (webView == null || !playerReady)
-            {
-                if (pendingPlayerMessages.Count >= 64)
-                    pendingPlayerMessages.Dequeue();
-                pendingPlayerMessages.Enqueue(json);
-                return;
-            }
-
-            webView.PostWebMessageAsJson(json);
-        }
-
-        public void MarkPlayerReady()
-        {
-            Post(() =>
-            {
-                playerReady = true;
-                while (webView != null && pendingPlayerMessages.TryDequeue(out var message))
-                    webView.PostWebMessageAsJson(message);
-                return Task.CompletedTask;
-            });
-        }
-
-        private void DrainPostedActions()
-        {
-            while (lifecycle.CanAcceptCommands && pendingActions.TryDequeue(out var action))
-                _ = RunPostedActionAsync(action);
-        }
-
-        private async Task RunPostedActionAsync(Func<Task> action)
-        {
-            if (!lifecycle.CanAcceptCommands)
-                return;
-
-            try
-            {
-                await action();
-            }
-            catch (Exception ex)
-            {
-                owner.browserStatus = $"WebView2 command failed: {ex.Message}";
-            }
-        }
-
-        private void ThreadMain()
-        {
-            var context = new BrowserSynchronizationContext();
-            synchronizationContext = context;
-            SynchronizationContext.SetSynchronizationContext(context);
-
-            Task? initializationTask = null;
-            try
-            {
-                if (lifecycle.CanAcceptCommands)
-                    initializationTask = InitializeAsync(shutdownCancellation.Token);
-                DrainPostedActions();
-                // Only ever set the flag here: writing a copy back would erase a shutdown that Dispose
-                // requested while the messages were being pumped, and the browser would keep playing forever.
-                while (!shutdownRequested && !shutdownCancellation.IsCancellationRequested)
-                {
-                    var quitMessage = false;
-                    BrowserNativeMessagePump.PumpMessages(ref quitMessage);
-                    if (quitMessage)
-                        shutdownRequested = true;
-                    context.ExecutePending();
-                    hostWindow?.PollInteractionFocus();
-                    BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 50);
-                }
-
-                // A browser that is still starting gets more time: once it arrives, the startup code sees the
-                // shutdown and the cleanup below closes it. Leaving earlier would strand it with nobody to close it.
-                var cleanupStart = Environment.TickCount64;
-                while ((initializationTask is { IsCompleted: false } || captureLoopTask is { IsCompleted: false })
-                    && Environment.TickCount64 - cleanupStart < (initializationTask is { IsCompleted: false } ? 15000 : 3000))
-                {
-                    var shouldQuit = false;
-                    BrowserNativeMessagePump.PumpMessages(ref shouldQuit);
-                    context.ExecutePending();
-                    BrowserNativeMessagePump.WaitForWork(context.WorkAvailable, 25);
-                }
-            }
-            catch (Exception ex)
-            {
-                owner.browserStatus = $"WebView2 thread failed: {ex.Message}";
-            }
-            finally
-            {
-                // Each step on its own, closing the browser first: a failure in one step must never leave a
-                // browser running with nobody to close it.
-                WebView2BrowserGuards.BestEffort(() =>
-                {
-                    if (webView != null)
-                    {
-                        webView.WebMessageReceived -= OnWebMessageReceived;
-                        webView.NavigationStarting -= OnNavigationStarting;
-                        webView.NavigationCompleted -= OnNavigationCompleted;
-                        webView.ProcessFailed -= OnProcessFailed;
-                        webView.NewWindowRequested -= WebView2BrowserGuards.OnNewWindowRequested;
-                        webView.PermissionRequested -= WebView2BrowserGuards.OnPermissionRequested;
-                        webView.DownloadStarting -= WebView2BrowserGuards.OnDownloadStarting;
-                    }
-                });
-                webView = null;
-                WebView2BrowserGuards.BestEffort(() => controller?.Close());
-                controller = null;
-                WebView2BrowserGuards.BestEffort(DisposeWindowCaptureSession);
-                WebView2BrowserGuards.BestEffort(() =>
-                {
-                    if (hostWindow != null)
-                        hostWindow.InteractionDismissed -= OnInteractionDismissed;
-                    hostWindow?.Dispose();
-                });
-                hostWindow = null;
-
-                lifecycle.MarkStopped();
-                screencast.Dispose();
-                jpegCapture.Dispose();
-                shutdownCancellation.Dispose();
-                context.Dispose();
-            }
-        }
-
-        private async Task InitializeAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                var userDataFolder = BrowserProfileManager.GetWebView2UserDataFolder(BrowserSourceProviderKind.GenericWeb);
-                Directory.CreateDirectory(userDataFolder);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var environmentOptions = new CoreWebView2EnvironmentOptions(
-                    additionalBrowserArguments: WebView2BrowserArguments.Combine("--autoplay-policy=no-user-gesture-required"));
-                var environment = await CoreWebView2Environment.CreateAsync(owner.browserExecutableFolder, userDataFolder, environmentOptions);
-                WebView2BrowserGuards.TrackBrowserProcesses(environment);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                hostWindow = WebView2HostWindow.Create(owner.Width, owner.Height);
-                hostWindow.InteractionDismissed += OnInteractionDismissed;
-                var parentHwnd = hostWindow.Hwnd;
-
-                controller = await environment.CreateCoreWebView2ControllerAsync(parentHwnd);
-                cancellationToken.ThrowIfCancellationRequested();
-                controller.Bounds = new System.Drawing.Rectangle(0, 0, owner.Width, owner.Height);
-                controller.IsVisible = true;
-                hostWindow.ShowForCapture();
-
-                webView = controller.CoreWebView2;
-                WebView2ProcessTracker.Track((int)webView.BrowserProcessId);
-                WebView2BrowserGuards.ConfigureWebView(webView);
-                ApplyBrowserMute(owner.audioEnabled, owner.volume);
-                webView.WebMessageReceived += OnWebMessageReceived;
-                webView.NavigationStarting += OnNavigationStarting;
-                webView.NavigationCompleted += OnNavigationCompleted;
-                webView.ProcessFailed += OnProcessFailed;
-                webView.NewWindowRequested += WebView2BrowserGuards.OnNewWindowRequested;
-                webView.PermissionRequested += WebView2BrowserGuards.OnPermissionRequested;
-                webView.DownloadStarting += WebView2BrowserGuards.OnDownloadStarting;
-                await webView.AddScriptToExecuteOnDocumentCreatedAsync(BuildControllerScript(owner.messageNonce));
-                cancellationToken.ThrowIfCancellationRequested();
-                playerReady = false;
-                owner.browserStatus = "WebView2 loading Generic Web page";
-                webView.Navigate(owner.source.Url);
-
-                if (!lifecycle.TryMarkRunning())
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                if (owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture)
-                    StartWindowCaptureOrFallback();
-                else
-                    EnsureCaptureLoopStarted();
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                lifecycle.MarkFaulted();
-                owner.browserStatus = $"WebView2 init failed: {ex.Message}";
-            }
-        }
-
-        private void StartWindowCaptureOrFallback()
-        {
-            owner.nativeCaptureFailure = string.Empty;
-            try
-            {
-                if (TryStartWindowCapture())
-                    return;
-            }
-            catch (Exception ex)
-            {
-                DisposeWindowCaptureSession();
-                owner.log.Warning(ex, "Failed to start CrystalCast Generic Web window capture.");
-                owner.nativeCaptureFailure = BrowserCaptureFailureDiagnostics.Format(ex);
-                owner.browserStatus = $"WebView2 window capture failed, using JPEG fallback: {ex.GetBaseException().Message}";
-            }
-
-            EnsureCaptureLoopStarted();
-        }
-
-        private bool TryStartWindowCapture()
-        {
-            if (hostWindow == null)
-            {
-                owner.nativeCaptureFailure = "host window was not created";
-                owner.browserStatus = "WebView2 window capture unavailable, using JPEG fallback: host window was not created";
-                return false;
-            }
-
-            if (!WebView2WindowCaptureSession.IsSupported(out var captureStatus))
-            {
-                owner.nativeCaptureFailure = captureStatus;
-                owner.browserStatus = $"{captureStatus}; using JPEG fallback";
-                return false;
-            }
-
-            windowCaptureSession = new WebView2WindowCaptureSession(
-                hostWindow.Hwnd,
-                owner.Width,
-                owner.Height,
-                () => owner.captureEnabled,
-                () => owner.FramesPerSecond,
-                (sharedHandle, width, height) => owner.PublishNativeFrame(sharedHandle, width, height),
-                value => owner.lastCaptureMilliseconds = value,
-                value => owner.browserStatus = value,
-                HandleWindowCaptureFatalError);
-            windowCaptureSession.Start();
-            return true;
-        }
-
-        private void HandleWindowCaptureFatalError(Exception exception)
-        {
-            owner.nativeCaptureFailure = BrowserCaptureFailureDiagnostics.Format(exception);
-            owner.log.Warning(exception, "CrystalCast Generic Web WGC callback failed; switching to JPEG fallback.");
-            Post(() =>
-            {
-                DisposeWindowCaptureSession();
-                owner.browserStatus = $"WebView2 window capture device lost, using JPEG fallback: {exception.GetBaseException().Message}";
-                EnsureCaptureLoopStarted();
-                return Task.CompletedTask;
-            });
-        }
-
-        public void AcknowledgeNativeFrame(IntPtr sharedHandle)
-        {
-            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-                Volatile.Read(ref windowCaptureSession)?.AcknowledgeSharedTexture(sharedHandle);
-        }
-
-        private void DisposeWindowCaptureSession()
-        {
-            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-                windowCaptureSession?.Dispose();
-
-            windowCaptureSession = null;
-        }
-
-        private void ApplyBrowserMute(bool audioEnabled, float volume)
-        {
-            if (webView == null)
-                return;
-
-            try
-            {
-                var muted = !audioEnabled || volume <= 0.001f;
-                var mutedProperty = webView.GetType().GetProperty("IsMuted");
-                if (mutedProperty?.CanWrite == true)
-                    mutedProperty.SetValue(webView, muted);
-            }
-            catch
-            {
-            }
-        }
-
-        private void EnsureCaptureLoopStarted()
-        {
-            if (captureLoopTask is not { IsCompleted: false })
-                captureLoopTask = CaptureLoopAsync(shutdownCancellation.Token);
-        }
-
-        private async Task CaptureLoopAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    var frameInterval = TimeSpan.FromSeconds(1.0 / owner.FramesPerSecond);
-                    if (!owner.captureEnabled || webView == null)
-                    {
-                        await screencast.PauseAsync();
-                        await Task.Delay(200, cancellationToken);
-                        continue;
-                    }
-
-                    var captureLabel = owner.captureMode == WebView2CaptureMode.WindowGraphicsCapture
-                        ? "WebView2 JPEG fallback capture"
-                        : "WebView2 JPEG capture";
-                    if (await screencast.KeepRunningAsync(webView, screencastSettings))
-                    {
-                        LogScreencastOutcome();
-                        owner.lastCaptureMilliseconds = screencast.LastDecodeMilliseconds;
-                        owner.browserStatus = $"{captureLabel} running; {screencast.Status}";
-                        await Task.Delay(200, cancellationToken);
-                        continue;
-                    }
-
-                    LogScreencastOutcome();
-                    var sw = Stopwatch.StartNew();
-                    try
-                    {
-                        await CaptureOnceAsync(webView);
-                        sw.Stop();
-                        owner.lastCaptureMilliseconds = sw.Elapsed.TotalMilliseconds;
-                        var captureStatus = $"{captureLabel} running with screenshots ({screencast.FailureReason})";
-                        owner.browserStatus = owner.FramesPerSecond > 30.0f
-                            ? $"{captureStatus}; high FPS is best effort"
-                            : captureStatus;
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        sw.Stop();
-                        owner.browserStatus = $"WebView2 capture failed: {ex.Message}";
-                        await Task.Delay(500, cancellationToken);
-                    }
-
-                    var remaining = frameInterval - sw.Elapsed;
-                    if (remaining > TimeSpan.Zero)
-                        await Task.Delay(remaining, cancellationToken);
-                    else if (owner.FramesPerSecond > 30.0f)
-                        await Task.Delay(1, cancellationToken);
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-        }
-
-        private void LogScreencastOutcome()
-        {
-            if (screencastOutcomeLogged)
-                return;
-
-            screencastOutcomeLogged = true;
-            if (screencast.IsRunning)
-            {
-                owner.log.Information(
-                    "CrystalCast WebView2 JPEG capture uses the DevTools screencast ({Reason}, max {Width}x{Height}).",
-                    screencastSettings.Reason,
-                    screencastSettings.MaxWidth,
-                    screencastSettings.MaxHeight);
-            }
-            else
-            {
-                owner.log.Warning(
-                    "CrystalCast WebView2 JPEG capture uses screenshots: {Reason}",
-                    screencast.FailureReason);
-            }
-        }
-
-        private async Task CaptureOnceAsync(CoreWebView2 currentWebView)
-        {
-            var frame = await jpegCapture.CaptureAsync(currentWebView, Interlocked.Increment(ref owner.sequence));
-            if (frame == null)
-                return;
-
-            try
-            {
-                owner.PublishFrame(frame);
-            }
-            catch
-            {
-                frame.Dispose();
-                throw;
-            }
-        }
-
-        private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
-        {
-            if (!args.IsSuccess)
-            {
-                owner.browserStatus = $"WebView2 navigation failed: {args.WebErrorStatus}";
-                return;
-            }
-
-            owner.browserStatus = "WebView2 Generic Web page loaded";
-            try
-            {
-                if (webView != null)
-                {
-                    await webView.ExecuteScriptAsync(BuildControllerScript(owner.messageNonce));
-                }
-            }
-            catch (Exception ex)
-            {
-                owner.playerStatus = $"controller injection failed: {ex.Message}";
-            }
-        }
-
-        private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args)
-        {
-            playerReady = false;
-            if (!BrowserNavigationPolicy.IsAllowedGenericDocument(args.Uri))
-            {
-                args.Cancel = true;
-                owner.browserStatus = "blocked non-HTTP browser navigation";
-                return;
-            }
-
-            if (owner.isNavigationAllowed?.Invoke(args.Uri) == false)
-            {
-                args.Cancel = true;
-                owner.browserStatus = "waiting for approval for cross-domain navigation";
-            }
-        }
-
-        private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs args)
-        {
-            owner.browserStatus = $"WebView2 process failed: {args.ProcessFailedKind}";
-        }
-
-        private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
-        {
-            var expectedSource = webView?.Source;
-            if (!BrowserNavigationPolicy.IsExpectedMessageSource(args.Source, expectedSource))
-            {
-                owner.playerStatus = "ignored browser message from an unexpected document";
-                return;
-            }
-
-            if (!BrowserMessageValidator.TryParseAuthenticated(
-                    args.WebMessageAsJson,
-                    owner.messageNonce,
-                    out var document,
-                    out var error))
-            {
-                owner.playerStatus = $"invalid browser message: {error}";
-                return;
-            }
-
-            using (document!)
-                owner.UpdateFromWebMessage(document!.RootElement);
-        }
-
     }
 
     private static string BuildControllerScript(string nonce)

@@ -52,9 +52,16 @@ Further optional interfaces are declared in `Sources/BrowserSourceDescriptor.cs`
 
 ## WebView2 backend (`CrystalCast.Browser.WebView2`)
 
-`WebView2BrowserFrameSource` (provider player pages) and `GenericWebBrowserFrameSource` (arbitrary pages) each own a nested `BrowserThread`: an STA thread with a message pump (`BrowserNativeMessagePump`, `BrowserSynchronizationContext`) on which the WebView2 environment, controller and view live. Commands from the main thread are queued to it; player messages are queued until the page reports ready.
+Both WebView2 sources derive from `WebView2FrameSourceBase`, which holds everything they have in common:
 
-The provider source serves its generated page from a virtual host and blocks navigation away from it. The Generic Web source navigates to the user's address, injects a controller script that finds and drives the page's media element, and asks an `IsNavigationAllowed` callback before each navigation (this is where IPC web approvals apply).
+- the `IVideoFrameSource` and controller members (`Start`, `Stop`, `Play`, `Pause`, seek, restart, frames, status);
+- a nested `BrowserThread`: an STA thread with a message pump (`BrowserNativeMessagePump`, `BrowserSynchronizationContext`) on which the WebView2 environment, controller and view live. Commands from the main thread are queued to it, and messages to the page are queued until the page reports ready;
+- start-up, shutdown and cleanup of the browser, the host window, capture and its fallback.
+
+A subclass says what is loaded and how the page is talked to, through a small set of overrides: `StartUrl`, `MessageNonce`, `PreparePageAsync`, `OnNavigationStarting`, `HandleWebMessage`, `IsFromExpectedDocument`, `SetPlaybackState`, `CurrentTelemetry`, `ApplyPlaybackSettings`, and a few optional hooks.
+
+- `WebView2BrowserFrameSource` (video sites): answers the generated player page from memory at a virtual host, blocks navigation away from it, and reads the player's messages with `BrowserPlayerState`. Window capture starts once the player reports ready; JPEG capture runs until then.
+- `GenericWebBrowserFrameSource` (any page): navigates to the user's address, injects a controller script that finds and drives the page's media element, asks an `IsNavigationAllowed` callback before each navigation (this is where IPC web approvals apply), and keeps its own telemetry. Window capture starts with the page.
 
 Both use:
 
@@ -73,10 +80,6 @@ Runtime discovery and download:
 - `WebView2RuntimeDownloader`: downloads Microsoft's Fixed Version runtime, checks its signature (`AuthenticodeVerifier`), unpacks it (`CabinetExtractor`), and under Wine sets the registry mode WebView2 needs.
 
 `WindowsCaptureProjectionStubs.cs` supplies a few WinRT types for the embedded CsWinRT projection; it is not CrystalCast logic.
-
-### Known duplication
-
-`WebView2BrowserFrameSource` and `GenericWebBrowserFrameSource` share most of their `BrowserThread` code (thread start-up and shutdown, the posted-action queue, window-capture start and fallback, the capture loop, frame publishing). The static, state-free parts were extracted into `WebView2BrowserGuards`. The rest was left as is: it is COM and threading code that only runs inside the game with a WebView2 runtime, and no test in this repository exercises it. Merging the two into a shared base class should be done together with in-game testing on Windows and Wine.
 
 ## WebKitGTK backend (`CrystalCast.Browser.WebKitGtk`)
 

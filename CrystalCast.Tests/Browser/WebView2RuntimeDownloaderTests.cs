@@ -1,4 +1,4 @@
-using CrystalCast.Video;
+using CrystalCast.Browser.WebView2;
 using Xunit;
 
 namespace CrystalCast.Tests;

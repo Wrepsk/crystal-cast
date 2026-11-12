@@ -1,7 +1,9 @@
 using CrystalCast.Rendering;
+using CrystalCast.Sources;
+using CrystalCast.Sources.Providers;
 using CrystalCast.Video;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// Translates between one provider's settings on a screen and the IPC shapes: applies a

@@ -1,7 +1,7 @@
 using CrystalCast.Playlist;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// The <c>CrystalCast.Screen.Playlist.*</c> calls. Unlike source locks, these are checked: on the user's

@@ -1,13 +1,13 @@
 using System.Numerics;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
-using CrystalCast.Video;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Panels;
 
 internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata)
 {

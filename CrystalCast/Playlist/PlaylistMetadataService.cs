@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
+using CrystalCast.Ipc;
+using CrystalCast.Sources;
 using CrystalCast.Video;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;

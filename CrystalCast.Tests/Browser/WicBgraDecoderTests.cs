@@ -1,3 +1,4 @@
+using CrystalCast.Browser.WebView2;
 using CrystalCast.Video;
 
 namespace CrystalCast.Tests;

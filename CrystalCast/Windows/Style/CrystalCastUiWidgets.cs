@@ -3,9 +3,9 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Interface.Textures.TextureWraps;
-using static CrystalCast.Windows.CrystalCastUiTheme;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Style;
 
 internal enum ButtonKind
 {

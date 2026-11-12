@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 internal sealed class BrowserSynchronizationContext : SynchronizationContext, IDisposable
 {

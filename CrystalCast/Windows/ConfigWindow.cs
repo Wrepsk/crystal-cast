@@ -1,12 +1,15 @@
 using System.Numerics;
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Ipc;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 

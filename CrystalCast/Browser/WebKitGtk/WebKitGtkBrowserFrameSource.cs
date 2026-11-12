@@ -1,6 +1,9 @@
+using CrystalCast.Browser.Capture;
+using CrystalCast.Sources;
+using CrystalCast.Video;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebKitGtk;
 
 /// <summary>
 /// Experimental Wine-only provider player that renders in a native Linux WebKitGTK helper.

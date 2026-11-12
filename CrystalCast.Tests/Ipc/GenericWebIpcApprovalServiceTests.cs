@@ -1,4 +1,5 @@
-using CrystalCast.Sync;
+using CrystalCast.Ipc;
+using CrystalCast.Sources.Providers;
 
 namespace CrystalCast.Tests;
 

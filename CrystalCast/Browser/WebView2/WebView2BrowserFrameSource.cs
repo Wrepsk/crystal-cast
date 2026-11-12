@@ -1,10 +1,13 @@
+using CrystalCast.Browser.Capture;
+using CrystalCast.Sources;
+using CrystalCast.Video;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 internal sealed class WebView2BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
 {

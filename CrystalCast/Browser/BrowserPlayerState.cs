@@ -1,6 +1,8 @@
+using CrystalCast.Sources;
+using CrystalCast.Video;
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser;
 
 internal enum BrowserPlayerMessageResult
 {

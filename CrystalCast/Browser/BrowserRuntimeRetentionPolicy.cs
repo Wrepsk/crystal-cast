@@ -1,4 +1,4 @@
-namespace CrystalCast;
+namespace CrystalCast.Browser;
 
 internal static class BrowserRuntimeRetentionPolicy
 {

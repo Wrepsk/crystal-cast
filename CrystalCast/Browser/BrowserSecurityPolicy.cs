@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser;
 
 internal static class BrowserUriPolicy
 {

@@ -1,4 +1,4 @@
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// Notices playback and source changes that happen inside the player itself: pausing in browser controls,

@@ -1,7 +1,11 @@
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
-using CrystalCast.Video;
+using CrystalCast.Browser;
+using CrystalCast.Browser.Capture;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Sources;
 
 namespace CrystalCast.Tests;
 

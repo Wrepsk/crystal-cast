@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 internal enum WebView2DownloadStage
 {

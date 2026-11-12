@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.Capture;
 
 internal sealed class FrameCadenceDiagnostics
 {

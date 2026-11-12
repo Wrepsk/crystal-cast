@@ -1,6 +1,6 @@
 using SharpDX.Direct3D11;
 
-namespace CrystalCast;
+namespace CrystalCast.Rendering;
 
 internal static class TextureSampleDiagnostics
 {

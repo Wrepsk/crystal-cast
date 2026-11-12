@@ -2,7 +2,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Style;
 
 /// <summary>
 /// Design tokens from the CrystalCast UI redesign (Foundations sheet). All sizes are at 100% UI scale;

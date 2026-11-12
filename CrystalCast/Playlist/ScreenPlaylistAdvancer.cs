@@ -1,3 +1,5 @@
+using CrystalCast.Ipc;
+using CrystalCast.Sources;
 using CrystalCast.Video;
 
 namespace CrystalCast.Playlist;

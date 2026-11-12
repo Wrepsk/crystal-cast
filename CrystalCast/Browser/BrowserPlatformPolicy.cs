@@ -1,6 +1,7 @@
+using CrystalCast.Browser.WebView2;
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser;
 
 internal static class BrowserPlatformPolicy
 {

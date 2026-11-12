@@ -1,5 +1,8 @@
 using System.Numerics;
-using CrystalCast.Sync;
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Ipc;
+using CrystalCast.Sources;
 using CrystalCast.Video;
 using Dalamud.Interface.Textures.TextureWraps;
 using CrystalRenderer;

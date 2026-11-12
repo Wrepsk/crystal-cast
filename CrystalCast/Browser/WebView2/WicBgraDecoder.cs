@@ -1,6 +1,7 @@
+using CrystalCast.Video;
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>
 /// Decodes JPEG (and other WIC-supported) images into 32-bit BGRA frames with the Windows

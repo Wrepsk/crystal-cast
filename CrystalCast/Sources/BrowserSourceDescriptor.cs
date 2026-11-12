@@ -1,6 +1,8 @@
+using CrystalCast.Browser;
+using CrystalCast.Sources.Providers;
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Sources;
 
 public interface IBrowserSourceReference
 {

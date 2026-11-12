@@ -1,7 +1,8 @@
+using CrystalCast.Sources;
 using System.Text;
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser;
 
 internal sealed class BrowserPlayerPageResource
 {

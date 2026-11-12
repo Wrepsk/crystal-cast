@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.Capture;
 
 /// <summary>Order in which capture tries the rotating shared textures.</summary>
 internal static class CaptureSlotPolicy

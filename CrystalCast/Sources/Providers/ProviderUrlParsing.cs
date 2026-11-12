@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Sources.Providers;
 
 /// <summary>Splits a provider link into the parts the provider ID parsers look at.</summary>
 internal static class ProviderUrlParsing

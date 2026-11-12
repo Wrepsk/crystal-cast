@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebKitGtk;
 
 /// <summary>
 /// Wine-only bridges to the Linux host: path conversion and starting a native Linux program.

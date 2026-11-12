@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>How big and how good the DevTools screencast frames should be.</summary>
 internal readonly record struct WebView2ScreencastSettings(bool Enabled, int MaxWidth, int MaxHeight, int Quality, string Reason);

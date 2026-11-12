@@ -1,10 +1,11 @@
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebView2;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
-using CrystalCast.Video;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// Provides CrystalCast's IPC: registers the channels in <see cref="IpcChannels"/> while IPC is switched on,

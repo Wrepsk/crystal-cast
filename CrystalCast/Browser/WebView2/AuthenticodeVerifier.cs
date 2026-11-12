@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 internal enum AuthenticodeResult
 {

@@ -1,6 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>
 /// The lock-down settings and event handlers every CrystalCast WebView2 browser uses, whether it shows a

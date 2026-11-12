@@ -1,4 +1,4 @@
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal enum RemoteScreenStateDecision
 {

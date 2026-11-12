@@ -1,4 +1,6 @@
-namespace CrystalCast.Windows;
+using CrystalCast.Windows.Style;
+
+namespace CrystalCast.Windows.Panels;
 
 internal sealed class PlacementUndoService
 {

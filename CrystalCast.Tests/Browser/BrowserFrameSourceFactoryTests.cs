@@ -1,3 +1,6 @@
+using CrystalCast.Browser;
+using CrystalCast.Sources;
+using CrystalCast.Sources.Providers;
 using CrystalCast.Video;
 
 namespace CrystalCast.Tests;

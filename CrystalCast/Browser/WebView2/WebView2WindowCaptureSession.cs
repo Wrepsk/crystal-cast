@@ -1,3 +1,5 @@
+using CrystalCast.Browser.Capture;
+using CrystalCast.Rendering;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
@@ -13,7 +15,7 @@ using DxgiDevice = SharpDX.DXGI.Device;
 using DxgiFormat = SharpDX.DXGI.Format;
 using GameDevice = FFXIVClientStructs.FFXIV.Client.Graphics.Kernel.Device;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 [SupportedOSPlatform("windows10.0.19041")]
 internal sealed class WebView2WindowCaptureSession : IDisposable

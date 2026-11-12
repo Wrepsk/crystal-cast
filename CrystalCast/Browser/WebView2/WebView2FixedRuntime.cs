@@ -1,6 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>Which WebView2 browser CrystalCast found: the system-wide one or the one it downloaded.</summary>
 internal readonly record struct WebView2RuntimeInfo(string Version, string? BrowserExecutableFolder)

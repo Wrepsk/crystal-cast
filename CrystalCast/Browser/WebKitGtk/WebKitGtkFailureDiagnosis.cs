@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebKitGtk;
 
 /// <summary>
 /// Turns native helper log text into a short, actionable reason for the screen status.

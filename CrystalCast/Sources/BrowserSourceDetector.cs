@@ -1,4 +1,6 @@
-namespace CrystalCast.Video;
+using CrystalCast.Browser;
+
+namespace CrystalCast.Sources;
 
 /// <summary>A link or ID resolved to the provider that will play it.</summary>
 internal readonly record struct DetectedBrowserSource(

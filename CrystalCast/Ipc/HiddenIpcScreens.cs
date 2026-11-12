@@ -1,4 +1,4 @@
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// IPC screen ids the user deleted and asked to keep hidden. Other plugins cannot create them again until the

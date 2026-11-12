@@ -3,7 +3,7 @@ using Dalamud.Interface;
 using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Plugin;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Style;
 
 /// <summary>
 /// The three type voices from the redesign: Marcellus for the one title per window, Hanken Grotesk for

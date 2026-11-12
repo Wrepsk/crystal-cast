@@ -1,7 +1,7 @@
 using System.Numerics;
 using System.Text.Json.Serialization;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 public sealed class ScreenStateEnvelope
 {

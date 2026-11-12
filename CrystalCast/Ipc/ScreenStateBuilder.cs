@@ -1,8 +1,8 @@
 using CrystalCast.Rendering;
-using CrystalCast.Video;
+using CrystalCast.Sources;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal sealed class ScreenStateBuilder
 {

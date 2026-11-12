@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 public enum WebView2CaptureMode
 {

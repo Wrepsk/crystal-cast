@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal static class IpcJsonService
 {

@@ -1,6 +1,8 @@
 using Dalamud.Configuration;
 using CrystalCast.Playlist;
-using CrystalCast.Video;
+using CrystalCast.Rendering;
+using CrystalCast.Sources;
+using CrystalCast.Sources.Providers;
 using System;
 
 namespace CrystalCast;

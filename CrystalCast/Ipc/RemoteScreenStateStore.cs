@@ -1,4 +1,4 @@
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal readonly record struct RemoteScreenKey(string OwnerSessionId, string ScreenId);
 

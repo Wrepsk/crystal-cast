@@ -1,6 +1,7 @@
-using CrystalCast.Video;
+using CrystalCast.Browser;
+using CrystalCast.Sources.Providers;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal enum GenericWebIpcAccess
 {

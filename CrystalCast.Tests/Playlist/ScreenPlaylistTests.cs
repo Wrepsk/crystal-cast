@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Text.Json;
+using CrystalCast.Browser;
+using CrystalCast.Ipc;
 using CrystalCast.Playlist;
-using CrystalCast.Sync;
+using CrystalCast.Sources;
 using CrystalCast.Video;
 using Dalamud.Plugin.Services;
 

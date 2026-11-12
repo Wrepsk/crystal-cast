@@ -1,9 +1,11 @@
+using CrystalCast.Video;
+using CrystalCast.Windows;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>
 /// Gets WebView2 frames from Chromium's DevTools screencast. The page pushes a JPEG each time it repaints,

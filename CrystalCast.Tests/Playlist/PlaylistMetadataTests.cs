@@ -1,4 +1,5 @@
 using System.Net;
+using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Video;
 

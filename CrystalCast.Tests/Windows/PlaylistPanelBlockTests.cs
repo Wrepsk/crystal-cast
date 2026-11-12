@@ -1,4 +1,4 @@
-using CrystalCast.Windows;
+using CrystalCast.Windows.Panels;
 
 namespace CrystalCast.Tests;
 

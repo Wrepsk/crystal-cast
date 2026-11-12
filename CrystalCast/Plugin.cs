@@ -1,8 +1,10 @@
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
 using CrystalCast.Windows;
+using CrystalCast.Windows.Style;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;

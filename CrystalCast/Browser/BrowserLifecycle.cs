@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser;
 
 internal enum BrowserLifecycleState
 {

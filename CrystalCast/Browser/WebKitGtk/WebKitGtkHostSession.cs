@@ -1,3 +1,4 @@
+using CrystalCast.Video;
 using System.Buffers.Binary;
 using System.IO.MemoryMappedFiles;
 using System.Net;
@@ -6,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebKitGtk;
 
 internal interface IWebKitGtkHostListener
 {

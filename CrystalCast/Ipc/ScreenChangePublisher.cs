@@ -1,6 +1,6 @@
 using Dalamud.Plugin.Ipc;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal sealed class ScreenChangePublisher
 {

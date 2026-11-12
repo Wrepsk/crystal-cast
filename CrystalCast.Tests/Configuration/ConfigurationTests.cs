@@ -1,3 +1,5 @@
+using CrystalCast.Rendering;
+
 namespace CrystalCast.Tests;
 
 public sealed class ConfigurationTests

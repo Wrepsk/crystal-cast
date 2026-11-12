@@ -1,6 +1,9 @@
-namespace CrystalCast.Video;
-
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Sources;
+using CrystalCast.Video;
 using Dalamud.Plugin.Services;
+
+namespace CrystalCast.Browser;
 
 internal sealed record BrowserFrameSourceRequest(
     BrowserSourceProviderKind ProviderKind,

@@ -1,6 +1,8 @@
+using CrystalCast.Browser;
 using CrystalCast.Playlist;
+using CrystalCast.Video;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Sources;
 
 internal static class BrowserSourceProviderRegistry
 {

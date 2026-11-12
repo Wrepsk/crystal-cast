@@ -1,7 +1,7 @@
 using CrystalCast.Rendering;
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// The calls that create, change and remove screens: <c>Screen.Create</c>, <c>Screen.Update</c>,

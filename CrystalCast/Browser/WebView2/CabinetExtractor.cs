@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>
 /// Unpacks a .cab archive with setupapi's SetupIterateCabinetW, which Windows and Wine both provide, so no

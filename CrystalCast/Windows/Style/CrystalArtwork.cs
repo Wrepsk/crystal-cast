@@ -1,8 +1,8 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using static CrystalCast.Windows.CrystalCastUiTheme;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Style;
 
 /// <summary>
 /// The crystal-over-water artwork behind the player title and in screen thumbnails, drawn with the draw list.

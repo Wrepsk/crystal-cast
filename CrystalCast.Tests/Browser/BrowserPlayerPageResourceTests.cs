@@ -1,5 +1,7 @@
 using System.Text.Json;
-using CrystalCast.Video;
+using CrystalCast.Browser;
+using CrystalCast.Sources;
+using CrystalCast.Sources.Providers;
 
 namespace CrystalCast.Tests;
 

@@ -1,6 +1,6 @@
-using CrystalCast.Video;
+using CrystalCast.Sources;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 internal static class ScreenStateValidator
 {

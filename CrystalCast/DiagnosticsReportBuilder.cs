@@ -2,9 +2,11 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using CrystalCast.Browser;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Ipc;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
 using Dalamud.Plugin;
 
 namespace CrystalCast;

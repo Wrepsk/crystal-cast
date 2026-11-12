@@ -1,4 +1,6 @@
-namespace CrystalCast.Video;
+using CrystalCast.Sources.Providers;
+
+namespace CrystalCast.Sources;
 
 /// <summary>
 /// Reads and writes one provider's settings on a <see cref="BrowserScreenProfile"/>. The profile stores every

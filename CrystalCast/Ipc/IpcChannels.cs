@@ -1,4 +1,4 @@
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// The exact names of every IPC channel CrystalCast provides. See <c>docs/ipc-api.md</c> for what each one

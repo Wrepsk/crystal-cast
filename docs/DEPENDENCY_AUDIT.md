@@ -9,7 +9,7 @@ passes again, with NuGet auditing and warnings-as-errors unchanged.
 ImageSharp **3.1.12** reached the dependency graph two ways:
 
 - **CrystalCast** decoded the JPEG screenshots WebView2 returns in JPEG capture mode
-  (`CrystalCast/Video/WebView2JpegFrameCapture.cs`). That mode is the Windows capture
+  (`CrystalCast/Browser/WebView2/WebView2JpegFrameCapture.cs`). That mode is the Windows capture
   fallback and the WebView2 path under Wine.
 - **CrystalRenderer** referenced KamiToolKit **1.1.2**, which declares ImageSharp
   3.1.12 as a dependency. CrystalRenderer itself never called ImageSharp.
@@ -21,7 +21,7 @@ GHSA-v76p-62qx-wwq2 and GHSA-wmxv-xphr-5c9g. All are fixed in ImageSharp 3.2.0 a
 
 ## Resolution
 
-- **JPEG decoding uses WIC.** `CrystalCast/Video/WicBgraDecoder.cs` decodes with the
+- **JPEG decoding uses WIC.** `CrystalCast/Browser/WebView2/WicBgraDecoder.cs` decodes with the
   Windows Imaging Component, which Windows and Wine both provide, through its COM
   interfaces directly. It produces the same 32-bit BGRA frames as before.
   `CrystalCast.Tests/WicBgraDecoderTests.cs` checks decoding, reuse and invalid data.

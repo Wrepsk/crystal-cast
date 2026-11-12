@@ -1,4 +1,9 @@
-namespace CrystalCast.Video;
+using CrystalCast.Browser.WebKitGtk;
+using CrystalCast.Browser.WebView2;
+using CrystalCast.Sources;
+using CrystalCast.Video;
+
+namespace CrystalCast.Browser;
 
 using Dalamud.Plugin.Services;
 

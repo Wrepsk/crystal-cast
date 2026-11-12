@@ -1,4 +1,6 @@
-namespace CrystalCast.Video;
+using CrystalCast.Video;
+
+namespace CrystalCast.Browser;
 
 using Dalamud.Plugin.Services;
 

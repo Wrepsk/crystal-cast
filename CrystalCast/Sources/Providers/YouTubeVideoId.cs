@@ -1,6 +1,7 @@
+using CrystalCast.Browser;
 using System.Text.RegularExpressions;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Sources.Providers;
 
 public static partial class YouTubeVideoId
 {

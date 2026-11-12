@@ -1,5 +1,5 @@
 using System.Numerics;
-using CrystalCast.Windows;
+using CrystalCast.Windows.Style;
 
 namespace CrystalCast.Tests;
 

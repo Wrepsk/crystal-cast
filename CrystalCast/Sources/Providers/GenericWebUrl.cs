@@ -1,4 +1,6 @@
-namespace CrystalCast.Video;
+using CrystalCast.Browser;
+
+namespace CrystalCast.Sources.Providers;
 
 public static class GenericWebUrl
 {

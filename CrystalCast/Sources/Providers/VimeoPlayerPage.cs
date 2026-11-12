@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Sources.Providers;
 
 internal static class VimeoPlayerPage
 {

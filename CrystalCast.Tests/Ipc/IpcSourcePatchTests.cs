@@ -1,6 +1,6 @@
 using System.Reflection;
-using CrystalCast.Sync;
-using CrystalCast.Video;
+using CrystalCast.Ipc;
+using CrystalCast.Sources;
 
 namespace CrystalCast.Tests;
 

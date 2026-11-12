@@ -1,6 +1,6 @@
 using Dalamud.Plugin.Services;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>
 /// Runs IPC handlers on the game's main thread, where CrystalCast draws and changes its screens. Another

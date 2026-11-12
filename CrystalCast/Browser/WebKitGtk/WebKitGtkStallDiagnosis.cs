@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebKitGtk;
 
 /// <summary>One two-second health report from the native helper.</summary>
 internal sealed record WebKitGtkHostHealth(

@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace CrystalCast.Sync;
+namespace CrystalCast.Ipc;
 
 /// <summary>Size checks for IPC arguments, applied before any JSON is parsed.</summary>
 internal static class IpcPayloadLimit

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>
 /// Remembers the WebView2 browser processes CrystalCast starts, so turning the plugin off can end any that

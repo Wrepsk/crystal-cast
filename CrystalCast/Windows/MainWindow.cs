@@ -1,13 +1,14 @@
 using System.Numerics;
+using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
-using CrystalCast.Sync;
-using CrystalCast.Video;
+using CrystalCast.Windows.Panels;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 

@@ -1,4 +1,4 @@
-using CrystalCast.Video;
+using CrystalCast.Browser.Capture;
 
 namespace CrystalCast.Tests;
 

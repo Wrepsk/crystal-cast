@@ -1,9 +1,10 @@
 using System.Numerics;
-using CrystalCast.Sync;
+using CrystalCast.Ipc;
+using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
-using static CrystalCast.Windows.CrystalCastUiTheme;
-using Ui = CrystalCast.Windows.CrystalCastUiWidgets;
+using static CrystalCast.Windows.Style.CrystalCastUiTheme;
+using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows;
 

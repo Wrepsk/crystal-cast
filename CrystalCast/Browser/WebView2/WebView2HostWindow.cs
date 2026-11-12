@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 internal sealed class WebView2HostWindow : IDisposable
 {

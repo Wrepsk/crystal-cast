@@ -1,4 +1,4 @@
-namespace CrystalCast.Video;
+namespace CrystalCast.Browser.WebView2;
 
 /// <summary>Chromium switches for every CrystalCast WebView2 environment.</summary>
 internal static class WebView2BrowserArguments

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace CrystalCast.Windows;
+namespace CrystalCast.Windows.Style;
 
 /// <summary>
 /// Keeps one COM object (a texture view drawn by ImGui) alive until the next UI frame. ImGui draw lists store raw

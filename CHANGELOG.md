@@ -4,8 +4,16 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.2 - 2026-11-12
+
+### Added
+
+- Documentation in `docs/`: an architecture overview, a page per module, and an IPC reference for plugin developers.
+
 ### Changed
 
+- Internal cleanup: one table for each site's screen settings, one shared base for the two WebView2 browser sources, duplicated helpers removed, and files sorted into folders by what they do. Saved settings are kept.
+- Generic Web screens with an unusable address now say so on Play and Restart too, not only when they start.
 - IPC API version 11. No released plugin used the earlier versions, so the interface was tidied without a compatibility layer; see [docs/ipc-api.md](docs/ipc-api.md).
   - `Screen.Create`, `Screen.Update` and `Screen.UpdateSource` take one `source` object instead of a `youTube`, `twitch`, `dailymotion`, `vimeo` or `genericWeb` object. `provider` now alone decides the provider; a provider left out keeps the screen's current one.
   - `Screen.GetSourceState` answers with one `source` object instead of one per provider.

@@ -22,6 +22,7 @@ internal enum RoomConnectionStatus
 /// </summary>
 internal sealed class RoomRelayConnection : IDisposable
 {
+    /// <summary>Matches the relay's limit.</summary>
     private const int MaxMessageBytes = 32 * 1024;
     private static readonly TimeSpan[] ReconnectDelays =
     [

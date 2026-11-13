@@ -57,6 +57,13 @@ early.socket.send(JSON.stringify({ type: "state", change: true, state: { url: "h
 await sleep(300);
 if (early.messages.some((m) => m.type === "state" && m.state.url === "https://evil")) fail("viewer was able to send a state");
 
+early.socket.send(JSON.stringify({ type: "add", url: "https://www.youtube.com/watch?v=abc" }));
+const added = await waitFor(host.messages, (m) => m.type === "add", "add forwarded to host");
+if (added.url !== "https://www.youtube.com/watch?v=abc") fail(`bad add ${JSON.stringify(added)}`);
+early.socket.send(JSON.stringify({ type: "add", url: "https://www.youtube.com/watch?v=second" }));
+await sleep(300);
+if (host.messages.some((m) => m.type === "add" && m.url.endsWith("second"))) fail("a second add within 2 seconds got through");
+
 early.socket.send(JSON.stringify({ type: "ping", t: 42 }));
 const pong = await waitFor(early.messages, (m) => m.type === "pong", "pong");
 if (pong.t !== 42 || !(pong.relayTime > 0)) fail(`bad pong ${JSON.stringify(pong)}`);
@@ -79,5 +86,5 @@ await refused(`${wsBase}/rooms/${created.code}/socket?role=viewer`, "closed room
 await refused(`${wsBase}/rooms/OIL10000/socket?role=viewer`, "invalid code");
 
 for (const s of [early.socket, late.socket]) try { s.close(); } catch {}
-console.log("PASS: create, host key check, forward, viewer cannot send, ping, late join, host leave/return, close, invalid code");
+console.log("PASS: create, host key check, forward, viewer cannot send, viewer add + rate limit, ping, late join, host leave/return, close, invalid code");
 process.exit(0);

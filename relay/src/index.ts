@@ -15,7 +15,12 @@ export interface Env {
 const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_LENGTH = 8;
 const MAX_VIEWERS = 200;
+/** A state with a full 100-video playlist of links is well under this. */
 const MAX_MESSAGE_BYTES = 32 * 1024;
+/** Longest link a viewer may send for the host's playlist. */
+const MAX_LINK_LENGTH = 2048;
+/** Least time between two playlist links from the same viewer. */
+const VIEWER_ADD_INTERVAL_MS = 2000;
 /** A room nobody hosts for this long is deleted. */
 const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
 /** Host messages allowed per second; more are dropped. */
@@ -168,7 +173,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
 
-    let data: { type?: string; t?: number; state?: unknown; change?: boolean };
+    let data: { type?: string; t?: number; state?: unknown; change?: boolean; url?: unknown };
     try {
       data = JSON.parse(message);
     } catch {
@@ -182,6 +187,20 @@ export class Room extends DurableObject<Env> {
     }
 
     if (role !== "host") {
+      // Viewers may only suggest a link for the host's playlist; the host's CrystalCast decides.
+      if (data.type === "add" && typeof data.url === "string" && data.url.length > 0 && data.url.length <= MAX_LINK_LENGTH) {
+        const attachment = (ws.deserializeAttachment() ?? {}) as { lastAddAt?: number };
+        const now = Date.now();
+        if (now - (attachment.lastAddAt ?? 0) < VIEWER_ADD_INTERVAL_MS) {
+          return;
+        }
+
+        ws.serializeAttachment({ ...attachment, lastAddAt: now });
+        for (const host of this.ctx.getWebSockets("host")) {
+          this.send(host, { type: "add", url: data.url });
+        }
+      }
+
       return;
     }
 

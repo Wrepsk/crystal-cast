@@ -68,7 +68,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
             new ScreenRoomActions(rooms, roomsWindow.Share, roomsWindow.Open));
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
-        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);
+        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);

@@ -45,4 +45,6 @@ CRYSTALCAST_TEST_RELAY=http://127.0.0.1:8787 dotnet test CrystalCast.Tests
 - Viewers get `welcome` (with the latest state), `state` (stamped with the relay's `receivedAt`), `host`
   (`connected` true or false) and `closed`. Anyone can send `{ type: "ping", t }` and gets a `pong` with the
   relay's clock.
+- A viewer may send `{ type: "add", url }`; the relay passes it to the host (at most one every 2 seconds per
+  viewer), and the host's CrystalCast decides whether to add it to the playlist.
 - Limits: 200 viewers per room, 32 KiB per message, 20 host messages per second.

@@ -239,6 +239,19 @@ internal sealed class RoomService : IDisposable
             {
                 room.Viewers = message.Count ?? room.Viewers;
             }
+            else if (message.Type == "add")
+            {
+                // The change goes out with the next state, like any other playlist edit.
+                if (RoomPlaylistSync.TryAcceptAdd(screen, message.Url, out var addError))
+                {
+                    configuration.Save();
+                    log.Information("Room {Code}: added {Url} to the playlist for someone in the room.", room.Code, message.Url);
+                }
+                else
+                {
+                    log.Debug("Room {Code}: did not add {Url}: {Error}", room.Code, message.Url, addError);
+                }
+            }
         }
 
         if (connection.Refused)
@@ -293,6 +306,7 @@ internal sealed class RoomService : IDisposable
             Rate = playback.Rate,
             Loop = playback.Loop,
             PlaylistAutoplayNext = playback.PlaylistAutoplayNext,
+            Playlist = RoomPlaylistSync.BuildState(screen),
         };
     }
 
@@ -372,6 +386,44 @@ internal sealed class RoomService : IDisposable
         var request = RoomViewerPlan.Build(room.Code, room.State, room.ReceivedAt, relayNow, location, localPosition, now, room.Applied);
         var result = IpcJsonService.Deserialize<ScreenIpcMutationResponse>(ipc.ApplyRoomUpdate(request));
         room.Error = result is { Success: false } ? result.Error : string.Empty;
+
+        if (newState && configuration.FindBrowserScreen(RoomCode.ScreenIdFor(room.Code)) is { } joinedScreen
+            && RoomPlaylistSync.Mirror(joinedScreen, room.State.Playlist))
+        {
+            configuration.Save();
+        }
+    }
+
+    /// <summary>
+    /// Sends a link to the host of the room <paramref name="screen"/> came from, for its playlist. The host's
+    /// CrystalCast adds it if adding is still on, and the playlist comes back with the next state.
+    /// </summary>
+    public bool RequestAdd(BrowserScreenProfile screen, string input, out string error)
+    {
+        var room = joined.FirstOrDefault(candidate => RoomCode.ScreenIdFor(candidate.Code) == screen.ScreenId);
+        if (room == null)
+        {
+            error = "This screen isn't from a room you're in.";
+            return false;
+        }
+
+        if (room.State?.Playlist.AllowAdds != true)
+        {
+            error = "The host isn't taking videos right now.";
+            return false;
+        }
+
+        if (room.Connection.Status != RoomConnectionStatus.Connected)
+        {
+            error = "Not connected to the room right now.";
+            return false;
+        }
+
+        if (!RoomPlaylistSync.TryValidateLink(input, out var url, out error))
+            return false;
+
+        room.Connection.Send(new { type = "add", url });
+        return true;
     }
 
     /// <summary>The joined screen's own playback position now, when its player reports one.</summary>

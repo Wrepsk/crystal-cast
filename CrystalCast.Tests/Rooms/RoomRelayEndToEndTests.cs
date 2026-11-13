@@ -44,6 +44,10 @@ public sealed class RoomRelayEndToEndTests
         Assert.Equal(12, received.State.Location.Plot);
         Assert.True(received.ReceivedAt > 0);
 
+        viewer.Send(new { type = "add", url = "https://www.youtube.com/watch?v=aqz-KE-bpKQ" });
+        var add = await NextAsync(host, m => m.Type == "add");
+        Assert.Equal("https://www.youtube.com/watch?v=aqz-KE-bpKQ", add.Url);
+
         viewer.Send(new { type = "ping", t = 7 });
         var pong = await NextAsync(viewer, m => m.Type == "pong");
         Assert.Equal(7, pong.T);

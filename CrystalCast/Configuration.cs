@@ -374,6 +374,9 @@ public sealed class BrowserScreenProfile
     /// </summary>
     public bool PlaylistAllowUserAdds { get; set; }
 
+    /// <summary>While this screen is shared in a room: whether the people who joined may add videos.</summary>
+    public bool PlaylistAllowRoomAdds { get; set; }
+
     public bool Normalize(string defaultName, ISet<string> usedScreenIds)
     {
         var changed = false;
@@ -506,6 +509,7 @@ public sealed class BrowserScreenProfile
         clone.PlaylistCurrentEntryId = PlaylistCurrentEntryId;
         clone.PlaylistAllowIpcAdds = PlaylistAllowIpcAdds;
         clone.PlaylistAllowUserAdds = PlaylistAllowUserAdds;
+        clone.PlaylistAllowRoomAdds = PlaylistAllowRoomAdds;
         return clone;
     }
 }

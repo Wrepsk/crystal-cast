@@ -59,6 +59,31 @@ public sealed class RoomScreenState
     public float Rate { get; set; } = 1.0f;
     public bool Loop { get; set; }
     public bool PlaylistAutoplayNext { get; set; } = true;
+
+    /// <summary>The host's playlist, so viewers see what's coming and can add to it when the host allows.</summary>
+    public RoomPlaylistState Playlist { get; set; } = new();
+}
+
+public sealed class RoomPlaylistState
+{
+    /// <summary>Whether people in the room may add videos.</summary>
+    public bool AllowAdds { get; set; }
+    public bool Shuffle { get; set; }
+    public bool Loop { get; set; }
+    public string CurrentEntryId { get; set; } = string.Empty;
+    public List<RoomPlaylistEntry> Entries { get; set; } = [];
+}
+
+/// <summary>
+/// One video in the host's playlist. Only the link travels: each viewer's CrystalCast looks up the title,
+/// channel, thumbnail and length itself, as it does for its own playlists.
+/// </summary>
+public sealed class RoomPlaylistEntry
+{
+    /// <summary>Tells entries apart when the same link is queued twice, and marks which one is playing.</summary>
+    public string EntryId { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public bool Played { get; set; }
 }
 
 /// <summary>Messages from the relay. Which fields are set depends on <see cref="Type"/>.</summary>
@@ -80,6 +105,9 @@ public sealed class RoomRelayMessage
     public int? Count { get; set; }
     public long T { get; set; }
     public string Reason { get; set; } = string.Empty;
+
+    /// <summary>For the host: a link someone in the room asked to add to the playlist.</summary>
+    public string Url { get; set; } = string.Empty;
 }
 
 public sealed class RoomCreateResponse

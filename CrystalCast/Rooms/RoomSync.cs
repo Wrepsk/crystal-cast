@@ -53,7 +53,8 @@ internal sealed class RoomHostSendPolicy
         F(state.WidthMeters), F(state.HeightMeters),
         F(state.Visual.OccludedAlpha), F(state.Visual.OcclusionTolerance), F(state.Visual.ScreenCurveAmountMeters),
         state.Visual.DistanceFadeEnabled, F(state.Visual.FadeStartMeters), F(state.Visual.FadeStopMeters),
-        state.Provider, state.Url, state.Paused, F(state.Rate), state.Loop, state.PlaylistAutoplayNext);
+        state.Provider, state.Url, state.Paused, F(state.Rate), state.Loop, state.PlaylistAutoplayNext,
+        RoomPlaylistSync.Fingerprint(state.Playlist));
 
     private static string F(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 }

@@ -34,7 +34,8 @@ internal sealed class ScreenPlaylistAdvancer
         foreach (var screen in configuration.BrowserScreens)
         {
             seen.Add(screen.ScreenId);
-            if (!configuration.Enabled || !screen.Enabled || screen.Playlist.Count == 0)
+            // A joined room's screen shows the host's playlist; the host moves it along.
+            if (!configuration.Enabled || !screen.Enabled || screen.Playlist.Count == 0 || Rooms.RoomService.IsRoomScreen(screen))
             {
                 watches.Remove(screen.ScreenId);
                 continue;

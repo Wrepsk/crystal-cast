@@ -1,3 +1,4 @@
+using CrystalCast.Rooms;
 using System.Numerics;
 using CrystalCast.Browser;
 using CrystalCast.Browser.WebKitGtk;
@@ -38,6 +39,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         new(PageId.Rendering, "Rendering", FontAwesomeIcon.LayerGroup, "How screens are composited with the game and how each screen is occluded."),
         new(PageId.Browser, "Browser", FontAwesomeIcon.Globe, "Which browser renders pages and how they are captured into screen textures."),
         new(PageId.Diagnostics, "Diagnostics", FontAwesomeIcon.WaveSquare, "Checks and a full report to share when asking for support."),
+        new(PageId.Rooms, "Rooms", FontAwesomeIcon.Users, "Share a screen with a room code, or join someone else's."),
         new(PageId.Ipc, "IPC", FontAwesomeIcon.Link, "Let other Dalamud plugins create and control CrystalCast screens."),
 #if DEBUG
         new(PageId.Debug, "Debug", FontAwesomeIcon.Terminal, "Preview setup windows without editing the saved configuration."),
@@ -77,6 +79,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         Rendering,
         Browser,
         Diagnostics,
+        Rooms,
         Ipc,
         Debug,
     }
@@ -121,6 +124,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
                 PageId.Rendering => DrawRendering(config),
                 PageId.Browser => DrawBrowserMedia(config),
                 PageId.Diagnostics => DrawDiagnostics(config),
+                PageId.Rooms => DrawRooms(config),
                 PageId.Ipc => DrawIpc(config),
 #if DEBUG
                 PageId.Debug => DrawDebugWindows(),
@@ -624,6 +628,47 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
     }
 
     // ---------------------------------------------------------------- IPC
+
+    private string roomRelayDraft = string.Empty;
+    private bool roomRelayDraftLoaded;
+
+    private bool DrawRooms(Configuration config)
+    {
+        Ui.SectionHeader("Relay", "Rooms pass screen states through a small relay service. Video and audio never go through it, and players never see each other's IP addresses.");
+        if (!roomRelayDraftLoaded)
+        {
+            roomRelayDraft = config.RoomRelayUrl;
+            roomRelayDraftLoaded = true;
+        }
+
+        Ui.RowLabel("Relay address", LabelWidth, LabelGap);
+        Ui.TextField("##RoomRelayUrl", ref roomRelayDraft, 256, RoomRelayApi.DefaultRelayUrl, S(380.0f), error: !IsValidRelayDraft(), mono: true);
+        var changed = false;
+        var trimmed = roomRelayDraft.Trim();
+        if (IsValidRelayDraft() && !string.Equals(trimmed, config.RoomRelayUrl, StringComparison.Ordinal))
+        {
+            config.RoomRelayUrl = trimmed;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(!IsValidRelayDraft()
+            ? "Enter an http:// or https:// address."
+            : config.RoomRelayUrl.Length == 0
+                ? "Using the CrystalCast relay. Enter another address only if you run your own (see relay/ in the repository)."
+                : "Rooms you start or join from now on use this relay. Clear it to use the CrystalCast relay.");
+
+        Ui.VerticalSpace(SectionGap);
+        Ui.SectionHeader("Using rooms", "Open a screen's ... menu in the main window: Share this screen gives you a code, and Join a room lets you enter someone else's. Only the person sharing controls the screen, and it shows only where they are.");
+        Ui.RowLabel("Rooms window", LabelWidth, LabelGap);
+        if (Ui.Button("Open rooms"))
+            plugin.OpenRooms();
+
+        return changed;
+    }
+
+    private bool IsValidRelayDraft() =>
+        roomRelayDraft.Trim().Length == 0 || RoomRelayApi.TryParseRelayUri(roomRelayDraft, out _);
 
     private bool DrawIpc(Configuration config)
     {

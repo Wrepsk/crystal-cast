@@ -27,6 +27,9 @@ public class Configuration : IPluginConfiguration
     public long LocalSequence { get; set; }
     public bool IpcEnabled { get; set; } = true;
 
+    /// <summary>Address of a self-hosted sync rooms relay (see relay/). Empty uses the CrystalCast relay.</summary>
+    public string RoomRelayUrl { get; set; } = string.Empty;
+
     // Version 1 compatibility fields. They are read only when creating the first browser screen.
     public ScreenPlacementMode LocalVideoPlacementMode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }
@@ -371,6 +374,9 @@ public sealed class BrowserScreenProfile
     /// </summary>
     public bool PlaylistAllowUserAdds { get; set; }
 
+    /// <summary>While this screen is shared in a room: whether the people who joined may add videos.</summary>
+    public bool PlaylistAllowRoomAdds { get; set; }
+
     public bool Normalize(string defaultName, ISet<string> usedScreenIds)
     {
         var changed = false;
@@ -503,6 +509,7 @@ public sealed class BrowserScreenProfile
         clone.PlaylistCurrentEntryId = PlaylistCurrentEntryId;
         clone.PlaylistAllowIpcAdds = PlaylistAllowIpcAdds;
         clone.PlaylistAllowUserAdds = PlaylistAllowUserAdds;
+        clone.PlaylistAllowRoomAdds = PlaylistAllowRoomAdds;
         return clone;
     }
 }

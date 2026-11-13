@@ -166,7 +166,7 @@ CrystalRenderer.Tests covers the extracted renderer: output fallback, deferred-e
 
 Pull requests and pushes to `master` build and test both Debug and Release configurations. Release builds produce `CrystalCast/bin/x64/Release/CrystalCast/latest.zip`; CI verifies its exact runtime contents and generated manifest before uploading it.
 
-Pushing a numeric version tag (for example `0.9.1`) runs a Release build, tests, manifest and package verification, and publishes a GitHub Release with `CrystalCast-<version>.zip`. A final job then points `repo.json` on the `repo` branch, the custom plugin repository users add in Dalamud, at the new version and download links.
+Pushing a numeric version tag (for example `0.9.1`) runs a Release build, tests, manifest and package verification, and publishes a GitHub Release with `CrystalCast-<version>.zip`. A final job then points `repo.json` on the `repo` branch, the custom plugin repository users add in Dalamud, at the new version and download links. A `testing-` tag (for example `testing-0.9.3.1`) builds the same way but publishes a GitHub pre-release and only sets `repo.json`'s testing version and link, so only players who turned on testing builds get it.
 
 Configurations created before browser-only version 2 are migrated automatically. Existing browser screens are retained. If the active legacy source was local video, its screens are disabled during migration so browser media does not begin playing unexpectedly; the legacy placement is retained on the first browser screen, but local file and FFmpeg settings are discarded.
 

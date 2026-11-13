@@ -2,8 +2,10 @@ name: Release
 
 on:
   push:
-    # Standalone benchmark prereleases have their own workflow and tag prefix.
-    tags: ['[0-9]*']
+    # 0.9.3 is a release for everyone; testing-0.9.3.1 is a testing build that only players who turned on
+    # testing builds for CrystalCast in Dalamud get. Standalone benchmark prereleases have their own
+    # workflow and tag prefix.
+    tags: ['[0-9]*', 'testing-[0-9]*']
 
 permissions:
   contents: write
@@ -68,20 +70,46 @@ jobs:
   release:
     runs-on: windows-2022
     needs: webkitgtk-host
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      channel: ${{ steps.tag.outputs.channel }}
+      api-level: ${{ steps.manifest.outputs.api-level }}
 
     steps:
-      - name: Validate release tag
+      - name: Read version and channel from the tag
+        id: tag
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
-            throw "Release tags must contain only a numeric version, for example 0.6.0."
+          if ($env:GITHUB_REF_NAME -match '^testing-(\d+\.\d+\.\d+(?:\.\d+)?)$') {
+            $version = $Matches[1]; $channel = 'testing'
           }
+          elseif ($env:GITHUB_REF_NAME -match '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+            $version = $env:GITHUB_REF_NAME; $channel = 'stable'
+          }
+          else {
+            throw "Release tags are a numeric version (0.9.3) or testing- and one (testing-0.9.3.1)."
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "channel=$channel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Building $channel version $version."
 
       - name: Check out repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Read the Dalamud API level
+        # Dalamud only offers a testing build when repo.json's TestingDalamudApiLevel matches its own API level.
+        id: manifest
+        shell: pwsh
+        run: |
+          $apiLevel = (Get-Content -Raw CrystalCast/CrystalCast.json | ConvertFrom-Json).DalamudApiLevel
+          if (-not $apiLevel) { throw "CrystalCast/CrystalCast.json has no DalamudApiLevel." }
+          "api-level=$apiLevel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Download native Linux helper
         # The plugin project packages the helper when this file exists. The Linux
@@ -119,12 +147,12 @@ jobs:
 
       - name: Verify package and version
         shell: pwsh
-        run: ./scripts/Verify-Package.ps1 -ExpectedVersion $env:GITHUB_REF_NAME -IncludesWebKitGtkHost
+        run: ./scripts/Verify-Package.ps1 -ExpectedVersion $env:VERSION -IncludesWebKitGtkHost
 
       - name: Name release asset
         shell: pwsh
         run: |
-          $asset = "CrystalCast-$env:GITHUB_REF_NAME.zip"
+          $asset = "CrystalCast-$env:VERSION.zip"
           Copy-Item -LiteralPath CrystalCast/bin/x64/Release/CrystalCast/latest.zip -Destination $asset
           "ASSET_PATH=$asset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -144,8 +172,12 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:GITHUB_REF_NAME $env:ASSET_PATH --clobber
           }
+          elseif ($env:CHANNEL -eq 'testing') {
+            # A pre-release: downloadable, but never shown as the latest release.
+            gh release create $env:GITHUB_REF_NAME $env:ASSET_PATH --verify-tag --generate-notes --prerelease --title "CrystalCast $env:VERSION (testing)"
+          }
           else {
-            gh release create $env:GITHUB_REF_NAME $env:ASSET_PATH --verify-tag --generate-notes --title "CrystalCast $env:GITHUB_REF_NAME"
+            gh release create $env:GITHUB_REF_NAME $env:ASSET_PATH --verify-tag --generate-notes --title "CrystalCast $env:VERSION"
           }
 
           if ($LASTEXITCODE -ne 0) {
@@ -153,7 +185,9 @@ jobs:
           }
 
   update-plugin-repo:
-    # Points the Dalamud plugin repository (repo.json on the "repo" branch) at the release just published.
+    # Points the Dalamud plugin repository (repo.json on the "repo" branch) at the release just published:
+    # AssemblyVersion and the download links for a release, TestingAssemblyVersion and DownloadLinkTesting
+    # for a testing build.
     name: Update repo.json
     runs-on: ubuntu-24.04
     needs: release
@@ -170,26 +204,36 @@ jobs:
       - name: Update version and download links
         env:
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.release.outputs.version }}
+          CHANNEL: ${{ needs.release.outputs.channel }}
+          API_LEVEL: ${{ needs.release.outputs.api-level }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -eu
           # Dalamud wants four parts: 0.9.0 -> 0.9.0.0.
-          version="$TAG"
+          version="$VERSION"
           while [ "$(printf '%s' "$version" | tr -cd '.' | wc -c)" -lt 3 ]; do version="$version.0"; done
 
+          if [ "$CHANNEL" = "testing" ]; then
+            field=TestingAssemblyVersion
+            # Without TestingDalamudApiLevel, Dalamud never offers the testing build.
+            filter='.TestingAssemblyVersion = $version | .TestingDalamudApiLevel = ($api | tonumber) | .DownloadLinkTesting = $link'
+          else
+            field=AssemblyVersion
+            filter='.AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link'
+          fi
+
           # Re-running an older tag must not move the repository back to it.
-          current=$(jq -r '.[0].AssemblyVersion' repo.json)
+          current=$(jq -r --arg field "$field" '.[0][$field] // "0.0.0.0"' repo.json)
           newest=$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)
           if [ "$newest" != "$version" ]; then
-            echo "repo.json already has $current, newer than $version; leaving it."
+            echo "repo.json already has $field $current, newer than $version; leaving it."
             exit 0
           fi
 
-          link="https://github.com/$REPOSITORY/releases/download/$TAG/CrystalCast-$TAG.zip"
-          jq --arg version "$version" --arg link "$link" \
-            'map(if .InternalName == "CrystalCast"
-                 then .AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link
-                 else . end)' \
+          link="https://github.com/$REPOSITORY/releases/download/$TAG/CrystalCast-$VERSION.zip"
+          jq --arg version "$version" --arg link "$link" --arg api "$API_LEVEL" \
+            "map(if .InternalName == \"CrystalCast\" then $filter else . end)" \
             repo.json > repo.json.new
           mv repo.json.new repo.json
 

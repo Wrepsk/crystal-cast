@@ -34,7 +34,8 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         var descriptor = GetDescriptor(screen);
         var capabilities = BrowserSourceProviderRegistry.GetCapabilities(descriptor.ProviderKind);
         DrawBrowserControlsRow(screen, descriptor, capabilities);
-        changed |= DrawResolutionPreset(screen, descriptor, sourceLocked);
+        // Resolution is how sharp the screen looks on this PC, like capture FPS, so a source lock leaves it alone.
+        changed |= DrawResolutionPreset(screen, descriptor);
         changed |= DrawCaptureFps(screen, descriptor);
         changed |= DrawSourceOptions(screen, descriptor, capabilities, sourceLocked);
         return changed;
@@ -242,7 +243,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
         }
     }
 
-    private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserProviderSettings descriptor, bool sourceLocked)
+    private static bool DrawResolutionPreset(BrowserScreenProfile screen, BrowserProviderSettings descriptor)
     {
         Ui.RowLabel("Resolution", LabelWidth, LabelGap);
         return SourceControlUi.DrawResolutionPreset(
@@ -253,8 +254,7 @@ internal sealed class BrowserSourceControlsPanel(WorldScreenManager renderer)
             {
                 descriptor.SetBrowserWidth(screen, width);
                 descriptor.SetBrowserHeight(screen, height);
-            },
-            sourceLocked);
+            });
     }
 
     private bool DrawCaptureFps(BrowserScreenProfile screen, BrowserProviderSettings descriptor)

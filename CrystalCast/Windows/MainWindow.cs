@@ -1,3 +1,4 @@
+using CrystalCast.Rooms;
 using System.Numerics;
 using CrystalCast.Ipc;
 using CrystalCast.Playlist;
@@ -31,6 +32,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
     private readonly IpcScreenDeleteWindow ipcScreenDeleteWindow;
+    private readonly RoomService rooms;
     private readonly PlacementUndoService placementUndoService = new();
     private readonly ScreenListPanel screenListPanel;
     private readonly AudioControlsPanel audioControlsPanel;
@@ -50,17 +52,23 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         ScreenPlacementResolver placementResolver,
         ScreenPlaylistAdvancer playlistAdvancer,
         PlaylistMetadataService playlistMetadata,
-        IpcScreenDeleteWindow ipcScreenDeleteWindow)
+        IpcScreenDeleteWindow ipcScreenDeleteWindow,
+        RoomService rooms,
+        RoomsWindow roomsWindow)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
         this.renderer = renderer;
         this.ipc = ipc;
         this.ipcScreenDeleteWindow = ipcScreenDeleteWindow;
-        screenListPanel = new ScreenListPanel(renderer, playlistMetadata);
+        this.rooms = rooms;
+        screenListPanel = new ScreenListPanel(
+            renderer,
+            playlistMetadata,
+            new ScreenRoomActions(rooms, roomsWindow.Share, roomsWindow.Open));
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
-        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata);
+        playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -575,6 +583,16 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
 
     private void AskBeforeDeletingIpcScreen(BrowserScreenProfile screen)
     {
+        // A joined room's screen: deleting it just leaves the room, so there's nothing to ask.
+        if (RoomService.IsRoomScreen(screen))
+        {
+            var config = plugin.Configuration;
+            screenListPanel.DeleteScreen(config, screen, hide: false, OnScreenDeleted);
+            config.Save();
+            SaveAndPublish();
+            return;
+        }
+
         var screenId = screen.ScreenId;
         ipcScreenDeleteWindow.Ask(screen, hide =>
         {
@@ -592,8 +610,12 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     private void OnScreenDeleted(BrowserScreenProfile screen, bool hide)
     {
         ClearDeletedScreenUiState(screen.ScreenId);
-        if (screen.CreatedByIpc)
+        if (RoomService.IsRoomScreen(screen))
+            rooms.OnRoomScreenDeleted(screen);
+        else if (screen.CreatedByIpc)
             ipc.OnUserDeletedScreen(screen, hide);
+        else
+            rooms.OnScreenDeleted(screen.ScreenId);
     }
 
     private void ClearDeletedScreenUiState(string screenId)

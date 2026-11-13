@@ -1,6 +1,7 @@
 using System.Numerics;
 using CrystalCast.Ipc;
 using CrystalCast.Playlist;
+using CrystalCast.Rooms;
 using CrystalCast.Sources;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
@@ -15,7 +16,7 @@ namespace CrystalCast.Windows.Panels;
 /// adding, playing, skipping, reordering and the play-order switches are locked, but the user can always remove
 /// videos, clear the list and turn off other plugins' access.
 /// </summary>
-internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenStateIpc ipc, PlaylistMetadataService metadata)
+internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenStateIpc ipc, PlaylistMetadataService metadata, RoomService? rooms = null)
 {
     private const float LabelWidth = MainLabelWidth;
     private const float LabelGap = MainLabelGap;
@@ -27,7 +28,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
     {
         var uiState = GetUiState(screen.ScreenId);
         var blocks = DescribeBlocks(screen);
-        var changed = DrawAddRow(screen, uiState, blocks.Add);
+        var changed = DrawAddRow(screen, uiState, blocks.Add, rooms);
         changed |= DrawOptions(screen, blocks.Controls);
         Ui.VerticalSpace(24.0f);
         changed |= DrawList(screen, uiState, blocks);
@@ -43,6 +44,18 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
     /// </summary>
     internal static PlaylistBlocks DescribeBlocks(BrowserScreenProfile screen)
     {
+        // A joined room's screen: the host's playlist. The room's own lock doesn't stop adding when the host
+        // allows it; the link goes to the host.
+        if (RoomService.IsRoomScreen(screen))
+        {
+            var room = string.IsNullOrWhiteSpace(screen.SourceControlsOwnerId) ? "the room" : screen.SourceControlsOwnerId;
+            var hosted = $"The host of {room} manages this playlist";
+            return new PlaylistBlocks(
+                Add: screen.PlaylistAllowUserAdds ? null : $"{hosted}; adding is off",
+                Controls: hosted,
+                Remove: hosted);
+        }
+
         if (ScreenPlaylistPolicy.IsPluginManaged(screen))
         {
             var managed = string.IsNullOrWhiteSpace(screen.IpcOwnerId)
@@ -62,7 +75,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
     /// <summary>Why adding, the other controls, and removing/clearing are off; null where they are on.</summary>
     internal readonly record struct PlaylistBlocks(string? Add, string? Controls, string? Remove);
 
-    private static bool DrawAddRow(BrowserScreenProfile screen, PlaylistUiState uiState, string? blockedReason)
+    private static bool DrawAddRow(BrowserScreenProfile screen, PlaylistUiState uiState, string? blockedReason, RoomService? rooms)
     {
         var locked = blockedReason != null;
         var changed = false;
@@ -93,7 +106,22 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             && !locked
             && !full)
         {
-            if (ScreenPlaylistPolicy.TryCreateEntry(draft, screen.ProviderKind, addedByIpc: false, string.Empty, null, out var entry, out var error)
+            if (RoomService.IsRoomScreen(screen))
+            {
+                // Goes to the host; it appears here when the host's CrystalCast has added it.
+                var roomError = "Rooms aren't available.";
+                if (rooms != null && rooms.RequestAdd(screen, draft, out roomError))
+                {
+                    uiState.Draft = string.Empty;
+                    uiState.Error = string.Empty;
+                    uiState.SentToHostAtTick = Environment.TickCount64;
+                }
+                else
+                {
+                    uiState.Error = roomError;
+                }
+            }
+            else if (ScreenPlaylistPolicy.TryCreateEntry(draft, screen.ProviderKind, addedByIpc: false, string.Empty, null, out var entry, out var error)
                 && ScreenPlaylistPolicy.TryAdd(screen, entry, out error))
             {
                 uiState.Draft = string.Empty;
@@ -113,6 +141,8 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             Ui.Meta($"The playlist is full ({ScreenPlaylistPolicy.MaxEntries} videos).");
         else if (uiState.Error.Length > 0)
             Ui.ErrorText(uiState.Error);
+        else if (Environment.TickCount64 - uiState.SentToHostAtTick < 4000)
+            Ui.Meta("Sent to the host. It appears here once they've added it.");
         else if (valid && detected.IsGenericWebFallback)
             Ui.Text($"Not a supported video site · plays as a web page ({detected.Source.DisplayName})", Warning, f => f.Small, wrap: true);
         else if (valid)
@@ -170,6 +200,19 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         Ui.Meta(allowIpc
             ? "Plugins can add videos to this screen. Web pages they add still ask before opening."
             : "Only you can add videos, unless a plugin holds this screen's source lock.");
+
+        var allowRoom = screen.PlaylistAllowRoomAdds;
+        Ui.RowLabel("Room", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled("##PlaylistAllowRoom", "Let people in the room add videos", ref allowRoom))
+        {
+            screen.PlaylistAllowRoomAdds = allowRoom;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(allowRoom
+            ? "While you share this screen, people who joined can add YouTube, Twitch, Dailymotion and Vimeo links."
+            : "While you share this screen, only you add videos.");
         return changed;
     }
 
@@ -419,5 +462,8 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
         public string Draft { get; set; } = string.Empty;
         public string Error { get; set; } = string.Empty;
         public long ClearArmedAtTick { get; set; }
+
+        /// <summary>When a link was last sent to a room's host, to say so for a moment.</summary>
+        public long SentToHostAtTick { get; set; } = -100_000;
     }
 }

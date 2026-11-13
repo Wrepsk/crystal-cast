@@ -73,6 +73,7 @@ jobs:
     outputs:
       version: ${{ steps.tag.outputs.version }}
       channel: ${{ steps.tag.outputs.channel }}
+      api-level: ${{ steps.manifest.outputs.api-level }}
 
     steps:
       - name: Read version and channel from the tag
@@ -100,6 +101,15 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Read the Dalamud API level
+        # Dalamud only offers a testing build when repo.json's TestingDalamudApiLevel matches its own API level.
+        id: manifest
+        shell: pwsh
+        run: |
+          $apiLevel = (Get-Content -Raw CrystalCast/CrystalCast.json | ConvertFrom-Json).DalamudApiLevel
+          if (-not $apiLevel) { throw "CrystalCast/CrystalCast.json has no DalamudApiLevel." }
+          "api-level=$apiLevel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Download native Linux helper
         # The plugin project packages the helper when this file exists. The Linux
@@ -196,6 +206,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.release.outputs.version }}
           CHANNEL: ${{ needs.release.outputs.channel }}
+          API_LEVEL: ${{ needs.release.outputs.api-level }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -eu
@@ -205,7 +216,8 @@ jobs:
 
           if [ "$CHANNEL" = "testing" ]; then
             field=TestingAssemblyVersion
-            filter='.TestingAssemblyVersion = $version | .DownloadLinkTesting = $link'
+            # Without TestingDalamudApiLevel, Dalamud never offers the testing build.
+            filter='.TestingAssemblyVersion = $version | .TestingDalamudApiLevel = ($api | tonumber) | .DownloadLinkTesting = $link'
           else
             field=AssemblyVersion
             filter='.AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link'
@@ -220,7 +232,7 @@ jobs:
           fi
 
           link="https://github.com/$REPOSITORY/releases/download/$TAG/CrystalCast-$VERSION.zip"
-          jq --arg version "$version" --arg link "$link" \
+          jq --arg version "$version" --arg link "$link" --arg api "$API_LEVEL" \
             "map(if .InternalName == \"CrystalCast\" then $filter else . end)" \
             repo.json > repo.json.new
           mv repo.json.new repo.json

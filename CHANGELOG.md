@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.4.1 - 2026-11-13
+
 ### Changed
 
 - A joined room's screen now shows anywhere in the host's housing ward (the same half of it: main division or subdivision), not only on the plot the host stands on. Indoors it still needs the same house or apartment, since every ward, both halves of a ward and every house of a size share the same coordinates. Instanced zones (busy cities and areas) now also need the same instance.

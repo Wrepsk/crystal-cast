@@ -99,6 +99,26 @@ public sealed class ScreenStateIpc : IDisposable
     /// <summary>Tells other plugins the user deleted one of their screens, and whether to keep it hidden.</summary>
     public void OnUserDeletedScreen(BrowserScreenProfile screen, bool hide) => mutationService.RemovedByUser(screen, hide);
 
+    /// <summary>Rooms: the state a shared screen sends, with its resolved world placement.</summary>
+    internal bool TryBuildRoomState(BrowserScreenProfile screen, out ScreenStateEnvelope state, out ResolvedScreenPlacement placement)
+    {
+        if (!stateBuilder.TryResolveForIpc(screen.Placement, out placement))
+        {
+            state = null!;
+            return false;
+        }
+
+        state = stateBuilder.BuildBrowserScreenState(screen, placement);
+        return true;
+    }
+
+    /// <summary>Rooms: applies a joined room's state through the same path as <c>Screen.Update</c>.</summary>
+    internal string ApplyRoomUpdate(ScreenIpcMutationRequest request) =>
+        mutationService.UpdateScreenJson(IpcJsonService.Serialize(request));
+
+    /// <summary>Rooms: removes a joined room's screen.</summary>
+    internal bool RemoveRoomScreen(string screenId) => mutationService.Remove(screenId);
+
     public void SetEnabled(bool enabled)
     {
         if (configuration.IpcEnabled == enabled)
@@ -333,7 +353,8 @@ public sealed class ScreenStateIpc : IDisposable
     private void RemoveIpcCreatedScreens()
     {
         configuration.Normalize();
-        var removed = configuration.BrowserScreens.RemoveAll(screen => screen.CreatedByIpc);
+        // Joined room screens don't depend on the IPC switch; the rooms service owns them.
+        var removed = configuration.BrowserScreens.RemoveAll(screen => screen.CreatedByIpc && !CrystalCast.Rooms.RoomService.IsRoomScreen(screen));
         if (removed <= 0)
             return;
 

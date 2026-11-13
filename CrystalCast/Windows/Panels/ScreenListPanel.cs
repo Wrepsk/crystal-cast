@@ -1,3 +1,4 @@
+using CrystalCast.Rooms;
 using System.Numerics;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
@@ -9,7 +10,10 @@ using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows.Panels;
 
-internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata)
+/// <summary>What the screen menu needs from sync rooms: the service, and opening the Rooms window.</summary>
+internal sealed record ScreenRoomActions(RoomService Rooms, Action<BrowserScreenProfile> Share, Action OpenRooms);
+
+internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata, ScreenRoomActions? roomActions = null)
 {
     private string renamingScreenId = string.Empty;
     private string renameDraft = string.Empty;
@@ -158,6 +162,9 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             changed |= renderer.PlaceBrowserScreenInFrontOfPlayer(activeScreen);
 
         Ui.MenuSeparator();
+        DrawRoomItems(activeScreen);
+
+        Ui.MenuSeparator();
         if (Ui.MenuItem("Delete", disabled: activeScreen == null, danger: true, icon: FontAwesomeIcon.TrashAlt))
         {
             // Another plugin's screen: ask whether it may come back on that plugin's next update.
@@ -169,6 +176,32 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
 
         Ui.EndMenu();
         return changed;
+    }
+
+    private void DrawRoomItems(BrowserScreenProfile? activeScreen)
+    {
+        if (roomActions == null)
+            return;
+
+        // Screens from other plugins or joined rooms aren't the user's to share.
+        if (activeScreen is { CreatedByIpc: false })
+        {
+            if (roomActions.Rooms.FindHosted(activeScreen.ScreenId) == null)
+            {
+                if (Ui.MenuItem("Share this screen", icon: FontAwesomeIcon.ShareAlt))
+                    roomActions.Share(activeScreen);
+            }
+            else
+            {
+                if (Ui.MenuItem("Show room code", icon: FontAwesomeIcon.ShareAlt))
+                    roomActions.OpenRooms();
+                if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
+                    roomActions.Rooms.StopSharing(activeScreen.ScreenId);
+            }
+        }
+
+        if (Ui.MenuItem("Join a room…", icon: FontAwesomeIcon.Users))
+            roomActions.OpenRooms();
     }
 
     internal bool DeleteScreen(Configuration config, BrowserScreenProfile screen, bool hide, Action<BrowserScreenProfile, bool> onScreenDeleted)

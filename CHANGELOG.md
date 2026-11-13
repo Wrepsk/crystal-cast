@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- Sync rooms (experimental): **Share this screen** in a screen's ... menu gives a room code, and **Join a room…** lets others enter it. Everyone who joins sees the screen where the host is (same world, zone, and for housing the same ward, plot and room), playing at the same point. Only the host controls it. Deleting a joined screen leaves the room. Rooms pass small screen states through the CrystalCast relay (`relay/`, a Cloudflare Worker); **Settings > Rooms** can point at your own instead. Video and audio never go through it, and players never see each other's IP addresses.
+
 ## 0.9.2 - 2026-11-12
 
 ### Added

@@ -1,3 +1,4 @@
+using CrystalCast.Rooms;
 using CrystalCast.Browser;
 using CrystalCast.Browser.WebView2;
 using CrystalCast.Ipc;
@@ -42,6 +43,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GenericWebIpcApprovalService genericWebIpcApprovals;
     private readonly WorldScreenManager renderer;
     private readonly ScreenStateIpc ipc;
+    private readonly RoomService rooms;
+    private readonly RoomsWindow roomsWindow;
     private readonly ScreenPlaylistAdvancer playlistAdvancer;
     private readonly PlaylistMetadataService playlistMetadata;
     private readonly CrystalCastFonts fonts;
@@ -89,7 +92,9 @@ public sealed class Plugin : IDalamudPlugin
         playlistMetadata = new PlaylistMetadataService(TextureProvider, Log, renderer.GetPlaybackTelemetry);
         ipc = new ScreenStateIpc(Configuration, renderer, services, playlistAdvancer);
         ipcScreenDeleteWindow = new IpcScreenDeleteWindow(Configuration);
-        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow);
+        rooms = new RoomService(Configuration, ipc, Framework, ClientState, ObjectTable, Log);
+        roomsWindow = new RoomsWindow(rooms, Configuration, ToggleConfigUi);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
@@ -107,6 +112,7 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.AddWindow(firstRunGuideWindow);
         windowSystem.AddWindow(genericWebIpcApprovalWindow);
         windowSystem.AddWindow(ipcScreenDeleteWindow);
+        windowSystem.AddWindow(roomsWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -149,6 +155,8 @@ public sealed class Plugin : IDalamudPlugin
         firstRunGuideWindow.Dispose();
         genericWebIpcApprovalWindow.Dispose();
         ipcScreenDeleteWindow.Dispose();
+        roomsWindow.Dispose();
+        rooms.Dispose();
         ipc.Dispose();
         playlistMetadata.Dispose();
         renderer.Dispose();
@@ -195,6 +203,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         WebView2Downloader.StartRemoval(renderer.ReleaseAllBrowserRuntimes);
     }
+
+    internal void OpenRooms() => roomsWindow.Open();
 
     internal void ShowFirstRunGuide()
     {
@@ -316,6 +326,7 @@ public sealed class Plugin : IDalamudPlugin
         firstRunGuideWindow.Suspend();
         genericWebIpcApprovalWindow.Suspend();
         ipcScreenDeleteWindow.Suspend();
+        roomsWindow.Suspend();
     }
 
     private bool PauseOwnedWorldScreensOnZoneChange()

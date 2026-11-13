@@ -4,10 +4,13 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.4 - 2026-11-13
+
 ### Added
 
 - Sync rooms (experimental): **Share this screen** in a screen's ... menu gives a room code, and **Join a room…** lets others enter it. Everyone who joins sees the screen where the host is (same world, zone, and for housing the same ward, plot and room), playing at the same point. Only the host controls it. Deleting a joined screen leaves the room. Rooms pass small screen states through the CrystalCast relay (`relay/`, a Cloudflare Worker); **Settings > Rooms** can point at your own instead. Video and audio never go through it, and players never see each other's IP addresses.
 - Rooms share the playlist too: viewers see the host's queue. With **Let people in the room add videos** on in the Playlist tab, people who joined can add YouTube, Twitch, Dailymotion and Vimeo links, which go to the host's playlist. A joined screen's playlist names the room it comes from.
+- Testing builds: players who turn on testing builds for CrystalCast in Dalamud can get early versions before a release.
 
 ### Fixed
 

@@ -11,6 +11,8 @@
     "IconUrl": "https://raw.githubusercontent.com/Wrepsk/crystal-cast/repo/Icon/icon.png",
     "Punchline": "World-space video screens.",
     "DownloadLinkInstall": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.2/CrystalCast-0.9.2.zip",
-    "DownloadLinkUpdate": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.2/CrystalCast-0.9.2.zip"
+    "DownloadLinkUpdate": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.2/CrystalCast-0.9.2.zip",
+    "TestingAssemblyVersion": "0.9.3.1",
+    "DownloadLinkTesting": "https://github.com/Wrepsk/crystal-cast/releases/download/testing-0.9.3.1/CrystalCast-0.9.3.1.zip"
   }
 ]

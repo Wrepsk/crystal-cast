@@ -347,6 +347,14 @@ internal sealed class RoomService : IDisposable
             }
         }
 
+        if (room.Connection.Status == RoomConnectionStatus.Connected)
+            room.HostPresence.Observe(room.HostConnected, now);
+        else
+            room.HostPresence.Reset();
+
+        if (room.ClosedReason.Length == 0 && room.HostPresence.ShouldLeave(now))
+            room.ClosedReason = "The host has been offline for 3 minutes.";
+
         if (room.ClosedReason.Length > 0 || room.Connection.Refused)
         {
             Leave(room.Code, removeScreen: true);
@@ -469,6 +477,7 @@ internal sealed class JoinedRoom(string code, RoomRelayConnection connection)
     public RoomRelayConnection Connection { get; } = connection;
     public RoomClock Clock { get; } = new();
     public RoomViewerApplied Applied { get; } = new();
+    public RoomHostPresence HostPresence { get; } = new();
     public RoomScreenState? State { get; set; }
     public long ReceivedAt { get; set; }
     public bool HostConnected { get; set; }

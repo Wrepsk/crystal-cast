@@ -90,6 +90,32 @@ internal sealed class RoomClock
     public long RelayNow(long localNowMs) => localNowMs + offsetMs;
 }
 
+/// <summary>
+/// How long a room's host has been offline. A host whose game crashed or lost its connection can't close the
+/// room, and can't take it back either, since the host key only lives for that game session. Viewers leave
+/// once the host has been gone for <see cref="LeaveAfterMs"/>; a short drop reconnects well before that.
+/// </summary>
+internal sealed class RoomHostPresence
+{
+    public const long LeaveAfterMs = 3 * 60 * 1000;
+
+    private long offlineSinceMs = -1;
+
+    /// <summary>Call while this viewer is connected, with what the relay last said about the host.</summary>
+    public void Observe(bool hostConnected, long nowMs)
+    {
+        if (hostConnected)
+            offlineSinceMs = -1;
+        else if (offlineSinceMs < 0)
+            offlineSinceMs = nowMs;
+    }
+
+    /// <summary>This viewer lost its own connection, so the host's state is unknown; start over when back.</summary>
+    public void Reset() => offlineSinceMs = -1;
+
+    public bool ShouldLeave(long nowMs) => offlineSinceMs >= 0 && nowMs - offlineSinceMs >= LeaveAfterMs;
+}
+
 /// <summary>What a viewer's copy of the screen last had applied, so unchanged things aren't sent again.</summary>
 internal sealed class RoomViewerApplied
 {

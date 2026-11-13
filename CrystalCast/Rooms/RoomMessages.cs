@@ -4,31 +4,53 @@ using CrystalCast.Ipc;
 namespace CrystalCast.Rooms;
 
 /// <summary>
-/// Where the host is standing. A joined screen only shows when the viewer is in the same place: housing
-/// districts reuse one zone for every ward and plot, so the zone alone is not enough.
+/// Where the host is. A joined screen shows when the viewer is in the same copy of the same area: same world,
+/// zone and instance, and in housing the same ward and subdivision, or indoors the same house or apartment.
+/// Housing reuses one zone, with identical coordinates, for every ward, both halves of a ward and every house
+/// of a size, so the zone alone is not enough; outdoors the plot someone stands on doesn't matter.
 /// </summary>
 public sealed record RoomLocation
 {
     public uint WorldId { get; init; }
     public ushort TerritoryId { get; init; }
+
+    /// <summary>The instance of an instanced zone (busy cities and areas); 0 when the zone has only one.</summary>
+    public uint Instance { get; init; }
     public sbyte Ward { get; init; } = -1;
+
+    /// <summary>Indoors only: which house. Outdoors it would only say which plot someone stands on.</summary>
     public sbyte Plot { get; init; } = -1;
+
+    /// <summary>Indoors only: the apartment or private room.</summary>
     public short Room { get; init; } = -1;
+
+    /// <summary>Which half of the ward: the main division or the subdivision, a copy with the same coordinates.</summary>
     public byte Division { get; init; }
     public bool Indoors { get; init; }
 
     public bool IsKnown => WorldId != 0 && TerritoryId != 0;
+    public bool InHousing => Ward >= 0;
 
-    public bool SamePlaceAs(RoomLocation other) =>
-        IsKnown
-        && other.IsKnown
-        && WorldId == other.WorldId
-        && TerritoryId == other.TerritoryId
-        && Ward == other.Ward
-        && Plot == other.Plot
-        && Room == other.Room
-        && Division == other.Division
-        && Indoors == other.Indoors;
+    public bool SamePlaceAs(RoomLocation other)
+    {
+        if (!IsKnown || !other.IsKnown
+            || WorldId != other.WorldId
+            || TerritoryId != other.TerritoryId
+            || Instance != other.Instance
+            || InHousing != other.InHousing)
+        {
+            return false;
+        }
+
+        if (!InHousing)
+            return true;
+
+        if (Ward != other.Ward || Division != other.Division || Indoors != other.Indoors)
+            return false;
+
+        // Outdoors the whole ward half is one place; plot and room are ignored, also when an older version sent them.
+        return !Indoors || Plot == other.Plot && Room == other.Room;
+    }
 }
 
 /// <summary>Everything a viewer needs to show the host's screen. Sent by the host, passed on by the relay.</summary>

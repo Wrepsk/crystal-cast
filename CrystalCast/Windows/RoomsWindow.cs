@@ -192,8 +192,8 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
             RoomConnectionStatus.Connecting => "Connecting…",
             RoomConnectionStatus.Reconnecting => $"Reconnecting… {room.Connection.LastError}",
             _ when room.State == null => "Waiting for the host to start playing.",
+            _ when !room.HostConnected => "The host is offline. Showing their last state; you leave the room if they aren't back within 3 minutes.",
             _ when !room.WasInPlace => "The host's screen is somewhere else. It shows when you're in the same place.",
-            _ when !room.HostConnected => "The host is offline. Showing their last state.",
             _ => "Watching.",
         };
     }

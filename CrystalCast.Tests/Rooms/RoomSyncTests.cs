@@ -52,6 +52,42 @@ public sealed class RoomLocationTests
     }
 
     [Fact]
+    public void OutdoorsTheWholeWardMatches()
+    {
+        var host = new RoomLocation { WorldId = 73, TerritoryId = 641, Ward = 4, Division = 1 };
+
+        // Standing on another plot, or a host on an older version that still sends its plot.
+        Assert.True((host with { Plot = 12 }).SamePlaceAs(host with { Plot = 3, Room = 0 }));
+
+        Assert.False(host.SamePlaceAs(host with { Ward = 5 }));
+
+        // The subdivision is a copy of the ward with the same coordinates.
+        Assert.False(host.SamePlaceAs(host with { Division = 2 }));
+    }
+
+    [Fact]
+    public void IndoorsTheHouseOrApartmentMustMatch()
+    {
+        var house = new RoomLocation { WorldId = 73, TerritoryId = 652, Ward = 4, Plot = 12, Room = 0, Division = 1, Indoors = true };
+
+        Assert.True(house.SamePlaceAs(house with { }));
+        Assert.False(house.SamePlaceAs(house with { Plot = 13 }));
+        Assert.False(house.SamePlaceAs(house with { Room = 3 }));
+        Assert.False(house.SamePlaceAs(house with { Ward = 5 }));
+        Assert.False(house.SamePlaceAs(house with { Division = 2 }));
+    }
+
+    [Fact]
+    public void InstancesOfAZoneAreDifferentPlaces()
+    {
+        var limsa = new RoomLocation { WorldId = 73, TerritoryId = 129, Instance = 1 };
+
+        Assert.True(limsa.SamePlaceAs(limsa with { }));
+        Assert.False(limsa.SamePlaceAs(limsa with { Instance = 2 }));
+        Assert.False(limsa.SamePlaceAs(limsa with { TerritoryId = 132 }));
+    }
+
+    [Fact]
     public void UnknownLocationsNeverMatch()
     {
         Assert.False(new RoomLocation().SamePlaceAs(new RoomLocation()));
@@ -142,6 +178,53 @@ public sealed class RoomClockTests
         clock.AddPong(1_000, 5_010, 1_020);
         clock.AddRelayTime(99_999, 1_000);
         Assert.Equal(4_000, clock.RelayNow(0));
+    }
+}
+
+public sealed class RoomHostPresenceTests
+{
+    [Fact]
+    public void ViewersLeaveAfterTheHostIsGoneForThreeMinutes()
+    {
+        var presence = new RoomHostPresence();
+        presence.Observe(hostConnected: false, nowMs: 0);
+
+        Assert.False(presence.ShouldLeave(RoomHostPresence.LeaveAfterMs - 1));
+        Assert.True(presence.ShouldLeave(RoomHostPresence.LeaveAfterMs));
+    }
+
+    [Fact]
+    public void AHostWhoComesBackStopsTheClock()
+    {
+        var presence = new RoomHostPresence();
+        presence.Observe(hostConnected: false, nowMs: 0);
+        presence.Observe(hostConnected: true, nowMs: 60_000);
+        presence.Observe(hostConnected: false, nowMs: 120_000);
+
+        Assert.False(presence.ShouldLeave(RoomHostPresence.LeaveAfterMs + 60_000));
+        Assert.True(presence.ShouldLeave(120_000 + RoomHostPresence.LeaveAfterMs));
+    }
+
+    [Fact]
+    public void TheViewersOwnDisconnectDoesNotCount()
+    {
+        var presence = new RoomHostPresence();
+        presence.Observe(hostConnected: false, nowMs: 0);
+        presence.Reset();
+
+        Assert.False(presence.ShouldLeave(RoomHostPresence.LeaveAfterMs * 2));
+
+        presence.Observe(hostConnected: false, nowMs: 500_000);
+        Assert.False(presence.ShouldLeave(500_000 + RoomHostPresence.LeaveAfterMs - 1));
+    }
+
+    [Fact]
+    public void AnOnlineHostNeverTriggersALeave()
+    {
+        var presence = new RoomHostPresence();
+        presence.Observe(hostConnected: true, nowMs: 0);
+
+        Assert.False(presence.ShouldLeave(long.MaxValue / 2));
     }
 }
 

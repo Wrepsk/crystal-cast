@@ -58,4 +58,8 @@ CI builds CrystalCast, CrystalRenderer, and both test projects with analyzers an
    ./scripts/Verify-Package.ps1 -ExpectedVersion 0.6.0
    ```
 
-4. Create and push a numeric tag such as `0.6.0`. The release workflow verifies the tag against the manifest, runs tests, and publishes the validated ZIP to GitHub Releases.
+4. Create and push a numeric tag such as `0.6.0`. The release workflow verifies the tag against the manifest, runs tests, publishes the validated ZIP to GitHub Releases, and points `repo.json` on the `repo` branch at it.
+
+### Testing builds
+
+To give a build only to players who turned on testing builds for CrystalCast in Dalamud, set the project and manifest version (for example `0.9.3.1`) on any branch and push a `testing-` tag with that version, such as `testing-0.9.3.1`. The workflow runs the same checks, publishes a GitHub pre-release, and sets `TestingAssemblyVersion` and `DownloadLinkTesting` in `repo.json`; the stable version and links are left alone. Dalamud only offers the testing build while it is newer than the stable one, so a later release with a higher version moves testers back automatically.

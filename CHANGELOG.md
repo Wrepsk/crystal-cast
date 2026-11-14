@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Fixed
+
+- With **Scene composite**, screens could vanish when the game lowered its 3D resolution because the frame rate dropped (dynamic resolution), and only came back after changing the upscaling setting. The scene was treated as upscaled, so screens were drawn before the scene and covered by it. Diagnostics now show the scene scale, the depth and back buffer sizes, and how often each drawing rule was used.
+
 ## 0.9.4.1 - 2026-11-13
 
 ### Changed

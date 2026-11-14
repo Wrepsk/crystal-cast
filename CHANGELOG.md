@@ -4,6 +4,13 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.5 - 2026-11-14
+
+### Added
+
+- A screen remembers where the current video was when its browser unloads (the screen is hidden, the plugin is turned off, or its resolution changes) and carries on from there when it loads again. Only the video that was playing is remembered: another link, or another video in a playlist link, starts normally. Live streams aren't resumed, so they come back live. Room viewer screens follow the host as before.
+- The plugin version is shown next to the name in the main and settings windows.
+
 ## 0.9.4.2 - 2026-11-14
 
 ### Changed

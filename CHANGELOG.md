@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.4.2 - 2026-11-14
+
 ### Changed
 
 - New screens start at 1080p instead of 720p for YouTube, Dailymotion, Vimeo and web pages (Twitch already did). Existing screens keep their resolution.

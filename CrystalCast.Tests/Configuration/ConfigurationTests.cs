@@ -220,4 +220,20 @@ public sealed class ConfigurationTests
         Assert.Equal(4.0f, size.X);
         Assert.Equal(2.25f, size.Y);
     }
+
+    [Theory]
+    [InlineData(BrowserSourceProviderKind.YouTube)]
+    [InlineData(BrowserSourceProviderKind.Twitch)]
+    [InlineData(BrowserSourceProviderKind.Dailymotion)]
+    [InlineData(BrowserSourceProviderKind.Vimeo)]
+    [InlineData(BrowserSourceProviderKind.GenericWeb)]
+    public void NewScreensStartAt1080p(BrowserSourceProviderKind provider)
+    {
+        var screen = new Configuration().CreateDefaultBrowserScreen("Screen");
+        screen.ProviderKind = provider;
+
+        var dimensions = CrystalCast.Sources.BrowserSourceProviderRegistry.GetDimensions(screen);
+        Assert.Equal(1920, dimensions.Width);
+        Assert.Equal(1080, dimensions.Height);
+    }
 }

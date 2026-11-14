@@ -191,7 +191,7 @@ internal static class BrowserSourceProviderRegistry
                 BrowserSourceProviderKind.YouTube,
                 "YouTube",
                 new BrowserProviderCapabilities(true, true, true, true),
-                new BrowserSourceDimensions(1280, 720),
+                new BrowserSourceDimensions(1920, 1080),
                 BrowserSourceDescriptors.YouTube),
             new(
                 BrowserSourceProviderKind.Twitch,
@@ -204,19 +204,19 @@ internal static class BrowserSourceProviderRegistry
                 BrowserSourceProviderKind.Dailymotion,
                 "Dailymotion",
                 new BrowserProviderCapabilities(false, true, false, true),
-                new BrowserSourceDimensions(1280, 720),
+                new BrowserSourceDimensions(1920, 1080),
                 BrowserSourceDescriptors.Dailymotion),
             new(
                 BrowserSourceProviderKind.Vimeo,
                 "Vimeo",
                 new BrowserProviderCapabilities(true, true, false, true),
-                new BrowserSourceDimensions(1280, 720),
+                new BrowserSourceDimensions(1920, 1080),
                 BrowserSourceDescriptors.Vimeo),
             new(
                 BrowserSourceProviderKind.GenericWeb,
                 "Generic Web",
                 new BrowserProviderCapabilities(true, true, false, true),
-                new BrowserSourceDimensions(1280, 720),
+                new BrowserSourceDimensions(1920, 1080),
                 RequestDescriptor: null),
         ];
     }

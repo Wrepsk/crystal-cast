@@ -298,8 +298,8 @@ public sealed class BrowserScreenProfile
     public BrowserSourceProviderKind ProviderKind { get; set; } = BrowserSourceProviderKind.YouTube;
 
     public string YouTubeUrl { get; set; } = string.Empty;
-    public int YouTubeBrowserWidth { get; set; } = 1280;
-    public int YouTubeBrowserHeight { get; set; } = 720;
+    public int YouTubeBrowserWidth { get; set; } = 1920;
+    public int YouTubeBrowserHeight { get; set; } = 1080;
     public float YouTubeCaptureFps { get; set; } = 60.0f;
     public bool YouTubeCaptureFpsManual { get; set; }
     public bool YouTubeAutoplay { get; set; } = true;
@@ -319,8 +319,8 @@ public sealed class BrowserScreenProfile
     public float TwitchVolume { get; set; } = 0.7f;
 
     public string DailymotionUrl { get; set; } = string.Empty;
-    public int DailymotionBrowserWidth { get; set; } = 1280;
-    public int DailymotionBrowserHeight { get; set; } = 720;
+    public int DailymotionBrowserWidth { get; set; } = 1920;
+    public int DailymotionBrowserHeight { get; set; } = 1080;
     public float DailymotionCaptureFps { get; set; } = 60.0f;
     public bool DailymotionCaptureFpsManual { get; set; }
     public bool DailymotionAutoplay { get; set; } = true;
@@ -329,8 +329,8 @@ public sealed class BrowserScreenProfile
     public float DailymotionVolume { get; set; } = 0.7f;
 
     public string VimeoUrl { get; set; } = string.Empty;
-    public int VimeoBrowserWidth { get; set; } = 1280;
-    public int VimeoBrowserHeight { get; set; } = 720;
+    public int VimeoBrowserWidth { get; set; } = 1920;
+    public int VimeoBrowserHeight { get; set; } = 1080;
     public float VimeoCaptureFps { get; set; } = 60.0f;
     public bool VimeoCaptureFpsManual { get; set; }
     public bool VimeoAutoplay { get; set; } = true;
@@ -340,8 +340,8 @@ public sealed class BrowserScreenProfile
     public float VimeoPlaybackRate { get; set; } = 1.0f;
 
     public string GenericWebUrl { get; set; } = string.Empty;
-    public int GenericWebBrowserWidth { get; set; } = 1280;
-    public int GenericWebBrowserHeight { get; set; } = 720;
+    public int GenericWebBrowserWidth { get; set; } = 1920;
+    public int GenericWebBrowserHeight { get; set; } = 1080;
     public float GenericWebCaptureFps { get; set; } = 60.0f;
     public bool GenericWebCaptureFpsManual { get; set; }
     public bool GenericWebAutoplay { get; set; } = true;

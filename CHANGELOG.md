@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- New screens start at 1080p instead of 720p for YouTube, Dailymotion, Vimeo and web pages (Twitch already did). Existing screens keep their resolution.
+
 ### Fixed
 
 - With **Scene composite**, screens could vanish when the game lowered its 3D resolution because the frame rate dropped (dynamic resolution), and only came back after changing the upscaling setting. The scene was treated as upscaled, so screens were drawn before the scene and covered by it. Diagnostics now show the scene scale, the depth and back buffer sizes, and how often each drawing rule was used.

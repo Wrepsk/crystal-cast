@@ -133,10 +133,15 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         var dl = ImGui.GetWindowDrawList();
 
         CrystalArtwork.DrawLogo(dl, new Vector2(start.X + S(22.0f), start.Y + (height * 0.5f)));
+        float nameWidth;
         using (Ui.Font(f => f.SemiBold))
         {
+            nameWidth = ImGui.CalcTextSize("CrystalCast").X;
             dl.AddText(new Vector2(start.X + S(38.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(CrystalCastUiTheme.Text), "CrystalCast");
         }
+
+        using (Ui.Font(f => f.Body))
+            dl.AddText(new Vector2(start.X + S(38.0f) + nameWidth + S(8.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(TextTertiary), PluginVersion.Label);
 
         // Right side: Plugin switch, settings, close.
         float pluginLabelWidth;

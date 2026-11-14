@@ -154,8 +154,15 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
             dl.AddText(new Vector2(start.X + S(38.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(CrystalCastUiTheme.Text), "CrystalCast");
         }
 
+        float versionWidth;
         using (Ui.Font(f => f.Body))
-            dl.AddText(new Vector2(start.X + S(38.0f) + nameWidth + S(10.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(TextTertiary), "Settings");
+        {
+            versionWidth = ImGui.CalcTextSize(PluginVersion.Label).X;
+            dl.AddText(new Vector2(start.X + S(38.0f) + nameWidth + S(8.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(TextTertiary), PluginVersion.Label);
+        }
+
+        using (Ui.Font(f => f.Body))
+            dl.AddText(new Vector2(start.X + S(38.0f) + nameWidth + S(8.0f) + versionWidth + S(12.0f), start.Y + ((height - ImGui.GetTextLineHeight()) * 0.5f)), U32(TextTertiary), "Settings");
 
         dl.AddRectFilled(new Vector2(start.X, start.Y + height), new Vector2(start.X + width, start.Y + height + 1.0f), U32(Hairline));
 

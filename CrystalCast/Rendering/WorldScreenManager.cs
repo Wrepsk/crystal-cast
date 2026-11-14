@@ -2,6 +2,7 @@ using System.Numerics;
 using CrystalCast.Browser;
 using CrystalCast.Browser.WebView2;
 using CrystalCast.Ipc;
+using CrystalCast.Rooms;
 using CrystalCast.Sources;
 using CrystalCast.Video;
 using Dalamud.Interface.Textures.TextureWraps;
@@ -714,6 +715,12 @@ public sealed class WorldScreenManager : IDisposable
         private int fallbackPixelsWidth;
         private int fallbackPixelsHeight;
 
+        // Playback to carry on from when this screen's browser is let go (hidden, plugin off) and loaded again.
+        private PlaybackResumePoint? lastPlayback;
+        private PlaybackResumePoint? pendingResume;
+        private long pendingResumeWaitStartUnixMs;
+        private long lastResumeSeekUnixMs;
+
         public WorldScreenInstance(Configuration configuration, BrowserScreenProfile browserScreen, CrystalCastServices services)
         {
             this.configuration = configuration;
@@ -934,6 +941,9 @@ public sealed class WorldScreenManager : IDisposable
         {
             if (frameSource == null && string.IsNullOrEmpty(frameSourceSignature))
                 return;
+
+            if (frameSource != null)
+                RememberPlaybackForReload();
 
             var source = frameSource;
             frameSource = null;
@@ -1175,6 +1185,9 @@ public sealed class WorldScreenManager : IDisposable
 
             if (signature == frameSourceSignature)
                 return;
+
+            if (frameSource != null)
+                RememberPlaybackForReload();
 
             try
             {
@@ -1424,10 +1437,64 @@ public sealed class WorldScreenManager : IDisposable
             if (frameSource is IMediaPlaybackTelemetrySource telemetrySource && telemetrySource.TryGetPlaybackTelemetry(out var telemetry))
             {
                 Volatile.Write(ref playbackTelemetry, telemetry);
+                TrackPlaybackForResume(telemetry);
                 return;
             }
 
             Volatile.Write(ref playbackTelemetry, null);
+        }
+
+        // Room viewers follow the host, and screens another plugin controls follow that plugin.
+        private bool CanResumePlayback => !browserScreen.SourceControlsLocked && !RoomService.IsRoomScreen(browserScreen);
+
+        private void RememberPlaybackForReload()
+        {
+            // A resume that hasn't happened yet (hidden again while loading) is kept.
+            pendingResume = CanResumePlayback ? lastPlayback ?? pendingResume : null;
+            pendingResumeWaitStartUnixMs = 0;
+            lastPlayback = null;
+        }
+
+        private void TrackPlaybackForResume(MediaPlaybackTelemetry telemetry)
+        {
+            var url = BrowserSourceProviderRegistry.GetUrl(browserScreen);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (pendingResume is { } pending)
+            {
+                if (!CanResumePlayback || !PlaybackResumePolicy.SameLink(pending, url))
+                {
+                    pendingResume = null;
+                }
+                else if (!PlaybackResumePolicy.IsSettled(telemetry))
+                {
+                    if (pendingResumeWaitStartUnixMs == 0)
+                        pendingResumeWaitStartUnixMs = now;
+                    else if (now - pendingResumeWaitStartUnixMs > PlaybackResumePolicy.ReadyTimeoutMs)
+                        pendingResume = null;
+                    return;
+                }
+                else
+                {
+                    pendingResume = null;
+                    if (!telemetry.Ended
+                        && !telemetry.IsLive
+                        && PlaybackResumePolicy.SameVideo(pending, telemetry)
+                        && frameSource is IMediaPlaybackController controller)
+                    {
+                        controller.SeekTo(pending.PositionMs / 1000.0);
+                        lastPlayback = pending;
+                        lastResumeSeekUnixMs = now;
+                        return;
+                    }
+                }
+            }
+
+            // Telemetry just after the resume seek can still show the old position.
+            if (now - lastResumeSeekUnixMs < 3000)
+                return;
+
+            if (PlaybackResumePolicy.IsSettled(telemetry))
+                lastPlayback = CanResumePlayback ? PlaybackResumePolicy.Capture(url, telemetry) : null;
         }
 
         private ScreenAppearance BuildAppearance()

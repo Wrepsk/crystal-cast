@@ -410,7 +410,8 @@ internal static class YouTubePlayerPage
           durationSeconds: player.getDuration ? player.getDuration() : 0,
           rate: player.getPlaybackRate ? player.getPlaybackRate() : crystalCastConfig.playbackRate,
           state,
-          finished: hasFinished(state)
+          finished: hasFinished(state),
+          live: Boolean(data && data.isLive) || isLikelyLivePlayback()
         });
       } catch (error) {
         postScriptError("postStatus", error);

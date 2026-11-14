@@ -17,6 +17,9 @@ public sealed class MediaPlaybackTelemetry
     /// Playback that hasn't started yet is <see cref="ScreenPlaybackState.Stopped"/> without this.
     /// </summary>
     public bool Ended { get; init; }
+
+    /// <summary>True when the player says this is a live stream, even one that reports a growing duration.</summary>
+    public bool IsLive { get; init; }
 }
 
 public interface IMediaPlaybackTelemetrySource

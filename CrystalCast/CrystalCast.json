@@ -3,13 +3,17 @@
     "Name": "Crystal Cast",
     "InternalName": "CrystalCast",
     "AssemblyVersion": "0.9.6.1",
-    "Description": "Renders browser media on configurable world-space screens through CrystalRenderer. Use /crystalcast to manage screens, sources, playback, and state-only sync IPC.",
+    "Description": "Put video screens into the game world. Play YouTube, Twitch, Dailymotion, Vimeo or any web page on screens you place on a wall, above a stage, on a piece of housing furniture or next to your character. Screens sit in the 3D scene, so characters and scenery in front of them stay in front.\n\nQueue playlists, set each screen's volume with spatial audio, and share a screen in a room so friends who join see it in the same spot, playing in sync.\n\nType /crystalcast to start.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Wrepsk/crystal-cast",
     "Tags": [
         "video",
-        "world-space",
-        "crystalrenderer"
+        "youtube",
+        "twitch",
+        "housing",
+        "venue",
+        "music",
+        "stream"
     ],
     "DalamudApiLevel": 15,
     "LoadRequiredState": 0,
@@ -17,6 +21,6 @@
     "CanUnloadAsync": false,
     "LoadPriority": 0,
     "IconUrl": "https://raw.githubusercontent.com/Wrepsk/crystal-cast/repo/Icon/icon.png",
-    "Punchline": "World-space browser media screens for FFXIV.",
+    "Punchline": "Watch videos on screens placed in the game world.",
     "AcceptsFeedback": true
 }

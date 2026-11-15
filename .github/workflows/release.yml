@@ -186,8 +186,8 @@ jobs:
 
   update-plugin-repo:
     # Points the Dalamud plugin repository (repo.json on the "repo" branch) at the release just published:
-    # AssemblyVersion and the download links for a release, TestingAssemblyVersion and DownloadLinkTesting
-    # for a testing build.
+    # AssemblyVersion, the download links and the installer text (description, punchline, tags) for a release,
+    # TestingAssemblyVersion and DownloadLinkTesting for a testing build.
     name: Update repo.json
     runs-on: ubuntu-24.04
     needs: release
@@ -220,8 +220,13 @@ jobs:
             filter='.TestingAssemblyVersion = $version | .TestingDalamudApiLevel = ($api | tonumber) | .DownloadLinkTesting = $link'
           else
             field=AssemblyVersion
-            filter='.AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link'
+            # A release also brings the plugin installer text up to date from the released manifest.
+            filter='.AssemblyVersion = $version | .DownloadLinkInstall = $link | .DownloadLinkUpdate = $link
+              | .Description = $manifest[0].Description | .Punchline = $manifest[0].Punchline | .Tags = $manifest[0].Tags'
           fi
+
+          git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          git show "$TAG:CrystalCast/CrystalCast.json" > "$RUNNER_TEMP/manifest.json"
 
           # Re-running an older tag must not move the repository back to it.
           current=$(jq -r --arg field "$field" '.[0][$field] // "0.0.0.0"' repo.json)
@@ -232,7 +237,7 @@ jobs:
           fi
 
           link="https://github.com/$REPOSITORY/releases/download/$TAG/CrystalCast-$VERSION.zip"
-          jq --arg version "$version" --arg link "$link" --arg api "$API_LEVEL" \
+          jq --arg version "$version" --arg link "$link" --arg api "$API_LEVEL" --slurpfile manifest "$RUNNER_TEMP/manifest.json" \
             "map(if .InternalName == \"CrystalCast\" then $filter else . end)" \
             repo.json > repo.json.new
           mv repo.json.new repo.json

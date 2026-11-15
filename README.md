@@ -1,16 +1,32 @@
 # CrystalCast
 
+<p align="center">
+  <img src="docs/media/hero.gif" width="576" alt="A video screen in a decorated FFXIV room, seen through plants that stand in front of it">
+</p>
+
 CrystalCast is a Dalamud plugin for Final Fantasy XIV that puts video screens into the game world. Place a screen on a wall in your house, above a stage at a venue, or next to your character, give it a YouTube, Twitch, Dailymotion or Vimeo link (or any web page), and it plays right there in the 3D scene, behind characters and scenery that stand in front of it.
 
-Screens are only drawn on your own game client. Other players don't see them unless they also run CrystalCast and a plugin that shares screens between players; CrystalCast offers that plugin an interface (see [For plugin developers](#for-plugin-developers-ipc)) but does not share anything by itself.
+Screens are drawn on your own game client. To show one to friends, share it in a [room](#watching-together-rooms): everyone who joins with the code and also runs CrystalCast sees the screen in the same spot, playing in sync.
 
 ## What you can do
 
 - **Up to 8 screens of your own**, each with its own video, size, position and settings. Up to 8 play at the same time; more stay set up and wait.
-- **Place them anywhere:** pin a screen to a spot in the zone (**Fixed in place**), have it travel with your character (**Follows you**), or keep it in view (**Follows your view**). **Place in front of me** puts it where you are standing, while the Placement tab is open on-screen handles move, turn and resize it, and **Face me** turns it toward you. Screens can also be curved, faded out with distance, and made see-through where something is in front of them.
+- **Place them anywhere:** pin a screen to a spot in the zone (**Fixed in place**), have it travel with your character (**Follows you**), keep it in view (**Follows your view**), or attach it to a piece of housing furniture (**Attached to furniture**) so it moves with the item. **Snap to surface** lays a screen flat on the wall or floor you click, and **Pick furniture** puts it on the front of the item you click. On-screen handles move, turn and resize it, and **Face me** turns it toward you. Screens can also be curved, faded out with distance, and made see-through where something is in front of them.
 - **Play videos and streams** from YouTube (videos, playlists, live streams), Twitch (channels and past broadcasts), Dailymotion, Vimeo, or any web page (**Generic Web**). Play, pause, seek, loop, playback speed and volume are in the main window. **Show controls** opens the site's own player for captions, quality and other settings.
 - **Playlists:** queue videos from any supported site to play one after another, with Shuffle, Loop playlist, Skip and reordering. Entries show the title, channel, length and thumbnail.
+- **Watch together:** share a screen with a room code, and friends who join see it where you are, in sync with your playback.
 - **Sound:** each screen has its own volume. Spatial audio makes a screen quieter as you walk away from it.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/snap-to-surface.gif" alt="Clicking a wall to snap a screen flat onto it"><br><b>Snap to surface:</b> click a wall or floor and the screen lays flat on it.</td>
+    <td width="50%"><img src="docs/media/pick-furniture.gif" alt="Picking a piece of furniture to put the screen on it, then resizing it"><br><b>Pick furniture:</b> click an item and the screen goes on its front, then follows it.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/move-rotate.gif" alt="Moving and rotating a screen with the in-world handles"><br><b>Move, turn and resize</b> with handles in the world.</td>
+    <td width="50%"><img src="docs/media/follow-player.gif" alt="A screen floating beside a character as they walk"><br><b>Follows you:</b> a screen that travels with your character.</td>
+  </tr>
+</table>
 
 CrystalCast never downloads or saves videos. Each screen runs the site's own embedded player in a small hidden browser and shows what that browser draws.
 
@@ -31,12 +47,30 @@ CrystalCast never downloads or saves videos. Each screen runs the site's own emb
 
 ## Getting started
 
+<img src="docs/media/main-window.png" width="316" align="right" alt="The CrystalCast main window playing a YouTube video, with the Source tab open">
+
 1. Type `/crystalcast` to open the main window (`/ccsettings` opens the settings).
 2. Paste a link into **Link** on the **Source** tab and press **Load**.
-3. Open the **Placement** tab and press **Place in front of me**, then drag the handles to move or turn the screen and set **Width** to resize it.
+3. Open the **Placement** tab and press **Place in front of player**, or **Snap to surface** and click a wall. Drag the handles to move, turn or resize the screen.
 4. Use the **Playlist** tab to queue more videos, and the **Audio** tab for volume and spatial audio.
 
 A short guide opens the first time you use CrystalCast; **Settings > Onboarding guide** shows it again.
+
+<br clear="right">
+
+## Watching together (rooms)
+
+<img src="docs/media/rooms.png" width="274" align="right" alt="The Rooms window with a shared screen's code and a field to join a room">
+
+Open a screen's **⋯** menu in the main window and choose **Share this screen**. You get a code like `ABCD-2345` to send to friends. They choose **Join a room…** in the same menu and enter it.
+
+- Everyone who joins sees your screen in the same spot, playing in sync. Only you control it: what plays, pausing, seeking and the playlist. You can let people add videos to the playlist.
+- A joined screen shows only where you are: the same zone and instance, the same housing ward, or the same house or apartment indoors.
+- When you stop sharing, the screen goes away for everyone who joined. If your game closes or crashes instead, they leave the room after you've been gone for 3 minutes.
+
+Rooms go through a small relay server; see [Safety and privacy](#safety-and-privacy) for what it sees. **Settings > Rooms** can point CrystalCast at a relay you host yourself.
+
+<br clear="right">
 
 ## Playing on Linux
 
@@ -59,6 +93,8 @@ There is also an experimental **Native Linux WebKitGTK** backend under **Setting
 ## Safety and privacy
 
 CrystalCast only draws screens and plays media on your own client. It does not automate gameplay, send game actions, change network traffic, read combat data, collect account information, or talk to FFXIV servers.
+
+Rooms are the one thing that leaves your computer, and only while you share or join one. CrystalCast then connects to the CrystalCast relay, which passes the shared screen's link, playback state, size and position, and where the host is (world, zone, instance, and housing ward or house) to everyone with the code. It doesn't send character names or anything else. The relay deletes a room when its host stops sharing, or after a day without its host. Outside a room nothing is sent.
 
 The browser blocks pop-ups, downloads, links that open other programs, and access to the camera, microphone, location, notifications and files. Playlist details (title, channel, thumbnail) come from the same site the video plays from. Web pages set by another plugin need your approval before they open. See [Browser security and privacy](#browser-security-and-privacy) for details.
 

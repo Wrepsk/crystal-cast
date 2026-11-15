@@ -323,27 +323,16 @@ internal sealed class PlacementPanel(
         var placement = screen.Placement;
         var before = placement.Clone();
         StopPicking();
-        if (placement.Mode == ScreenPlacementMode.Furniture)
-        {
-            // An attached screen stays attached; the snap only changes its offset from the item.
-            if (!placementResolver.TryApplyWorldPositionPreservingMode(placement, target.Position)
-                || !placementResolver.TryApplyWorldRotationPreservingMode(placement, target.Rotation))
-            {
-                placement.CopyFrom(before);
-                return false;
-            }
-        }
-        else
-        {
-            placement.Mode = ScreenPlacementMode.World;
-            placement.PositionX = target.Position.X;
-            placement.PositionY = target.Position.Y;
-            placement.PositionZ = target.Position.Z;
-            placement.YawRadians = PlacementMath.NormalizeRadians(target.YawRadians);
-            placement.PitchRadians = target.PitchRadians;
-            placement.RollRadians = 0.0f;
-            placement.Normalize();
-        }
+        // Snapping always leaves the screen fixed in place, also when it was attached to furniture (Normalize then
+        // drops the item).
+        placement.Mode = ScreenPlacementMode.World;
+        placement.PositionX = target.Position.X;
+        placement.PositionY = target.Position.Y;
+        placement.PositionZ = target.Position.Z;
+        placement.YawRadians = PlacementMath.NormalizeRadians(target.YawRadians);
+        placement.PitchRadians = target.PitchRadians;
+        placement.RollRadians = 0.0f;
+        placement.Normalize();
 
         undoService.Capture(screen.ScreenId, before, placement);
         return true;
@@ -505,7 +494,7 @@ internal sealed class PlacementPanel(
 
         Ui.RowIndent(LabelWidth, LabelGap);
         Ui.Meta(here
-            ? "Listed nearest to you first. Picking one moves the screen onto its front; adjust it with Move, Rotate or Snap to surface."
+            ? "Listed nearest to you first. Picking one moves the screen onto its front; adjust it with Move or Rotate."
             : "The screen shows when you're where this item is placed. Use Move or Rotate to change its offset from the item.");
         return changed;
     }

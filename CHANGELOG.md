@@ -4,6 +4,12 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.6.1 - 2026-11-15
+
+### Changed
+
+- **Snap to surface** now always leaves the screen **Fixed in place**. A screen attached to furniture used to stay attached when snapped.
+
 ## 0.9.6 - 2026-11-15
 
 ### Added

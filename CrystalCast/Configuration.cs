@@ -66,6 +66,9 @@ public class Configuration : IPluginConfiguration
 
     /// <summary>Move and rotate along the world's axes instead of the screen's own.</summary>
     public bool PlacementGizmoWorldAxes { get; set; }
+
+    /// <summary>How far in front of a surface Snap to surface puts a screen, in meters.</summary>
+    public float SurfaceSnapGapMeters { get; set; } = SurfaceSnap.DefaultGapMeters;
     public bool WineWebView2SetupDismissed { get; set; }
     public bool FirstRunGuideCompleted { get; set; }
 

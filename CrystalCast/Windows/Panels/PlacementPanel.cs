@@ -3,6 +3,7 @@ using CrystalCast.Rendering;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using static CrystalCast.Windows.Style.CrystalCastUiTheme;
 using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
@@ -29,6 +30,12 @@ internal sealed class PlacementPanel(
     private ScreenPlacementSettings? copiedPlacement;
     private long placementCopiedAtTick;
     private long placeFailedAtTick;
+
+    // Surface snapping: picking runs while the Placement tab is drawn and ends after one placement.
+    private bool surfacePicking;
+    private int surfacePickLastFrame;
+    private readonly SurfaceClickTracker surfaceClicks = new();
+    private readonly List<Vector2> previewOutline = [];
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
     {
@@ -60,7 +67,22 @@ internal sealed class PlacementPanel(
     public bool DrawGizmo(Configuration config, BrowserScreenProfile activeScreen)
     {
         if (IsPlacementControlsLocked(activeScreen))
+        {
+            surfacePicking = false;
             return false;
+        }
+
+        if (surfacePicking)
+        {
+            // Closing the window or leaving the tab ends picking.
+            var frame = ImGui.GetFrameCount();
+            if (surfacePickLastFrame != 0 && frame - surfacePickLastFrame > 1)
+                surfacePicking = false;
+            surfacePickLastFrame = frame;
+        }
+
+        if (surfacePicking)
+            return DrawSurfacePicker(config, activeScreen);
 
         var before = activeScreen.Placement.Clone();
         var options = new GizmoOptions(
@@ -118,6 +140,33 @@ internal sealed class PlacementPanel(
                 placeFailedAtTick = Environment.TickCount64;
         }
 
+        Ui.RowLabel("Snap", LabelWidth, LabelGap);
+        if (Ui.Button(surfacePicking ? "Cancel snapping##SurfaceSnap" : "Snap to surface##SurfaceSnap",
+                surfacePicking ? ButtonKind.Ghost : ButtonKind.Secondary,
+                disabled: locked,
+                on: surfacePicking,
+                tooltip: "Click a wall, floor or piece of furniture in the world to put the screen flat against it"))
+        {
+            surfacePicking = !surfacePicking;
+            surfacePickLastFrame = 0;
+            surfaceClicks.Reset();
+        }
+
+        ImGui.SameLine(0.0f, S(12.0f));
+        var gap = config.SurfaceSnapGapMeters;
+        if (Ui.DragFloat("##SurfaceSnapGap", ref gap, 0.005f, 0.0f, SurfaceSnap.MaxGapMeters, "Gap %.2f m", S(110.0f), locked,
+                "How far in front of the surface the screen goes. Raise it if parts of the screen dip into the surface as the camera moves."))
+        {
+            config.SurfaceSnapGapMeters = Math.Clamp(gap, 0.0f, SurfaceSnap.MaxGapMeters);
+            changed = true;
+        }
+
+        if (surfacePicking)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.Meta("Click where the screen's center should go. Dragging still turns the camera. Furniture without collision, like rugs and paintings, can't be picked.");
+        }
+
         if (placeFailedAtTick > 0 && Environment.TickCount64 - placeFailedAtTick < 3000)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
@@ -173,6 +222,85 @@ internal sealed class PlacementPanel(
         Ui.RowIndent(LabelWidth, LabelGap);
         Ui.Meta($"Hold Ctrl while dragging to snap: {ScreenPlacementGizmo.MoveSnapMeters:0.#} m steps, {ScreenPlacementGizmo.RotateSnapDegrees:0}° turns, {ScreenPlacementGizmo.ResizeSnapMeters:0.##} m widths.");
         return changed;
+    }
+
+    /// <summary>
+    /// Shows where the screen would land under the mouse and places it on a click. Nothing takes the mouse from
+    /// the game, so the camera still turns and zooms; <see cref="SurfaceClickTracker"/> tells clicks from drags.
+    /// </summary>
+    private bool DrawSurfacePicker(Configuration config, BrowserScreenProfile screen)
+    {
+        var io = ImGui.GetIO();
+        var mouse = io.MousePos;
+        var overGame = !io.WantCaptureMouse;
+        SurfaceSnapPose? pose = null;
+        if (overGame
+            && placementResolver.TryGetViewerPosition(out var viewer)
+            && SurfaceRaycaster.TryHit(Plugin.GameGui, mouse, viewer, out var point, out var normal))
+        {
+            pose = SurfaceSnap.Pose(point, normal, viewer, config.SurfaceSnapGapMeters);
+        }
+
+        DrawSurfacePreview(screen.Placement, pose, mouse, overGame);
+
+        var clicked = surfaceClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, Environment.TickCount64);
+        if (!clicked || pose is not { } target)
+            return false;
+
+        var placement = screen.Placement;
+        var before = placement.Clone();
+        placement.Mode = ScreenPlacementMode.World;
+        placement.PositionX = target.Position.X;
+        placement.PositionY = target.Position.Y;
+        placement.PositionZ = target.Position.Z;
+        placement.YawRadians = PlacementMath.NormalizeRadians(target.YawRadians);
+        placement.PitchRadians = target.PitchRadians;
+        placement.RollRadians = 0.0f;
+        placement.Normalize();
+        surfacePicking = false;
+        undoService.Capture(screen.ScreenId, before, placement);
+        return true;
+    }
+
+    private void DrawSurfacePreview(ScreenPlacementSettings placement, SurfaceSnapPose? pose, Vector2 mouse, bool overGame)
+    {
+        var dl = ImGui.GetForegroundDrawList(ImGuiHelpers.MainViewport);
+        if (pose is { } target)
+        {
+            var rotation = target.Rotation;
+            var width = Math.Max(0.1f, placement.WidthMeters);
+            var halfRight = Vector3.Transform(Vector3.UnitX, rotation) * (width * 0.5f);
+            var halfUp = Vector3.Transform(Vector3.UnitY, rotation) * (width * HeightPerWidth(placement) * 0.5f);
+            Span<Vector3> corners =
+            [
+                target.Position - halfRight + halfUp,
+                target.Position + halfRight + halfUp,
+                target.Position + halfRight - halfUp,
+                target.Position - halfRight - halfUp,
+            ];
+            var color = U32(Accent);
+            if (ScreenPlacementGizmo.TryGetCameraMatrices(out var view, out var projection))
+            {
+                PolygonProjection.Project(corners, view * projection, ImGuiHelpers.MainViewport.Pos, ImGui.GetIO().DisplaySize, previewOutline);
+                if (previewOutline.Count >= 3)
+                {
+                    var points = previewOutline.ToArray();
+                    dl.AddConvexPolyFilled(ref points[0], points.Length, U32(Accent with { W = 0.18f }));
+                    dl.AddPolyline(ref points[0], points.Length, color, ImDrawFlags.Closed, S(2.0f));
+                }
+            }
+
+            if (Plugin.GameGui.WorldToScreen(target.Position, out var center))
+                dl.AddCircleFilled(center, S(4.0f), color);
+        }
+
+        if (!overGame)
+            return;
+
+        var hint = pose != null ? "Click to place the screen here" : "Point at a wall, floor or furniture";
+        var at = mouse + new Vector2(S(16.0f), S(12.0f));
+        dl.AddText(at + new Vector2(1.0f, 1.0f), 0xC0000000, hint);
+        dl.AddText(at, U32(pose != null ? Accent : CrystalCastUiTheme.Text), hint);
     }
 
     /// <summary>The screen's height per meter of width: the video's shape once it has frames, else the saved size.</summary>

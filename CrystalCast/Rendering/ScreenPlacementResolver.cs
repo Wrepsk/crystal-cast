@@ -196,7 +196,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
     }
 
     /// <summary>The camera's position, or the player's when the camera can't be read.</summary>
-    private unsafe bool TryGetViewerPosition(out Vector3 viewer)
+    internal unsafe bool TryGetViewerPosition(out Vector3 viewer)
     {
         var control = Control.Instance();
         var camera = control != null ? control->CameraManager.GetActiveCamera() : null;

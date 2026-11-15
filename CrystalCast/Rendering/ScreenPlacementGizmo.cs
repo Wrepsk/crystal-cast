@@ -182,7 +182,7 @@ internal static class ScreenPlacementGizmo
         }
     }
 
-    private static unsafe bool TryGetCameraMatrices(out Matrix4x4 view, out Matrix4x4 projection)
+    internal static unsafe bool TryGetCameraMatrices(out Matrix4x4 view, out Matrix4x4 projection)
     {
         var control = Control.Instance();
         var camera = control->CameraManager.GetActiveCamera();

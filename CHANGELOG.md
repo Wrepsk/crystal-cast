@@ -4,6 +4,13 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.6 - 2026-11-15
+
+### Added
+
+- **Snap to surface** in Placement: click a wall, floor or piece of furniture to lay the screen flat against it, with an outline preview while aiming. A **Gap** setting (10 cm by default) keeps it in front of the surface. The camera still turns and zooms while picking.
+- **Attached to furniture** anchor: a screen can follow a placed housing item, moving and turning with it, and shows only in that house or ward. Pick the item from a list (nearest to you first) or with **Pick furniture**, which previews the screen on the item under the mouse. Either way the screen is centered on the item's front face.
+
 ## 0.9.5 - 2026-11-14
 
 ### Added

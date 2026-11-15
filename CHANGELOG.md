@@ -4,6 +4,18 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.7 - 2026-11-15
+
+### Added
+
+- **Room usernames:** pick the name others in a room see in **Settings > Rooms**. It starts out random (like "Sleepy Moogle 42") and is never your character's name.
+- The **Rooms** window lists who is in each room, with **(Host)** next to the host and your own name marked. People who joined a room can open it with **Show room** in the joined screen's menu.
+- The plugin installer shows a new, player-friendly description.
+
+### Changed
+
+- The relay sends room usernames and member lists; rooms on an older self-hosted relay keep working without them.
+
 ## 0.9.6.1 - 2026-11-15
 
 ### Changed

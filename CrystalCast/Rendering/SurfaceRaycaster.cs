@@ -46,4 +46,29 @@ internal static class SurfaceRaycaster
         normal = facing;
         return true;
     }
+
+    /// <summary>The first surface along a ray, with its normal turned toward the ray's start.</summary>
+    public static unsafe bool TryCast(Vector3 origin, Vector3 direction, float maxDistance, out Vector3 point, out Vector3 normal)
+    {
+        point = default;
+        normal = default;
+        if (!PlacementMath.IsFinite(origin) || !PlacementMath.IsFinite(direction) || direction.LengthSquared() < 0.0001f)
+            return false;
+
+        var framework = Framework.Instance();
+        if (framework == null || framework->BGCollisionModule == null)
+            return false;
+
+        direction = Vector3.Normalize(direction);
+        if (!BGCollisionModule.RaycastMaterialFilter(origin, direction, out var hit, maxDistance)
+            || !PlacementMath.IsFinite(hit.Point)
+            || SurfaceSnap.FacingNormal(hit.Normal, hit.V1, hit.V2, hit.V3, direction) is not { } facing)
+        {
+            return false;
+        }
+
+        point = hit.Point;
+        normal = facing;
+        return true;
+    }
 }

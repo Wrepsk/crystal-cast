@@ -109,8 +109,9 @@ internal static class ScreenPatchApplier
         if (patch == null)
             return;
 
-        if (patch.Mode.HasValue)
-            placement.Mode = patch.Mode.Value;
+        // Attaching to furniture needs an item picked in game, which a patch can't name.
+        if (patch.Mode is { } mode && mode != ScreenPlacementMode.Furniture)
+            placement.Mode = mode;
         if (patch.PositionX.HasValue)
             placement.PositionX = patch.PositionX.Value;
         if (patch.PositionY.HasValue)

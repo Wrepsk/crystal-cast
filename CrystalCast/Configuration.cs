@@ -230,6 +230,9 @@ public enum ScreenPlacementMode
     World = 0,
     FollowPlayer = 1,
     FollowCamera = 2,
+
+    /// <summary>Attached to a placed housing item: the position and yaw are offsets in that item's frame.</summary>
+    Furniture = 3,
 }
 
 public enum ScreenPlacementGizmoOperation
@@ -600,12 +603,22 @@ public sealed class ScreenPlacementSettings
     public float FadeStartMeters { get; set; } = 35.0f;
     public float FadeStopMeters { get; set; } = 60.0f;
 
+    /// <summary>The housing item the screen is attached to, while <see cref="Mode"/> is Furniture.</summary>
+    public FurnitureAnchor? Furniture { get; set; }
+
     public bool Normalize()
     {
         var changed = false;
-        if (Mode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera))
+        if (Mode is not (ScreenPlacementMode.World or ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera or ScreenPlacementMode.Furniture)
+            || (Mode == ScreenPlacementMode.Furniture && Furniture?.IsValid != true))
         {
             Mode = ScreenPlacementMode.World;
+            changed = true;
+        }
+
+        if (Mode != ScreenPlacementMode.Furniture && Furniture != null)
+        {
+            Furniture = null;
             changed = true;
         }
 
@@ -679,6 +692,7 @@ public sealed class ScreenPlacementSettings
         EnableDistanceFade = source.EnableDistanceFade;
         FadeStartMeters = source.FadeStartMeters;
         FadeStopMeters = source.FadeStopMeters;
+        Furniture = source.Furniture?.Copy();
         Normalize();
     }
 }

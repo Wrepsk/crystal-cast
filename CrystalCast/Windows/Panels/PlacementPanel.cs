@@ -23,13 +23,19 @@ internal sealed class PlacementPanel(
         (ScreenPlacementMode.World, "Fixed in place", "Stays where you put it in this zone."),
         (ScreenPlacementMode.FollowPlayer, "Follows you", "Moves and turns with your character."),
         (ScreenPlacementMode.FollowCamera, "Follows your view", "Moves with your character and turns with your camera."),
+        (ScreenPlacementMode.Furniture, "Attached to furniture", "Moves and turns with a placed housing item, and shows only in that house or ward."),
     ];
+
+    /// <summary>How many of the nearest housing items the furniture list offers.</summary>
+    private const int FurnitureListLimit = 40;
 
     private string renamingPresetId = string.Empty;
     private string presetRenameDraft = string.Empty;
     private ScreenPlacementSettings? copiedPlacement;
     private long placementCopiedAtTick;
     private long placeFailedAtTick;
+    private long furnitureFailedAtTick;
+    private string furnitureFailure = string.Empty;
 
     // Surface snapping: picking runs while the Placement tab is drawn and ends after one placement.
     private bool surfacePicking;
@@ -109,8 +115,21 @@ internal sealed class PlacementPanel(
         {
             for (var i = 0; i < PlacementModes.Length; i++)
             {
-                if (Ui.MenuItem($"{PlacementModes[i].Name}##PlacementMode{i}", i == mode) && PlacementModes[i].Mode != placement.Mode)
-                    changed |= placementResolver.TryConvertModePreservingWorld(placement, PlacementModes[i].Mode);
+                if (!Ui.MenuItem($"{PlacementModes[i].Name}##PlacementMode{i}", i == mode) || PlacementModes[i].Mode == placement.Mode)
+                    continue;
+
+                if (PlacementModes[i].Mode == ScreenPlacementMode.Furniture)
+                {
+                    changed |= AttachToNearestFurniture(placement);
+                }
+                else if (placementResolver.TryConvertModePreservingWorld(placement, PlacementModes[i].Mode))
+                {
+                    changed = true;
+                }
+                else if (placement.Mode == ScreenPlacementMode.Furniture)
+                {
+                    ShowFurnitureFailure("Go to the house where the furniture is to detach the screen.");
+                }
             }
 
             Ui.EndDropdown();
@@ -118,6 +137,15 @@ internal sealed class PlacementPanel(
 
         Ui.RowIndent(LabelWidth, LabelGap);
         Ui.Meta(PlacementModes[mode].Description);
+
+        if (placement.Mode == ScreenPlacementMode.Furniture)
+            changed |= DrawFurnitureRow(placement, config.SurfaceSnapGapMeters, locked);
+
+        if (furnitureFailedAtTick > 0 && Environment.TickCount64 - furnitureFailedAtTick < 4000)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.ErrorText(furnitureFailure);
+        }
 
         Ui.RowLabel("Bring into view", LabelWidth, LabelGap);
         var placeLabel = placement.Mode == ScreenPlacementMode.FollowCamera
@@ -249,15 +277,29 @@ internal sealed class PlacementPanel(
 
         var placement = screen.Placement;
         var before = placement.Clone();
-        placement.Mode = ScreenPlacementMode.World;
-        placement.PositionX = target.Position.X;
-        placement.PositionY = target.Position.Y;
-        placement.PositionZ = target.Position.Z;
-        placement.YawRadians = PlacementMath.NormalizeRadians(target.YawRadians);
-        placement.PitchRadians = target.PitchRadians;
-        placement.RollRadians = 0.0f;
-        placement.Normalize();
         surfacePicking = false;
+        if (placement.Mode == ScreenPlacementMode.Furniture)
+        {
+            // An attached screen stays attached; the snap only changes its offset from the item.
+            if (!placementResolver.TryApplyWorldPositionPreservingMode(placement, target.Position)
+                || !placementResolver.TryApplyWorldRotationPreservingMode(placement, target.Rotation))
+            {
+                placement.CopyFrom(before);
+                return false;
+            }
+        }
+        else
+        {
+            placement.Mode = ScreenPlacementMode.World;
+            placement.PositionX = target.Position.X;
+            placement.PositionY = target.Position.Y;
+            placement.PositionZ = target.Position.Z;
+            placement.YawRadians = PlacementMath.NormalizeRadians(target.YawRadians);
+            placement.PitchRadians = target.PitchRadians;
+            placement.RollRadians = 0.0f;
+            placement.Normalize();
+        }
+
         undoService.Capture(screen.ScreenId, before, placement);
         return true;
     }
@@ -303,6 +345,91 @@ internal sealed class PlacementPanel(
         dl.AddText(at, U32(pose != null ? Accent : CrystalCastUiTheme.Text), hint);
     }
 
+    private bool DrawFurnitureRow(ScreenPlacementSettings placement, float gapMeters, bool locked)
+    {
+        var changed = false;
+        var anchor = placement.Furniture;
+        var here = anchor != null && placementResolver.TryFindFurniture(anchor, out _);
+        var name = FurnitureName(anchor?.Name, anchor?.Index ?? -1);
+
+        Ui.RowLabel("Furniture", LabelWidth, LabelGap);
+        if (Ui.BeginDropdown("##CrystalCastFurniture", here ? name : $"{name} (not here)", disabled: locked))
+        {
+            var location = placementResolver.ReadLocation();
+            var items = location.InHousing ? NearestFurniture(placement, toPlayer: true) : [];
+            if (items.Count == 0)
+                Ui.MenuHint(location.InHousing ? "No placed furniture found here." : "Go to a house, apartment or ward to pick furniture.");
+
+            foreach (var (item, distance) in items)
+            {
+                var selected = anchor != null && item.Index == anchor.Index && item.BaseId == anchor.BaseId;
+                if (Ui.MenuItem($"{FurnitureName(item.Name, item.Index)}  ·  {distance:0.0} m##Furniture{item.Index}", selected) && !selected)
+                {
+                    if (placementResolver.TryMoveOntoFurniture(placement, location, item, gapMeters))
+                        changed = true;
+                    else
+                        ShowFurnitureFailure("Couldn't move the screen onto that item.");
+                }
+            }
+
+            Ui.EndDropdown();
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(here
+            ? "Listed nearest to you first. Picking one moves the screen onto its front; adjust it with Move, Rotate or Snap to surface."
+            : "The screen shows when you're where this item is placed. Use Move or Rotate to change its offset from the item.");
+        return changed;
+    }
+
+    private bool AttachToNearestFurniture(ScreenPlacementSettings placement)
+    {
+        var location = placementResolver.ReadLocation();
+        if (!location.InHousing)
+        {
+            ShowFurnitureFailure("Furniture can only be picked in a house, apartment or housing ward.");
+            return false;
+        }
+
+        var nearest = NearestFurniture(placement, toPlayer: false);
+        if (nearest.Count == 0)
+        {
+            ShowFurnitureFailure("No placed furniture found here.");
+            return false;
+        }
+
+        if (placementResolver.TryAttachToFurniture(placement, location, nearest[0].Item))
+            return true;
+
+        ShowFurnitureFailure("Couldn't find where the screen is right now.");
+        return false;
+    }
+
+    /// <summary>
+    /// Housing items here, nearest first: to the player for the list, or to the screen when attaching it where it
+    /// stands. Falls back to the other point when the first isn't known.
+    /// </summary>
+    private List<(HousingFurnitureItem Item, float Distance)> NearestFurniture(ScreenPlacementSettings placement, bool toPlayer)
+    {
+        Vector3? player = placementResolver.TryGetPlayerPosition(out var standingAt) ? standingAt : null;
+        Vector3? screen = placementResolver.TryResolve(placement, out var world) ? world.Position : null;
+        var from = (toPlayer ? player ?? screen : screen ?? player) ?? Vector3.Zero;
+        return placementResolver.ReadFurnitureWithNames()
+            .Select(item => (Item: item, Distance: Vector3.Distance(item.Position, from)))
+            .OrderBy(entry => entry.Distance)
+            .Take(FurnitureListLimit)
+            .ToList();
+    }
+
+    private static string FurnitureName(string? name, int index) =>
+        !string.IsNullOrWhiteSpace(name) ? name : index >= 0 ? $"Item {index + 1}" : "No furniture";
+
+    private void ShowFurnitureFailure(string message)
+    {
+        furnitureFailure = message;
+        furnitureFailedAtTick = Environment.TickCount64;
+    }
+
     /// <summary>The screen's height per meter of width: the video's shape once it has frames, else the saved size.</summary>
     private float HeightPerWidth(ScreenPlacementSettings placement)
     {
@@ -315,10 +442,13 @@ internal sealed class PlacementPanel(
     private bool DrawTransform(ScreenPlacementSettings placement, bool locked)
     {
         var changed = false;
-        var follow = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera;
-        Ui.SectionHeader("Position and shape", follow
-            ? "Offset from you: right, up and forward."
-            : "Where the screen's center is in this zone.");
+        var follow = placement.Mode is ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera or ScreenPlacementMode.Furniture;
+        Ui.SectionHeader("Position and shape", placement.Mode switch
+        {
+            ScreenPlacementMode.Furniture => "Offset from the furniture: right, up and forward.",
+            ScreenPlacementMode.FollowPlayer or ScreenPlacementMode.FollowCamera => "Offset from you: right, up and forward.",
+            _ => "Where the screen's center is in this zone.",
+        });
 
         var position = new Vector3(placement.PositionX, placement.PositionY, placement.PositionZ);
         Ui.RowLabel("Position", LabelWidth, LabelGap);

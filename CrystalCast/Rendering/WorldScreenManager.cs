@@ -786,7 +786,9 @@ public sealed class WorldScreenManager : IDisposable
             if (!TryResolvePlacement(out resolvedPlacement))
             {
                 hasResolvedPlacement = false;
-                LastDrawStatus = "waiting for local player";
+                LastDrawStatus = browserScreen.Placement.Mode == ScreenPlacementMode.Furniture
+                    ? "attached furniture isn't here"
+                    : "waiting for local player";
                 Stop();
                 texture = default;
                 return false;

@@ -333,7 +333,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         var changed = false;
         Configuration.Normalize();
-        foreach (var screen in Configuration.BrowserScreens.Where(screen => !screen.CreatedByIpc && screen.Placement.Mode == ScreenPlacementMode.World))
+        foreach (var screen in Configuration.BrowserScreens.Where(screen => !screen.CreatedByIpc && screen.Placement.Mode is ScreenPlacementMode.World or ScreenPlacementMode.Furniture))
         {
             if (screen.PlaybackPaused)
                 continue;

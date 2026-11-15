@@ -85,6 +85,7 @@ internal sealed class PlacementUndoService
     {
         const float epsilon = 0.0001f;
         return left.Mode != right.Mode
+            || !Equals(left.Furniture, right.Furniture)
             || MathF.Abs(left.PositionX - right.PositionX) > epsilon
             || MathF.Abs(left.PositionY - right.PositionY) > epsilon
             || MathF.Abs(left.PositionZ - right.PositionZ) > epsilon

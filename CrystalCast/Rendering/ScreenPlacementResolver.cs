@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using CrystalCast.Rooms;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 
@@ -24,6 +25,13 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
     private readonly PlacementPredictionContext predictionContext = new();
     private readonly object predictionGate = new();
 
+    // Housing items are read at most once per frame or so, however many screens are attached.
+    private const long FurnitureCacheMilliseconds = 10;
+    private readonly object furnitureGate = new();
+    private readonly List<HousingFurnitureItem> furnitureCache = [];
+    private RoomLocation furnitureCacheLocation = new();
+    private long furnitureCacheReadAtMs;
+
     public bool TryResolve(ScreenPlacementSettings placement, out ResolvedScreenPlacement resolved)
     {
         return TryResolve(placement, 0.0f, applyFollowPrediction: false, out resolved);
@@ -42,7 +50,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
     {
         if (placement.Mode != ScreenPlacementMode.World)
         {
-            if (!TryGetPlacementFrame(placement.Mode, out var framePosition, out var frameYaw, out var forward, out var right))
+            if (!TryGetPlacementFrame(placement.Mode, placement.Furniture, out var framePosition, out var frameYaw, out var forward, out var right))
             {
                 resolved = default;
                 return false;
@@ -85,8 +93,12 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             return true;
         }
 
-        if (!TryGetPlacementFrame(targetMode, out var framePosition, out var frameYaw, out var forward, out var right))
+        // Attaching needs an item, which TryAttachToFurniture takes.
+        if (targetMode == ScreenPlacementMode.Furniture
+            || !TryGetPlacementFrame(targetMode, null, out var framePosition, out var frameYaw, out var forward, out var right))
+        {
             return false;
+        }
 
         var offset = worldPlacement.Position - framePosition;
         placement.Mode = targetMode;
@@ -114,7 +126,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
             return true;
         }
 
-        if (!TryGetPlacementFrame(placement.Mode, out var framePosition, out _, out var forward, out var right))
+        if (!TryGetPlacementFrame(placement.Mode, placement.Furniture, out var framePosition, out _, out var forward, out var right))
             return false;
 
         var offset = worldPosition - framePosition;
@@ -132,7 +144,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
         if (placement.Mode != ScreenPlacementMode.World)
         {
-            if (!TryGetPlacementFrame(placement.Mode, out _, out var frameYaw, out _, out _))
+            if (!TryGetPlacementFrame(placement.Mode, placement.Furniture, out _, out var frameYaw, out _, out _))
                 return false;
 
             yawRadians = PlacementMath.NormalizeRadians(yawRadians - frameYaw);
@@ -147,9 +159,19 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
     public bool PlaceInFrontOfPlayer(ScreenPlacementSettings placement, float distanceMeters = 3.0f)
     {
+        if (placement.Mode == ScreenPlacementMode.Furniture)
+        {
+            // Placed in the world in front of the player, then kept attached through the item's frame.
+            if (!TryGetPlayerFrame(out var standingAt, out var facingYaw, out var playerForward, out _))
+                return false;
+
+            return TryApplyWorldPositionPreservingMode(placement, standingAt + (playerForward * distanceMeters) + (Vector3.UnitY * 1.4f))
+                && TryApplyWorldRotationPreservingMode(placement, Quaternion.CreateFromYawPitchRoll(facingYaw + MathF.PI, 0.0f, 0.0f));
+        }
+
         if (placement.Mode != ScreenPlacementMode.World)
         {
-            if (!TryGetPlacementFrame(placement.Mode, out _, out _, out _, out _))
+            if (!TryGetPlacementFrame(placement.Mode, null, out _, out _, out _, out _))
                 return false;
 
             placement.PositionX = 0.0f;
@@ -195,6 +217,13 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         return toViewer.LengthSquared() < 0.0001f ? null : MathF.Atan2(toViewer.X, toViewer.Z);
     }
 
+    /// <summary>Where the local player stands.</summary>
+    public bool TryGetPlayerPosition(out Vector3 position)
+    {
+        position = objectTable.LocalPlayer?.Position ?? default;
+        return objectTable.LocalPlayer != null && PlacementMath.IsFinite(position);
+    }
+
     /// <summary>The camera's position, or the player's when the camera can't be read.</summary>
     internal unsafe bool TryGetViewerPosition(out Vector3 viewer)
     {
@@ -225,14 +254,139 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         placement.Normalize();
     }
 
-    private bool TryGetPlacementFrame(ScreenPlacementMode mode, out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
+    private bool TryGetPlacementFrame(
+        ScreenPlacementMode mode,
+        FurnitureAnchor? anchor,
+        out Vector3 position,
+        out float yaw,
+        out Vector3 forward,
+        out Vector3 right)
     {
         return mode switch
         {
             ScreenPlacementMode.FollowPlayer => TryGetPlayerFrame(out position, out yaw, out forward, out right),
             ScreenPlacementMode.FollowCamera => TryGetCameraFrame(out position, out yaw, out forward, out right),
+            ScreenPlacementMode.Furniture when anchor != null => TryGetFurnitureFrame(anchor, out position, out yaw, out forward, out right),
             _ => ClearFrame(out position, out yaw, out forward, out right),
         };
+    }
+
+    private bool TryGetFurnitureFrame(FurnitureAnchor anchor, out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)
+    {
+        if (!TryFindFurniture(anchor, out var item))
+            return ClearFrame(out position, out yaw, out forward, out right);
+
+        position = item.Position;
+        yaw = item.YawRadians;
+        BuildHorizontalAxes(yaw, out forward, out right);
+        return true;
+    }
+
+    /// <summary>Where the player is, as rooms describe it: world, zone, and in housing the ward half and house.</summary>
+    public RoomLocation ReadLocation() => GameRoomLocation.Read(clientState, objectTable);
+
+    /// <summary>The housing items placed here, with their names, for picking one.</summary>
+    public List<HousingFurnitureItem> ReadFurnitureWithNames()
+    {
+        var items = new List<HousingFurnitureItem>();
+        HousingFurnitureReader.Read(items, withNames: true);
+        return items;
+    }
+
+    /// <summary>The item an anchor points at, if it's placed where the player is.</summary>
+    public bool TryFindFurniture(FurnitureAnchor anchor, out HousingFurnitureItem item)
+    {
+        lock (furnitureGate)
+        {
+            var now = Environment.TickCount64;
+            if (FurnitureCacheExpired(furnitureCacheReadAtMs, now))
+            {
+                furnitureCacheLocation = ReadLocation();
+                HousingFurnitureReader.Read(furnitureCache, withNames: false);
+                furnitureCacheReadAtMs = now;
+            }
+
+            if (FurnitureAnchorMatcher.Find(anchor, furnitureCacheLocation, furnitureCache) is { } found)
+            {
+                item = found;
+                return true;
+            }
+        }
+
+        item = default;
+        return false;
+    }
+
+    /// <summary>How far in front of an item the ray that finds its front face starts.</summary>
+    private const float FurnitureFrontRayMeters = 3.0f;
+
+    /// <summary>
+    /// Attaches the screen to <paramref name="item"/> and moves it onto the item's front: a ray cast back at the
+    /// item from in front of it finds the face, and the screen lies flat on it at the item's middle height. With
+    /// nothing to hit (an item without collision), it goes just in front of the item's middle, facing the same way.
+    /// </summary>
+    public bool TryMoveOntoFurniture(ScreenPlacementSettings placement, RoomLocation house, HousingFurnitureItem item, float gapMeters)
+    {
+        if (!house.IsKnown || !house.InHousing)
+            return false;
+
+        var center = item.Center == default ? item.Position + Vector3.UnitY : item.Center;
+        BuildHorizontalAxes(item.YawRadians, out var forward, out _);
+        var rayStart = center + (forward * FurnitureFrontRayMeters);
+        var pose = SurfaceRaycaster.TryCast(rayStart, -forward, FurnitureFrontRayMeters, out var point, out var normal)
+            ? SurfaceSnap.Pose(point, normal, rayStart, gapMeters)
+            : new SurfaceSnapPose(center + (forward * gapMeters), item.YawRadians, 0.0f);
+
+        var before = placement.Clone();
+        placement.Mode = ScreenPlacementMode.Furniture;
+        placement.Furniture = FurnitureAnchor.For(house, item);
+        placement.Normalize();
+        if (TryApplyWorldPositionPreservingMode(placement, pose.Position)
+            && TryApplyWorldRotationPreservingMode(placement, pose.Rotation))
+        {
+            return true;
+        }
+
+        placement.CopyFrom(before);
+        return false;
+    }
+
+    /// <summary>Whether the cached housing items are too old. Zero means never read.</summary>
+    internal static bool FurnitureCacheExpired(long readAtMs, long nowMs) =>
+        readAtMs == 0 || nowMs < readAtMs || nowMs - readAtMs > FurnitureCacheMilliseconds;
+
+    /// <summary>
+    /// Attaches the screen to <paramref name="item"/> without moving it: its current world position and turn become
+    /// offsets in the item's frame, so moving or turning the item carries the screen along. A screen attached to an
+    /// item that isn't found here can't say where it is, so it moves to the new item keeping its offset.
+    /// </summary>
+    public bool TryAttachToFurniture(ScreenPlacementSettings placement, RoomLocation house, HousingFurnitureItem item)
+    {
+        if (!house.IsKnown || !house.InHousing)
+            return false;
+
+        if (!TryResolve(placement, out var world))
+        {
+            if (placement.Mode != ScreenPlacementMode.Furniture)
+                return false;
+
+            placement.Furniture = FurnitureAnchor.For(house, item);
+            placement.Normalize();
+            return true;
+        }
+
+        BuildHorizontalAxes(item.YawRadians, out var forward, out var right);
+        var offset = world.Position - item.Position;
+        placement.Mode = ScreenPlacementMode.Furniture;
+        placement.Furniture = FurnitureAnchor.For(house, item);
+        placement.PositionX = Vector3.Dot(offset, right);
+        placement.PositionY = offset.Y;
+        placement.PositionZ = Vector3.Dot(offset, forward);
+        placement.YawRadians = PlacementMath.NormalizeRadians(world.YawRadians - item.YawRadians);
+        placement.PitchRadians = world.PitchRadians;
+        placement.RollRadians = world.RollRadians;
+        placement.Normalize();
+        return true;
     }
 
     private bool TryGetPlayerFrame(out Vector3 position, out float yaw, out Vector3 forward, out Vector3 right)

@@ -327,14 +327,7 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         if (!house.IsKnown || !house.InHousing)
             return false;
 
-        var center = item.Center == default ? item.Position + Vector3.UnitY : item.Center;
-        BuildHorizontalAxes(item.YawRadians, out var forward, out _);
-        var face = FurnitureFaceFinder.Find(item.Position, item.YawRadians, static (origin, direction, maxDistance) =>
-            SurfaceRaycaster.TryCast(origin, direction, maxDistance, out RayHit hit) ? hit : null);
-        var pose = face is { } found
-            ? SurfaceSnap.Pose(found.Center, found.Normal, found.Center + (forward * FurnitureFaceFinder.RayStartMeters), gapMeters)
-            : new SurfaceSnapPose(center + (forward * gapMeters), item.YawRadians, 0.0f);
-
+        var pose = FurnitureFrontPose(item, gapMeters);
         var before = placement.Clone();
         placement.Mode = ScreenPlacementMode.Furniture;
         placement.Furniture = FurnitureAnchor.For(house, item);
@@ -347,6 +340,18 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
         placement.CopyFrom(before);
         return false;
+    }
+
+    /// <summary>Where a screen moved onto <paramref name="item"/> would go: the middle of its front face, or in front of its center.</summary>
+    public static SurfaceSnapPose FurnitureFrontPose(HousingFurnitureItem item, float gapMeters)
+    {
+        var center = item.Center == default ? item.Position + Vector3.UnitY : item.Center;
+        BuildHorizontalAxes(item.YawRadians, out var forward, out _);
+        var face = FurnitureFaceFinder.Find(item.Position, item.YawRadians, static (origin, direction, maxDistance) =>
+            SurfaceRaycaster.TryCast(origin, direction, maxDistance, out RayHit hit) ? hit : null);
+        return face is { } found
+            ? SurfaceSnap.Pose(found.Center, found.Normal, found.Center + (forward * FurnitureFaceFinder.RayStartMeters), gapMeters)
+            : new SurfaceSnapPose(center + (forward * gapMeters), item.YawRadians, 0.0f);
     }
 
     /// <summary>Whether the cached housing items are too old. Zero means never read.</summary>

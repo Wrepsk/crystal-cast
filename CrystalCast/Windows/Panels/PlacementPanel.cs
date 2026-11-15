@@ -37,10 +37,25 @@ internal sealed class PlacementPanel(
     private long furnitureFailedAtTick;
     private string furnitureFailure = string.Empty;
 
-    // Surface snapping: picking runs while the Placement tab is drawn and ends after one placement.
-    private bool surfacePicking;
-    private int surfacePickLastFrame;
-    private readonly SurfaceClickTracker surfaceClicks = new();
+    // Picking in the world (a surface or a piece of furniture): runs while the Placement tab is drawn and ends
+    // after one pick.
+    private enum PickMode
+    {
+        None,
+        Surface,
+        Furniture,
+    }
+
+    private const long HoveredFurnitureRefreshMilliseconds = 500;
+
+    private PickMode pickMode;
+    private int pickLastFrame;
+    private readonly SurfaceClickTracker pickClicks = new();
+    private List<HousingFurnitureItem> pickFurniture = [];
+    private long pickFurnitureReadAtMs;
+    private HousingFurnitureItem? hoveredFurniture;
+    private SurfaceSnapPose hoveredFurniturePose;
+    private long hoveredFurniturePoseAtMs;
     private readonly List<Vector2> previewOutline = [];
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
@@ -74,21 +89,26 @@ internal sealed class PlacementPanel(
     {
         if (IsPlacementControlsLocked(activeScreen))
         {
-            surfacePicking = false;
+            StopPicking();
             return false;
         }
 
-        if (surfacePicking)
+        if (pickMode != PickMode.None)
         {
             // Closing the window or leaving the tab ends picking.
             var frame = ImGui.GetFrameCount();
-            if (surfacePickLastFrame != 0 && frame - surfacePickLastFrame > 1)
-                surfacePicking = false;
-            surfacePickLastFrame = frame;
+            if (pickLastFrame != 0 && frame - pickLastFrame > 1)
+                StopPicking();
+            pickLastFrame = frame;
         }
 
-        if (surfacePicking)
-            return DrawSurfacePicker(config, activeScreen);
+        switch (pickMode)
+        {
+            case PickMode.Surface:
+                return DrawSurfacePicker(config, activeScreen);
+            case PickMode.Furniture:
+                return DrawFurniturePicker(config, activeScreen);
+        }
 
         var before = activeScreen.Placement.Clone();
         var options = new GizmoOptions(
@@ -141,7 +161,7 @@ internal sealed class PlacementPanel(
         if (placement.Mode == ScreenPlacementMode.Furniture)
             changed |= DrawFurnitureRow(placement, config.SurfaceSnapGapMeters, locked);
 
-        if (furnitureFailedAtTick > 0 && Environment.TickCount64 - furnitureFailedAtTick < 4000)
+        if (furnitureFailedAtTick > 0 && Environment.TickCount64 - furnitureFailedAtTick < 4000 && placement.Mode == ScreenPlacementMode.Furniture)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
             Ui.ErrorText(furnitureFailure);
@@ -169,15 +189,28 @@ internal sealed class PlacementPanel(
         }
 
         Ui.RowLabel("Snap", LabelWidth, LabelGap);
-        if (Ui.Button(surfacePicking ? "Cancel snapping##SurfaceSnap" : "Snap to surface##SurfaceSnap",
-                surfacePicking ? ButtonKind.Ghost : ButtonKind.Secondary,
+        var snapping = pickMode == PickMode.Surface;
+        if (Ui.Button(snapping ? "Cancel##SurfaceSnap" : "Snap to surface##SurfaceSnap",
+                snapping ? ButtonKind.Ghost : ButtonKind.Secondary,
                 disabled: locked,
-                on: surfacePicking,
+                on: snapping,
                 tooltip: "Click a wall, floor or piece of furniture in the world to put the screen flat against it"))
         {
-            surfacePicking = !surfacePicking;
-            surfacePickLastFrame = 0;
-            surfaceClicks.Reset();
+            TogglePicking(PickMode.Surface);
+        }
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        var pickingFurniture = pickMode == PickMode.Furniture;
+        if (Ui.Button(pickingFurniture ? "Cancel##FurniturePick" : "Pick furniture##FurniturePick",
+                pickingFurniture ? ButtonKind.Ghost : ButtonKind.Secondary,
+                disabled: locked,
+                on: pickingFurniture,
+                tooltip: "Click a piece of housing furniture to attach the screen to it, on its front"))
+        {
+            if (pickingFurniture || placementResolver.ReadLocation().InHousing)
+                TogglePicking(PickMode.Furniture);
+            else
+                ShowFurnitureFailure("Furniture can only be picked in a house, apartment or housing ward.");
         }
 
         ImGui.SameLine(0.0f, S(12.0f));
@@ -189,10 +222,21 @@ internal sealed class PlacementPanel(
             changed = true;
         }
 
-        if (surfacePicking)
+        if (pickMode == PickMode.Surface)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
             Ui.Meta("Click where the screen's center should go. Dragging still turns the camera. Furniture without collision, like rugs and paintings, can't be picked.");
+        }
+        else if (pickMode == PickMode.Furniture)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.Meta("Click a piece of furniture to attach the screen to its front. Dragging still turns the camera.");
+        }
+
+        if (furnitureFailedAtTick > 0 && Environment.TickCount64 - furnitureFailedAtTick < 4000 && placement.Mode != ScreenPlacementMode.Furniture)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.ErrorText(furnitureFailure);
         }
 
         if (placeFailedAtTick > 0 && Environment.TickCount64 - placeFailedAtTick < 3000)
@@ -269,15 +313,16 @@ internal sealed class PlacementPanel(
             pose = SurfaceSnap.Pose(point, normal, viewer, config.SurfaceSnapGapMeters);
         }
 
-        DrawSurfacePreview(screen.Placement, pose, mouse, overGame);
+        DrawPickPreview(screen.Placement, pose, mouse, overGame,
+            pose != null ? "Click to place the screen here" : "Point at a wall, floor or furniture");
 
-        var clicked = surfaceClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, Environment.TickCount64);
+        var clicked = pickClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, Environment.TickCount64);
         if (!clicked || pose is not { } target)
             return false;
 
         var placement = screen.Placement;
         var before = placement.Clone();
-        surfacePicking = false;
+        StopPicking();
         if (placement.Mode == ScreenPlacementMode.Furniture)
         {
             // An attached screen stays attached; the snap only changes its offset from the item.
@@ -304,7 +349,91 @@ internal sealed class PlacementPanel(
         return true;
     }
 
-    private void DrawSurfacePreview(ScreenPlacementSettings placement, SurfaceSnapPose? pose, Vector2 mouse, bool overGame)
+    /// <summary>
+    /// Shows which piece of furniture is under the mouse and where the screen would go on it, and attaches the
+    /// screen there on a click.
+    /// </summary>
+    private bool DrawFurniturePicker(Configuration config, BrowserScreenProfile screen)
+    {
+        var io = ImGui.GetIO();
+        var mouse = io.MousePos;
+        var overGame = !io.WantCaptureMouse;
+        var now = Environment.TickCount64;
+        HousingFurnitureItem? hovered = null;
+        if (overGame && placementResolver.TryGetViewerPosition(out var viewer)
+            && Plugin.GameGui.ScreenToWorld(mouse, out var target, SurfaceSnap.MaxDistanceMeters)
+            && Vector3.DistanceSquared(target, viewer) > 0.0001f)
+        {
+            var direction = Vector3.Normalize(target - viewer);
+            hovered = HousingFurnitureReader.TryPickByModel(viewer, direction, out var byModel)
+                ? byModel
+                : PickByCollision(viewer, direction, now);
+        }
+
+        // Measuring an item's face takes a few hundred rays, so it's done once per hovered item and refreshed slowly.
+        if (hovered is { } item)
+        {
+            var same = hoveredFurniture is { } previous && previous.Index == item.Index && previous.BaseId == item.BaseId;
+            if (!same || now - hoveredFurniturePoseAtMs > HoveredFurnitureRefreshMilliseconds)
+            {
+                hoveredFurniturePose = ScreenPlacementResolver.FurnitureFrontPose(item, config.SurfaceSnapGapMeters);
+                hoveredFurniturePoseAtMs = now;
+            }
+        }
+
+        hoveredFurniture = hovered;
+        DrawPickPreview(screen.Placement, hovered != null ? hoveredFurniturePose : null, mouse, overGame,
+            hovered is { } named ? $"Click to attach to {FurnitureName(named.Name, named.Index)}" : "Point at a piece of furniture");
+
+        if (!pickClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, now) || hovered is not { } picked)
+            return false;
+
+        var placement = screen.Placement;
+        var before = placement.Clone();
+        StopPicking();
+        if (!placementResolver.TryMoveOntoFurniture(placement, placementResolver.ReadLocation(), picked, config.SurfaceSnapGapMeters))
+        {
+            ShowFurnitureFailure("Couldn't move the screen onto that item.");
+            return false;
+        }
+
+        undoService.Capture(screen.ScreenId, before, placement);
+        return true;
+    }
+
+    /// <summary>The item standing where the mouse ray hits collision, when no model reported a hit.</summary>
+    private HousingFurnitureItem? PickByCollision(Vector3 origin, Vector3 direction, long now)
+    {
+        if (pickFurniture.Count == 0 || now - pickFurnitureReadAtMs > HoveredFurnitureRefreshMilliseconds)
+        {
+            pickFurniture = placementResolver.ReadFurnitureWithNames();
+            pickFurnitureReadAtMs = now;
+        }
+
+        return SurfaceRaycaster.TryCast(origin, direction, SurfaceSnap.MaxDistanceMeters, out RayHit hit)
+            ? FurniturePicker.NearestToHit(pickFurniture, hit.Point, hit.Normal)
+            : null;
+    }
+
+    private void TogglePicking(PickMode mode)
+    {
+        var start = pickMode != mode;
+        StopPicking();
+        if (start)
+            pickMode = mode;
+    }
+
+    private void StopPicking()
+    {
+        pickMode = PickMode.None;
+        pickLastFrame = 0;
+        pickClicks.Reset();
+        hoveredFurniture = null;
+        pickFurniture = [];
+        pickFurnitureReadAtMs = 0;
+    }
+
+    private void DrawPickPreview(ScreenPlacementSettings placement, SurfaceSnapPose? pose, Vector2 mouse, bool overGame, string hint)
     {
         var dl = ImGui.GetForegroundDrawList(ImGuiHelpers.MainViewport);
         if (pose is { } target)
@@ -339,7 +468,6 @@ internal sealed class PlacementPanel(
         if (!overGame)
             return;
 
-        var hint = pose != null ? "Click to place the screen here" : "Point at a wall, floor or furniture";
         var at = mouse + new Vector2(S(16.0f), S(12.0f));
         dl.AddText(at + new Vector2(1.0f, 1.0f), 0xC0000000, hint);
         dl.AddText(at, U32(pose != null ? Accent : CrystalCastUiTheme.Text), hint);

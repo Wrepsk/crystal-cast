@@ -48,10 +48,18 @@ internal static class SurfaceRaycaster
     }
 
     /// <summary>The first surface along a ray, with its normal turned toward the ray's start.</summary>
-    public static unsafe bool TryCast(Vector3 origin, Vector3 direction, float maxDistance, out Vector3 point, out Vector3 normal)
+    public static bool TryCast(Vector3 origin, Vector3 direction, float maxDistance, out Vector3 point, out Vector3 normal)
     {
-        point = default;
-        normal = default;
+        var found = TryCast(origin, direction, maxDistance, out RayHit hit);
+        point = hit.Point;
+        normal = hit.Normal;
+        return found;
+    }
+
+    /// <summary>The first surface along a ray: point, normal turned toward the ray's start, and the collider hit.</summary>
+    public static unsafe bool TryCast(Vector3 origin, Vector3 direction, float maxDistance, out RayHit result)
+    {
+        result = default;
         if (!PlacementMath.IsFinite(origin) || !PlacementMath.IsFinite(direction) || direction.LengthSquared() < 0.0001f)
             return false;
 
@@ -67,8 +75,7 @@ internal static class SurfaceRaycaster
             return false;
         }
 
-        point = hit.Point;
-        normal = facing;
+        result = new RayHit(hit.Point, facing, (nint)hit.Object);
         return true;
     }
 }

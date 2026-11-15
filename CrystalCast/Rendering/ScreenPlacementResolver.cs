@@ -317,13 +317,10 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
         return false;
     }
 
-    /// <summary>How far in front of an item the ray that finds its front face starts.</summary>
-    private const float FurnitureFrontRayMeters = 3.0f;
-
     /// <summary>
-    /// Attaches the screen to <paramref name="item"/> and moves it onto the item's front: a ray cast back at the
-    /// item from in front of it finds the face, and the screen lies flat on it at the item's middle height. With
-    /// nothing to hit (an item without collision), it goes just in front of the item's middle, facing the same way.
+    /// Attaches the screen to <paramref name="item"/> and moves it onto the middle of the item's front face, measured
+    /// with rays (<see cref="FurnitureFaceFinder"/>). With nothing to hit (an item without collision), it goes just in
+    /// front of the game's center point for the item, facing the same way.
     /// </summary>
     public bool TryMoveOntoFurniture(ScreenPlacementSettings placement, RoomLocation house, HousingFurnitureItem item, float gapMeters)
     {
@@ -332,9 +329,10 @@ internal sealed class ScreenPlacementResolver(IObjectTable objectTable, IClientS
 
         var center = item.Center == default ? item.Position + Vector3.UnitY : item.Center;
         BuildHorizontalAxes(item.YawRadians, out var forward, out _);
-        var rayStart = center + (forward * FurnitureFrontRayMeters);
-        var pose = SurfaceRaycaster.TryCast(rayStart, -forward, FurnitureFrontRayMeters, out var point, out var normal)
-            ? SurfaceSnap.Pose(point, normal, rayStart, gapMeters)
+        var face = FurnitureFaceFinder.Find(item.Position, item.YawRadians, static (origin, direction, maxDistance) =>
+            SurfaceRaycaster.TryCast(origin, direction, maxDistance, out RayHit hit) ? hit : null);
+        var pose = face is { } found
+            ? SurfaceSnap.Pose(found.Center, found.Normal, found.Center + (forward * FurnitureFaceFinder.RayStartMeters), gapMeters)
             : new SurfaceSnapPose(center + (forward * gapMeters), item.YawRadians, 0.0f);
 
         var before = placement.Clone();

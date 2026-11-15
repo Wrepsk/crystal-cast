@@ -41,10 +41,10 @@ console.log("room", created.code);
 
 await refused(`${wsBase}/rooms/${created.code}/socket?role=host&key=wrong`, "wrong host key");
 
-const host = await open(`${wsBase}/rooms/${created.code}/socket?role=host&key=${created.hostKey}`);
+const host = await open(`${wsBase}/rooms/${created.code}/socket?role=host&key=${created.hostKey}&name=${encodeURIComponent("Sleepy Moogle 42")}`);
 await waitFor(host.messages, (m) => m.type === "welcome" && m.role === "host", "host welcome");
 
-const early = await open(`${wsBase}/rooms/${created.code.toLowerCase()}/socket?role=viewer`);
+const early = await open(`${wsBase}/rooms/${created.code.toLowerCase()}/socket?role=viewer&name=${encodeURIComponent("  Brave\u0000 \t Chocobo\u202E  ")}`);
 const earlyWelcome = await waitFor(early.messages, (m) => m.type === "welcome", "viewer welcome");
 if (earlyWelcome.state !== null || earlyWelcome.hostConnected !== true) fail(`unexpected first welcome ${JSON.stringify(earlyWelcome)}`);
 await waitFor(host.messages, (m) => m.type === "viewers" && m.count === 1, "viewer count 1");
@@ -73,8 +73,23 @@ const lateWelcome = await waitFor(late.messages, (m) => m.type === "welcome", "l
 if (lateWelcome.state?.positionMs !== 1000) fail(`late viewer did not get the latest state ${JSON.stringify(lateWelcome)}`);
 await waitFor(host.messages, (m) => m.type === "viewers" && m.count === 2, "viewer count 2");
 
+const names = (m) => m.members.map((p) => `${p.name}${p.host ? "*" : ""}${p.you ? "!" : ""}`).join(",");
+const hostView = await waitFor(host.messages, (m) => m.type === "members" && m.members.length === 3, "member list with 3 people");
+if (names(hostView) !== "Sleepy Moogle 42*!,Brave Chocobo,Guest") fail(`bad host member list ${names(hostView)}`);
+const lateView = await waitFor(late.messages, (m) => m.type === "members" && m.members.length === 3, "late viewer member list");
+if (names(lateView) !== "Sleepy Moogle 42*,Brave Chocobo,Guest!") fail(`bad viewer member list ${names(lateView)}`);
+
+late.socket.send(JSON.stringify({ type: "name", name: "A name that is far too long for anyone" }));
+const renamed = await waitFor(host.messages, (m) => m.type === "members" && m.members.some((p) => p.name.startsWith("A name")), "rename");
+const longName = renamed.members.find((p) => p.name.startsWith("A name")).name;
+if (longName !== "A name that is far too l") fail(`name not cut to 24 characters: "${longName}"`);
+late.socket.send(JSON.stringify({ type: "name", name: "Too soon" }));
+await sleep(300);
+if (host.messages.some((m) => m.type === "members" && m.members.some((p) => p.name === "Too soon"))) fail("a second rename within a second got through");
+
 host.socket.close();
 await waitFor(early.messages, (m) => m.type === "host" && m.connected === false, "host disconnected notice");
+await waitFor(early.messages, (m) => m.type === "members" && m.members.length === 2 && !m.members.some((p) => p.host), "member list without the host");
 
 const host2 = await open(`${wsBase}/rooms/${created.code}/socket?role=host&key=${created.hostKey}`);
 await waitFor(early.messages, (m) => m.type === "host" && m.connected === true, "host reconnected notice");
@@ -86,5 +101,5 @@ await refused(`${wsBase}/rooms/${created.code}/socket?role=viewer`, "closed room
 await refused(`${wsBase}/rooms/OIL10000/socket?role=viewer`, "invalid code");
 
 for (const s of [early.socket, late.socket]) try { s.close(); } catch {}
-console.log("PASS: create, host key check, forward, viewer cannot send, viewer add + rate limit, ping, late join, host leave/return, close, invalid code");
+console.log("PASS: create, host key check, forward, viewer cannot send, viewer add + rate limit, ping, late join, member list and names, rename + rate limit, host leave/return, close, invalid code");
 process.exit(0);

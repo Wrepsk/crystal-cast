@@ -130,6 +130,19 @@ public sealed class RoomRelayMessage
 
     /// <summary>For the host: a link someone in the room asked to add to the playlist.</summary>
     public string Url { get; set; } = string.Empty;
+
+    /// <summary>Everyone in the room: the host first, then viewers in the order they joined.</summary>
+    public List<RoomMember>? Members { get; set; }
+}
+
+/// <summary>One person in a room, by the username they chose.</summary>
+public sealed class RoomMember
+{
+    public string Name { get; set; } = string.Empty;
+    public bool Host { get; set; }
+
+    /// <summary>This entry is the one receiving the list.</summary>
+    public bool You { get; set; }
 }
 
 public sealed class RoomCreateResponse

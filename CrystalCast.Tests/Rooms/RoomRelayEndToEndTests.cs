@@ -20,13 +20,22 @@ public sealed class RoomRelayEndToEndTests
         var created = await RoomRelayApi.CreateRoomAsync(relay, TestContext.Current.CancellationToken);
         Assert.True(created.Error.Length == 0, created.Error);
 
-        using var host = new RoomRelayConnection(relay, created.Code, created.HostKey);
+        using var host = new RoomRelayConnection(relay, created.Code, created.HostKey, "Host");
         Assert.Equal("welcome", (await NextAsync(host, m => m.Type == "welcome")).Type);
 
-        using var viewer = new RoomRelayConnection(relay, created.Code, hostKey: null);
+        using var viewer = new RoomRelayConnection(relay, created.Code, hostKey: null, "Viewer");
         var welcome = await NextAsync(viewer, m => m.Type == "welcome");
         Assert.Null(welcome.State);
         Assert.Equal(1, (await NextAsync(host, m => m.Type == "viewers")).Count);
+
+        // Everyone gets the member list, the host first, with their own entry marked.
+        var members = await NextAsync(viewer, m => m.Type == "members" && m.Members?.Count == 2);
+        Assert.Equal(("Host", true, false), (members.Members![0].Name, members.Members[0].Host, members.Members[0].You));
+        Assert.Equal(("Viewer", false, true), (members.Members[1].Name, members.Members[1].Host, members.Members[1].You));
+
+        viewer.Rename("Brave Chocobo");
+        var renamed = await NextAsync(host, m => m.Type == "members" && m.Members?.Any(member => member.Name == "Brave Chocobo") == true);
+        Assert.True(renamed.Members![0].You);
 
         var state = new RoomScreenState
         {
@@ -55,7 +64,7 @@ public sealed class RoomRelayEndToEndTests
         host.Send(new { type = "close" });
         await NextAsync(viewer, m => m.Type == "closed");
 
-        using var refused = new RoomRelayConnection(relay, created.Code, hostKey: null);
+        using var refused = new RoomRelayConnection(relay, created.Code, hostKey: null, "Viewer");
         for (var i = 0; i < 50 && !refused.Refused; i++)
             await Task.Delay(100, TestContext.Current.CancellationToken);
 

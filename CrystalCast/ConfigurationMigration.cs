@@ -17,6 +17,15 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
+        var username = Rooms.RoomUsername.Clean(configuration.RoomUsername);
+        if (username.Length == 0)
+            username = Rooms.RoomUsername.Random();
+        if (!string.Equals(username, configuration.RoomUsername, StringComparison.Ordinal))
+        {
+            configuration.RoomUsername = username;
+            changed = true;
+        }
+
         if (configuration.SourceKind != ScreenSourceKind.Browser)
         {
             configuration.SourceKind = ScreenSourceKind.Browser;

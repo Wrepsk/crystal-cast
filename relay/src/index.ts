@@ -3,7 +3,8 @@
 // One Durable Object per room code. The host creates a room (POST /rooms) and gets a code plus a secret
 // host key; everyone else joins with the code alone. Only the host can send states; the relay stamps each
 // with its own clock and forwards it to every viewer. No video, audio or player IP addresses pass between
-// players: each CrystalCast only ever talks to this relay.
+// players: each CrystalCast only ever talks to this relay. Everyone in a room sees the others' chosen
+// usernames (never character names); the relay sends the list whenever someone joins, leaves or renames.
 
 import { DurableObject } from "cloudflare:workers";
 
@@ -25,6 +26,10 @@ const VIEWER_ADD_INTERVAL_MS = 2000;
 const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
 /** Host messages allowed per second; more are dropped. */
 const HOST_MESSAGES_PER_SECOND = 20;
+/** Longest username, in characters. */
+const MAX_NAME_LENGTH = 24;
+/** Least time between two name changes from the same connection. */
+const RENAME_INTERVAL_MS = 1000;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -88,6 +93,21 @@ interface LatestState {
   receivedAt: number;
 }
 
+/** What the relay remembers about each connection; survives the object hibernating. */
+interface Attachment {
+  name?: string;
+  joinedAt?: number;
+  lastAddAt?: number;
+  lastRenameAt?: number;
+}
+
+/** One person in the room, as everyone in it sees them. */
+interface Member {
+  name: string;
+  host: boolean;
+  you: boolean;
+}
+
 export class Room extends DurableObject<Env> {
   /** Kept in memory between messages; reloaded from storage after the object wakes up. */
   private latest: LatestState | null | undefined = undefined;
@@ -146,6 +166,7 @@ export class Room extends DurableObject<Env> {
     }
 
     this.ctx.acceptWebSocket(server, [role]);
+    server.serializeAttachment({ name: cleanName(url.searchParams.get("name")), joinedAt: Date.now() } satisfies Attachment);
 
     if (role === "host") {
       await this.touchHost(room);
@@ -165,6 +186,7 @@ export class Room extends DurableObject<Env> {
       this.notifyHostOfViewers();
     }
 
+    this.sendMembers();
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -173,7 +195,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
 
-    let data: { type?: string; t?: number; state?: unknown; change?: boolean; url?: unknown };
+    let data: { type?: string; t?: number; state?: unknown; change?: boolean; url?: unknown; name?: unknown };
     try {
       data = JSON.parse(message);
     } catch {
@@ -186,16 +208,29 @@ export class Room extends DurableObject<Env> {
       return;
     }
 
+    if (data.type === "name" && typeof data.name === "string") {
+      const attachment = this.attachmentOf(ws);
+      const now = Date.now();
+      const name = cleanName(data.name);
+      if (now - (attachment.lastRenameAt ?? 0) < RENAME_INTERVAL_MS || name === attachment.name) {
+        return;
+      }
+
+      ws.serializeAttachment({ ...attachment, name, lastRenameAt: now } satisfies Attachment);
+      this.sendMembers();
+      return;
+    }
+
     if (role !== "host") {
       // Viewers may only suggest a link for the host's playlist; the host's CrystalCast decides.
       if (data.type === "add" && typeof data.url === "string" && data.url.length > 0 && data.url.length <= MAX_LINK_LENGTH) {
-        const attachment = (ws.deserializeAttachment() ?? {}) as { lastAddAt?: number };
+        const attachment = this.attachmentOf(ws);
         const now = Date.now();
         if (now - (attachment.lastAddAt ?? 0) < VIEWER_ADD_INTERVAL_MS) {
           return;
         }
 
-        ws.serializeAttachment({ ...attachment, lastAddAt: now });
+        ws.serializeAttachment({ ...attachment, lastAddAt: now } satisfies Attachment);
         for (const host of this.ctx.getWebSockets("host")) {
           this.send(host, { type: "add", url: data.url });
         }
@@ -262,6 +297,8 @@ export class Room extends DurableObject<Env> {
     } else {
       this.notifyHostOfViewers(ws);
     }
+
+    this.sendMembers(ws);
   }
 
   private async closeRoom(reason: string): Promise<void> {
@@ -307,6 +344,30 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Sends everyone in the room, host included, who is in it: the host first, then viewers in the order they
+   * joined. Each copy marks the recipient's own entry, so a client can tell which one is itself.
+   */
+  private sendMembers(leaving?: WebSocket): void {
+    const sockets = this.ctx.getWebSockets().filter((socket) => socket !== leaving);
+    const people = sockets
+      .map((socket) => ({ socket, host: this.roleOf(socket) === "host", attachment: this.attachmentOf(socket) }))
+      .sort((a, b) => Number(b.host) - Number(a.host) || (a.attachment.joinedAt ?? 0) - (b.attachment.joinedAt ?? 0));
+
+    for (const recipient of people) {
+      const members: Member[] = people.map((person) => ({
+        name: person.attachment.name ?? cleanName(null),
+        host: person.host,
+        you: person.socket === recipient.socket,
+      }));
+      this.send(recipient.socket, { type: "members", members });
+    }
+  }
+
+  private attachmentOf(ws: WebSocket): Attachment {
+    return (ws.deserializeAttachment() ?? {}) as Attachment;
+  }
+
   private viewerCount(): number {
     return this.ctx.getWebSockets("viewer").length;
   }
@@ -333,6 +394,20 @@ export class Room extends DurableObject<Env> {
       // Closed between the check and the send.
     }
   }
+}
+
+/**
+ * A name others will see: whitespace (tabs and line breaks included) made single spaces, other control and
+ * formatting characters removed, at most MAX_NAME_LENGTH characters. Empty becomes "Guest". CrystalCast cleans
+ * names the same way (RoomUsername.Clean), so what someone types is what others see.
+ */
+function cleanName(raw: string | null | undefined): string {
+  const spaced = (raw ?? "").replace(/\s+/g, " ").replace(/\p{C}/gu, "").replace(/ {2,}/g, " ");
+  const cleaned = [...spaced.trim()]
+    .slice(0, MAX_NAME_LENGTH)
+    .join("")
+    .trim();
+  return cleaned.length > 0 ? cleaned : "Guest";
 }
 
 function normalizeCode(raw: string): string | null {

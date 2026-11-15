@@ -109,6 +109,7 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
                 rooms.StopSharing(room.ScreenId);
 
             Ui.Meta(DescribeHost(room));
+            DrawMembers(room.Members);
             Ui.VerticalSpace(10.0f);
             ImGui.PopID();
         }
@@ -156,10 +157,45 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
                 rooms.Leave(room.Code);
 
             Ui.Meta(DescribeViewer(room));
+            DrawMembers(room.Members);
             Ui.VerticalSpace(10.0f);
             ImGui.PopID();
         }
     }
+
+    /// <summary>Most names listed for one room; the rest are counted.</summary>
+    private const int MaxListedMembers = 30;
+
+    /// <summary>Who is in a room, the host first. Nothing when the relay hasn't sent a list (an older relay).</summary>
+    private static void DrawMembers(IReadOnlyList<RoomMember> members)
+    {
+        if (members.Count == 0)
+            return;
+
+        Ui.VerticalSpace(6.0f);
+        Ui.RowText(members.Count == 1 ? "1 person in this room" : $"{members.Count} people in this room", TextTertiary, f => f.Small);
+        foreach (var member in members.Take(MaxListedMembers))
+        {
+            Ui.RowText(member.Name, member.You ? Accent : CrystalCastUiTheme.Text, f => f.Body);
+            var tags = RoomMemberTags(member);
+            if (tags.Length > 0)
+            {
+                ImGui.SameLine(0.0f, S(6.0f));
+                Ui.RowText(tags, TextTertiary, f => f.Small);
+            }
+        }
+
+        if (members.Count > MaxListedMembers)
+            Ui.Meta($"and {members.Count - MaxListedMembers} more");
+    }
+
+    internal static string RoomMemberTags(RoomMember member) => (member.Host, member.You) switch
+    {
+        (true, true) => "(Host, you)",
+        (true, false) => "(Host)",
+        (false, true) => "(you)",
+        _ => string.Empty,
+    };
 
     private static string DescribeHost(HostedRoom room)
     {

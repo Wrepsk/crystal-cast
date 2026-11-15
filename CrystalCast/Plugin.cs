@@ -206,6 +206,9 @@ public sealed class Plugin : IDalamudPlugin
 
     internal void OpenRooms() => roomsWindow.Open();
 
+    /// <summary>Tells every room you're in about a new username.</summary>
+    internal void RenameInRooms(string name) => rooms.Rename(name);
+
     internal void ShowFirstRunGuide()
     {
         firstRunGuideWindow.Show();

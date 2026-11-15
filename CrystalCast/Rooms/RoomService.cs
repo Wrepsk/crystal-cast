@@ -130,11 +130,20 @@ internal sealed class RoomService : IDisposable
             return false;
         }
 
-        joined.Add(new JoinedRoom(code, new RoomRelayConnection(relay, code, hostKey: null)));
+        joined.Add(new JoinedRoom(code, new RoomRelayConnection(relay, code, hostKey: null, configuration.RoomUsername)));
         return true;
     }
 
     public void Leave(string code) => Leave(code, removeScreen: true);
+
+    /// <summary>The username changed in Settings: tell every room you're in.</summary>
+    public void Rename(string name)
+    {
+        foreach (var room in hosted)
+            room.Connection?.Rename(name);
+        foreach (var room in joined)
+            room.Connection.Rename(name);
+    }
 
     /// <summary>The user deleted a joined room's screen: leave that room too.</summary>
     public void OnRoomScreenDeleted(BrowserScreenProfile screen)
@@ -221,7 +230,7 @@ internal sealed class RoomService : IDisposable
             }
 
             room.Code = created.Code;
-            room.Connection = new RoomRelayConnection(room.Relay, created.Code, created.HostKey);
+            room.Connection = new RoomRelayConnection(room.Relay, created.Code, created.HostKey, configuration.RoomUsername);
         }
 
         var connection = room.Connection;
@@ -238,6 +247,10 @@ internal sealed class RoomService : IDisposable
             else if (message.Type == "viewers")
             {
                 room.Viewers = message.Count ?? room.Viewers;
+            }
+            else if (message.Type == "members" && message.Members != null)
+            {
+                room.Members = message.Members;
             }
             else if (message.Type == "add")
             {
@@ -340,6 +353,9 @@ internal sealed class RoomService : IDisposable
                     break;
                 case "pong":
                     room.Clock.AddPong(message.T, message.RelayTime, now);
+                    break;
+                case "members" when message.Members != null:
+                    room.Members = message.Members;
                     break;
                 case "closed":
                     room.ClosedReason = string.IsNullOrWhiteSpace(message.Reason) ? "The room closed." : message.Reason;
@@ -468,6 +484,9 @@ internal sealed class HostedRoom(string screenId, Uri relay)
     public RoomRelayConnection? Connection { get; set; }
     public RoomHostSendPolicy Policy { get; set; } = new();
     public int Viewers { get; set; }
+
+    /// <summary>Who is in the room; empty until the relay sends the list (older relays never do).</summary>
+    public IReadOnlyList<RoomMember> Members { get; set; } = [];
     public string Error { get; set; } = string.Empty;
 }
 
@@ -481,6 +500,9 @@ internal sealed class JoinedRoom(string code, RoomRelayConnection connection)
     public RoomScreenState? State { get; set; }
     public long ReceivedAt { get; set; }
     public bool HostConnected { get; set; }
+
+    /// <summary>Who is in the room; empty until the relay sends the list (older relays never do).</summary>
+    public IReadOnlyList<RoomMember> Members { get; set; } = [];
     public bool WasInPlace { get; set; }
     public long LastPingAtMs { get; set; }
     public long LastDriftCheckMs { get; set; }

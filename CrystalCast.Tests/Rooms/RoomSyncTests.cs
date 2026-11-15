@@ -316,20 +316,20 @@ public sealed class RoomViewerPlanTests
 public sealed class RoomRelayAddressTests
 {
     [Theory]
-    [InlineData("https://relay.example.workers.dev", "wss://relay.example.workers.dev/rooms/ABCD2345/socket?role=viewer")]
-    [InlineData("http://127.0.0.1:8787/", "ws://127.0.0.1:8787/rooms/ABCD2345/socket?role=viewer")]
-    [InlineData("https://example.com/relay/", "wss://example.com/relay/rooms/ABCD2345/socket?role=viewer")]
+    [InlineData("https://relay.example.workers.dev", "wss://relay.example.workers.dev/rooms/ABCD2345/socket?role=viewer&name=Sleepy%20Moogle")]
+    [InlineData("http://127.0.0.1:8787/", "ws://127.0.0.1:8787/rooms/ABCD2345/socket?role=viewer&name=Sleepy%20Moogle")]
+    [InlineData("https://example.com/relay/", "wss://example.com/relay/rooms/ABCD2345/socket?role=viewer&name=Sleepy%20Moogle")]
     public void ViewerSocketAddresses(string relay, string expected)
     {
         Assert.True(RoomRelayApi.TryParseRelayUri(relay, out var uri));
-        Assert.Equal(expected, RoomRelayConnection.BuildSocketUri(uri, "ABCD2345", null).ToString());
+        Assert.Equal(expected, RoomRelayConnection.BuildSocketUri(uri, "ABCD2345", null, "Sleepy Moogle").AbsoluteUri);
     }
 
     [Fact]
-    public void HostKeysAreEscaped()
+    public void HostKeysAndNamesAreEscaped()
     {
         Assert.True(RoomRelayApi.TryParseRelayUri("https://relay.example", out var uri));
-        Assert.EndsWith("role=host&key=a%2Bb", RoomRelayConnection.BuildSocketUri(uri, "ABCD2345", "a+b").ToString());
+        Assert.EndsWith("role=host&key=a%2Bb&name=A%26B%3DC", RoomRelayConnection.BuildSocketUri(uri, "ABCD2345", "a+b", "A&B=C").AbsoluteUri);
     }
 
     [Theory]

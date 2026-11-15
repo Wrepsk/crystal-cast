@@ -200,6 +200,13 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             }
         }
 
+        // People who joined see the room too: who's in it, and the host's state.
+        if (activeScreen != null && RoomService.IsRoomScreen(activeScreen)
+            && Ui.MenuItem("Show room", icon: FontAwesomeIcon.Users))
+        {
+            roomActions.OpenRooms();
+        }
+
         if (Ui.MenuItem("Join a room…", icon: FontAwesomeIcon.Users))
             roomActions.OpenRooms();
     }

@@ -40,7 +40,11 @@ CRYSTALCAST_TEST_RELAY=http://127.0.0.1:8787 dotnet test CrystalCast.Tests
 ## Protocol
 
 - `POST /rooms` answers `{ code, hostKey }`. Keep the host key secret; it proves you are the host.
-- `GET /rooms/{code}/socket?role=viewer` or `?role=host&key={hostKey}` opens the room's WebSocket.
+- `GET /rooms/{code}/socket?role=viewer` or `?role=host&key={hostKey}` opens the room's WebSocket. Add
+  `&name={username}` to choose the name others see (cleaned to at most 24 characters; empty is `Guest`).
+- Everyone, host included, gets `{ type: "members", members: [{ name, host, you }] }` whenever someone joins,
+  leaves or renames: the host first, then viewers in the order they joined, with `you` set on the recipient's
+  own entry. Anyone can send `{ type: "name", name }` to rename (at most once a second).
 - The host sends `{ type: "state", change, state }` (`change: false` for heartbeats) and `{ type: "close" }`.
 - Viewers get `welcome` (with the latest state), `state` (stamped with the relay's `receivedAt`), `host`
   (`connected` true or false) and `closed`. Anyone can send `{ type: "ping", t }` and gets a `pong` with the

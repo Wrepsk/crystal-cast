@@ -30,7 +30,10 @@ internal sealed class RoomRelayConnection : IDisposable
         TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30),
     ];
 
-    private readonly Uri socketUri;
+    private readonly Uri relayBaseUri;
+    private readonly string code;
+    private readonly string? hostKey;
+    private volatile string name;
     private readonly ConcurrentQueue<RoomRelayMessage> inbox = new();
     private readonly ConcurrentQueue<string> outbox = new();
     private readonly SemaphoreSlim outboxSignal = new(0);
@@ -39,10 +42,26 @@ internal sealed class RoomRelayConnection : IDisposable
     private volatile RoomConnectionStatus status = RoomConnectionStatus.Connecting;
     private volatile string lastError = string.Empty;
 
-    public RoomRelayConnection(Uri relayBaseUri, string code, string? hostKey)
+    public RoomRelayConnection(Uri relayBaseUri, string code, string? hostKey, string name)
     {
-        socketUri = BuildSocketUri(relayBaseUri, code, hostKey);
+        this.relayBaseUri = relayBaseUri;
+        this.code = code;
+        this.hostKey = hostKey;
+        this.name = RoomUsername.Display(name);
         loop = Task.Run(RunAsync);
+    }
+
+    /// <summary>
+    /// Changes the name others in the room see. Sent now when connected, and used for every reconnect after.
+    /// </summary>
+    public void Rename(string newName)
+    {
+        var display = RoomUsername.Display(newName);
+        if (string.Equals(display, name, StringComparison.Ordinal))
+            return;
+
+        name = display;
+        Send(new { type = "name", name = display });
     }
 
     public RoomConnectionStatus Status => status;
@@ -79,14 +98,15 @@ internal sealed class RoomRelayConnection : IDisposable
         outboxSignal.Dispose();
     }
 
-    internal static Uri BuildSocketUri(Uri relayBaseUri, string code, string? hostKey)
+    internal static Uri BuildSocketUri(Uri relayBaseUri, string code, string? hostKey, string name)
     {
         var scheme = relayBaseUri.Scheme == Uri.UriSchemeHttp ? "ws" : "wss";
+        var role = hostKey == null ? "role=viewer" : $"role=host&key={Uri.EscapeDataString(hostKey)}";
         var builder = new UriBuilder(relayBaseUri)
         {
             Scheme = scheme,
             Path = $"{relayBaseUri.AbsolutePath.TrimEnd('/')}/rooms/{code}/socket",
-            Query = hostKey == null ? "role=viewer" : $"role=host&key={Uri.EscapeDataString(hostKey)}",
+            Query = $"{role}&name={Uri.EscapeDataString(RoomUsername.Display(name))}",
         };
         if (builder.Port == 80 && scheme == "ws" || builder.Port == 443 && scheme == "wss")
             builder.Port = -1;
@@ -105,7 +125,8 @@ internal sealed class RoomRelayConnection : IDisposable
             {
                 using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 connectTimeout.CancelAfter(TimeSpan.FromSeconds(15));
-                await socket.ConnectAsync(socketUri, connectTimeout.Token).ConfigureAwait(false);
+                // Built for each attempt, so a reconnect after a rename uses the new name.
+                await socket.ConnectAsync(BuildSocketUri(relayBaseUri, code, hostKey, name), connectTimeout.Token).ConfigureAwait(false);
                 status = RoomConnectionStatus.Connected;
                 lastError = string.Empty;
                 attempt = 0;

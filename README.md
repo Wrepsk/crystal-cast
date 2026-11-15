@@ -65,6 +65,7 @@ A short guide opens the first time you use CrystalCast; **Settings > Onboarding 
 Open a screen's **⋯** menu in the main window and choose **Share this screen**. You get a code like `ABCD-2345` to send to friends. They choose **Join a room…** in the same menu and enter it.
 
 - Everyone who joins sees your screen in the same spot, playing in sync. Only you control it: what plays, pausing, seeking and the playlist. You can let people add videos to the playlist.
+- The Rooms window lists who's in each room by username, with **(Host)** next to the host. People who joined see it too, from **Show room** in the joined screen's **⋯** menu. Set your username in **Settings > Rooms**; it starts out random and is never your character's name.
 - A joined screen shows only where you are: the same zone and instance, the same housing ward, or the same house or apartment indoors.
 - When you stop sharing, the screen goes away for everyone who joined. If your game closes or crashes instead, they leave the room after you've been gone for 3 minutes.
 
@@ -94,7 +95,7 @@ There is also an experimental **Native Linux WebKitGTK** backend under **Setting
 
 CrystalCast only draws screens and plays media on your own client. It does not automate gameplay, send game actions, change network traffic, read combat data, collect account information, or talk to FFXIV servers.
 
-Rooms are the one thing that leaves your computer, and only while you share or join one. CrystalCast then connects to the CrystalCast relay, which passes the shared screen's link, playback state, size and position, and where the host is (world, zone, instance, and housing ward or house) to everyone with the code. It doesn't send character names or anything else. The relay deletes a room when its host stops sharing, or after a day without its host. Outside a room nothing is sent.
+Rooms are the one thing that leaves your computer, and only while you share or join one. CrystalCast then connects to the CrystalCast relay, which passes the shared screen's link, playback state, size and position, and where the host is (world, zone, instance, and housing ward or house) to everyone with the code, along with each person's room username. It doesn't send character names or anything else. The relay deletes a room when its host stops sharing, or after a day without its host. Outside a room nothing is sent.
 
 The browser blocks pop-ups, downloads, links that open other programs, and access to the camera, microphone, location, notifications and files. Playlist details (title, channel, thumbnail) come from the same site the video plays from. Web pages set by another plugin need your approval before they open. See [Browser security and privacy](#browser-security-and-privacy) for details.
 

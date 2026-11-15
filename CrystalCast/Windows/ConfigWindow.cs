@@ -637,10 +637,15 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
     // ---------------------------------------------------------------- IPC
 
     private string roomRelayDraft = string.Empty;
+    private string roomUsernameDraft = string.Empty;
+    private bool roomUsernameEditing;
     private bool roomRelayDraftLoaded;
 
     private bool DrawRooms(Configuration config)
     {
+        var changed = DrawRoomUsername(config);
+        Ui.VerticalSpace(SectionGap);
+
         Ui.SectionHeader("Relay", "Rooms pass screen states through a small relay service. Video and audio never go through it, and players never see each other's IP addresses.");
         if (!roomRelayDraftLoaded)
         {
@@ -650,7 +655,6 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
 
         Ui.RowLabel("Relay address", LabelWidth, LabelGap);
         Ui.TextField("##RoomRelayUrl", ref roomRelayDraft, 256, RoomRelayApi.DefaultRelayUrl, S(380.0f), error: !IsValidRelayDraft(), mono: true);
-        var changed = false;
         var trimmed = roomRelayDraft.Trim();
         if (IsValidRelayDraft() && !string.Equals(trimmed, config.RoomRelayUrl, StringComparison.Ordinal))
         {
@@ -672,6 +676,57 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
             plugin.OpenRooms();
 
         return changed;
+    }
+
+    /// <summary>
+    /// The name others see in rooms. Saved when you press Enter or leave the field, so spaces between words can be
+    /// typed (saving trims them).
+    /// </summary>
+    private bool DrawRoomUsername(Configuration config)
+    {
+        Ui.SectionHeader("You in rooms", "Others in a room you share or join see this name next to yours. It's never your character's name.");
+        if (!roomUsernameEditing)
+            roomUsernameDraft = config.RoomUsername;
+
+        var changed = false;
+        var randomWidth = Ui.ButtonWidth("Random");
+        Ui.RowLabel("Username", LabelWidth, LabelGap);
+        var enter = Ui.TextField(
+            "##RoomUsername",
+            ref roomUsernameDraft,
+            64,
+            "Pick a name",
+            Math.Min(S(260.0f), ImGui.GetContentRegionAvail().X - randomWidth - S(8.0f)),
+            flags: ImGuiInputTextFlags.EnterReturnsTrue);
+        roomUsernameEditing = ImGui.IsItemActive();
+        if (enter || ImGui.IsItemDeactivatedAfterEdit())
+        {
+            roomUsernameEditing = false;
+            changed |= SetRoomUsername(config, roomUsernameDraft);
+        }
+
+        ImGui.SameLine(0.0f, S(8.0f));
+        if (Ui.Button("Random##RoomUsernameRandom", tooltip: "Pick a new random name"))
+            changed |= SetRoomUsername(config, RoomUsername.Random());
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta($"Up to {RoomUsername.MaxLength} characters. Rooms you're in now see the change right away.");
+        return changed;
+    }
+
+    private bool SetRoomUsername(Configuration config, string input)
+    {
+        var name = RoomUsername.Clean(input);
+        if (name.Length == 0)
+            name = RoomUsername.Random();
+
+        roomUsernameDraft = name;
+        if (string.Equals(name, config.RoomUsername, StringComparison.Ordinal))
+            return false;
+
+        config.RoomUsername = name;
+        plugin.RenameInRooms(name);
+        return true;
     }
 
     private bool IsValidRelayDraft() =>

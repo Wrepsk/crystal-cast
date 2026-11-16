@@ -24,6 +24,8 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
     private readonly WebView2CaptureMode captureMode;
     private readonly JpegCaptureResolution jpegResolution;
     private readonly IPluginLog log;
+
+    protected IPluginLog Log => log;
     private readonly FrameCadenceDiagnostics cadenceDiagnostics = new();
     private BrowserThread? browserThread;
     private VideoFrame? latestFrame;
@@ -356,6 +358,10 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
     /// <summary>Loads the start page again and returns the browser to the screen.</summary>
     protected void ReturnToStartPage() => browserThread?.ReturnToStartPage();
 
+    /// <summary>Whether this browser's profile has a cookie named <paramref name="name"/> for <paramref name="url"/>.</summary>
+    protected Task<bool?> HasBrowserCookieAsync(string url, string name) =>
+        browserThread is { PageLoaded: true } thread ? thread.HasCookieAsync(url, name) : Task.FromResult<bool?>(null);
+
     /// <summary>Deletes every cookie in this browser's profile, then loads the start page again.</summary>
     protected void ClearCookiesAndReturnToStartPage() => browserThread?.ReturnToStartPage(clearCookies: true);
 
@@ -503,6 +509,33 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
                 return Task.CompletedTask;
             });
             ShowBrowserControls();
+        }
+
+        public Task<bool?> HasCookieAsync(string url, string name)
+        {
+            var result = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(async () =>
+            {
+                try
+                {
+                    if (webView == null)
+                    {
+                        result.TrySetResult(null);
+                        return;
+                    }
+
+                    var cookies = await webView.CookieManager.GetCookiesAsync(url);
+                    result.TrySetResult(cookies.Any(cookie => cookie.Name == name));
+                }
+                catch (Exception ex)
+                {
+                    result.TrySetException(ex);
+                }
+            });
+
+            // A browser that is shutting down never runs the check.
+            _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => result.TrySetResult(null), TaskScheduler.Default);
+            return result.Task;
         }
 
         public void ReturnToStartPage(bool clearCookies = false)

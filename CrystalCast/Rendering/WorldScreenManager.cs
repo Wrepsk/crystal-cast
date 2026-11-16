@@ -245,10 +245,22 @@ public sealed class WorldScreenManager : IDisposable
     }
 
     /// <summary>Opens a login page in the screen's player browser and brings it forward.</summary>
-    public bool TryShowSignIn(BrowserScreenProfile screen, string url, string domain)
+    internal bool TryShowSignIn(BrowserScreenProfile screen, BrowserSignIn signIn)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryBeginSignIn(url, domain);
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryBeginSignIn(signIn);
+    }
+
+    /// <summary>
+    /// Whether the screen's player browser holds the named cookie, which tells whether it's logged in to a
+    /// site. Null when that browser isn't running.
+    /// </summary>
+    public Task<bool?> HasBrowserCookieAsync(BrowserScreenProfile screen, string url, string name)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            ? instance.HasCookieAsync(url, name)
+            : Task.FromResult<bool?>(null);
     }
 
     /// <summary>Ends a login in every screen's browser, so each goes back to its player.</summary>
@@ -970,7 +982,10 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool SigningIn => frameSource is IBrowserSignInHost { SigningIn: true };
 
-        public bool TryBeginSignIn(string url, string domain) => frameSource is IBrowserSignInHost host && host.BeginSignIn(url, domain);
+        public bool TryBeginSignIn(BrowserSignIn signIn) => frameSource is IBrowserSignInHost host && host.BeginSignIn(signIn);
+
+        public Task<bool?> HasCookieAsync(string url, string name) =>
+            frameSource is IBrowserSignInHost host ? host.HasCookieAsync(url, name) : Task.FromResult<bool?>(null);
 
         public void EndSignIn()
         {

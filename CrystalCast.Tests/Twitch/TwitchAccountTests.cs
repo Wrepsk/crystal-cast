@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using CrystalCast.Browser.WebView2;
+using CrystalCast.Sources;
 using CrystalCast.Twitch;
 using CrystalCast.Windows.Panels;
 
@@ -139,7 +140,7 @@ public sealed class TwitchAccountTests : IDisposable
     [InlineData("https://www.twitch.tv/activate", null, false)]
     public void AllowsOnlyTheLoginSiteDuringALogin(string url, string? domain, bool allowed)
     {
-        Assert.Equal(allowed, WebView2BrowserFrameSource.IsAllowedSignInPage(url, domain));
+        Assert.Equal(allowed, BrowserSignInPolicy.IsAllowed(url, domain == null ? null : new BrowserSignIn(url, [domain])));
     }
 
     [Theory]

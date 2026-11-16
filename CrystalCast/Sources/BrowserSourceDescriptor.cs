@@ -77,6 +77,32 @@ internal interface IBrowserControlsHost
     bool HideBrowserControls();
 }
 
+/// <summary>
+/// A player browser that can leave its player for a moment to show a site's own login page, the way Show
+/// controls brings it forward, and then go back to the player. Used for logging in to Twitch, so the player
+/// plays as the user's account.
+/// </summary>
+internal interface IBrowserSignInHost
+{
+    /// <summary>True when this browser can show a login page now.</summary>
+    bool SignInAvailable { get; }
+
+    /// <summary>True while the login page is showing.</summary>
+    bool SigningIn { get; }
+
+    /// <summary>
+    /// Opens <paramref name="url"/> in the player's browser and brings it forward. While it is open, the browser
+    /// may move between pages on <paramref name="domain"/> and its subdomains, over https only.
+    /// </summary>
+    bool BeginSignIn(string url, string domain);
+
+    /// <summary>Goes back to the player and returns the browser to the screen.</summary>
+    void EndSignIn();
+
+    /// <summary>Deletes the browser's cookies, which logs it out of every site, and reloads the player.</summary>
+    void SignOut();
+}
+
 internal static class BrowserSourceDescriptors
 {
     public static readonly BrowserSourceDescriptor YouTube = new()

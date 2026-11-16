@@ -28,7 +28,7 @@ internal sealed class TwitchChatLine
     public string DisplayName { get; init; } = string.Empty;
     /// <summary>The viewer's name color as <c>#RRGGBB</c>, or empty when they never picked one.</summary>
     public string Color { get; init; } = string.Empty;
-    public IReadOnlyList<string> Badges { get; init; } = [];
+    public IReadOnlyList<TwitchBadge> Badges { get; init; } = [];
     public IReadOnlyList<TwitchChatSegment> Segments { get; init; } = [];
     /// <summary>For events: Twitch's description, such as "X subscribed for 3 months".</summary>
     public string EventText { get; init; } = string.Empty;
@@ -57,6 +57,8 @@ internal sealed class TwitchChatLog
     /// <summary>True once Twitch confirmed the join (its first ROOMSTATE for the channel).</summary>
     public bool Joined { get; private set; }
     public TwitchRoomState RoomState { get; private set; } = TwitchRoomState.Unknown;
+    /// <summary>The channel's user ID, from Twitch's ROOMSTATE; used to load the channel's own badges.</summary>
+    public string RoomId { get; private set; } = string.Empty;
     public IReadOnlyList<TwitchChatLine> Lines => lines;
 
     /// <summary>Counts every line ever added, so the view can tell new lines arrived after trimming.</summary>
@@ -67,6 +69,7 @@ internal sealed class TwitchChatLog
         Channel = channel.ToLowerInvariant();
         Joined = false;
         RoomState = TwitchRoomState.Unknown;
+        RoomId = string.Empty;
         lines.Clear();
         Version++;
     }
@@ -112,6 +115,8 @@ internal sealed class TwitchChatLog
             case "ROOMSTATE":
                 Joined = true;
                 RoomState = MergeRoomState(RoomState, message);
+                if (message.Tag("room-id") is { Length: > 0 } roomId)
+                    RoomId = roomId;
                 break;
         }
     }
@@ -216,16 +221,17 @@ internal sealed class TwitchChatLog
             : $"{displayName} ({login})";
     }
 
-    /// <summary><c>broadcaster/1,subscriber/12</c> → the badge set names, in order.</summary>
-    internal static IReadOnlyList<string> ParseBadges(string badges)
+    /// <summary><c>broadcaster/1,subscriber/12</c> → the badges, in Twitch's order.</summary>
+    internal static IReadOnlyList<TwitchBadge> ParseBadges(string badges)
     {
         if (string.IsNullOrWhiteSpace(badges))
             return [];
 
         return badges
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(badge => badge.Split('/')[0])
-            .Where(name => name.Length > 0)
+            .Select(badge => badge.Split('/', 2))
+            .Where(parts => parts[0].Length > 0)
+            .Select(parts => new TwitchBadge(parts[0], parts.Length > 1 ? parts[1] : string.Empty))
             .ToArray();
     }
 

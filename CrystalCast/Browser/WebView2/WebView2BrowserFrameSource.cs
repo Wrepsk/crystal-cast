@@ -10,13 +10,14 @@ namespace CrystalCast.Browser.WebView2;
 /// Plays a video site through the player page CrystalCast generates for it. The page is served from a
 /// virtual host, cannot navigate away, and reports the player's state in messages.
 /// </summary>
-internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase
+internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBrowserSignInHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly BrowserPlayerPageResource? playerPage;
     private readonly BrowserPlayerState playerState;
     private CoreWebView2Environment? pageEnvironment;
     private bool playlistAutoplayNext;
+    private volatile string? signInDomain;
 
     public WebView2BrowserFrameSource(
         BrowserSourceDescriptor descriptor,
@@ -136,8 +137,57 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase
         return playerPage != null && BrowserNavigationPolicy.IsExpectedMessageSource(messageSource, playerPage.Url);
     }
 
+    public bool SignInAvailable => IsValidSource && BrowserReady;
+
+    public bool SigningIn => signInDomain != null;
+
+    public bool BeginSignIn(string url, string domain)
+    {
+        if (!IsAllowedSignInPage(url, domain))
+            return false;
+
+        signInDomain = domain;
+        if (OpenOtherPage(url))
+        {
+            BrowserStatus = "WebView2 showing a login page";
+            return true;
+        }
+
+        signInDomain = null;
+        return false;
+    }
+
+    public void EndSignIn()
+    {
+        if (Interlocked.Exchange(ref signInDomain, null) == null)
+            return;
+
+        ReturnToStartPage();
+    }
+
+    public void SignOut()
+    {
+        signInDomain = null;
+        ClearCookiesAndReturnToStartPage();
+    }
+
+    /// <summary>Closing the browser window during a login ends it and goes back to the player.</summary>
+    protected override void OnBrowserControlsDismissed() => EndSignIn();
+
+    /// <summary>During a login, https pages on the login's site and its subdomains.</summary>
+    internal static bool IsAllowedSignInPage(string url, string? domain)
+    {
+        return domain != null
+            && BrowserUriPolicy.TryCreateHttpUri(url, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttps
+            && BrowserUriPolicy.IsHostOrSubdomain(uri, domain);
+    }
+
     protected override void OnNavigationStarting(CoreWebView2NavigationStartingEventArgs args)
     {
+        if (IsAllowedSignInPage(args.Uri, signInDomain))
+            return;
+
         if (playerPage == null || !BrowserNavigationPolicy.IsAllowedProviderDocument(args.Uri, playerPage.Url))
         {
             args.Cancel = true;

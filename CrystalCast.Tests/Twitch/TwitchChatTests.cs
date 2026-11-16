@@ -76,7 +76,7 @@ public sealed class TwitchChatTests
     {
         var line = TwitchChatLog.FromPrivmsg(TwitchIrcMessage.Parse(Privmsg)!);
         Assert.Equal("Viewer", line.DisplayName);
-        Assert.Equal(["subscriber", "premium"], line.Badges);
+        Assert.Equal([new TwitchBadge("subscriber", "6"), new TwitchBadge("premium", "1")], line.Badges);
         Assert.False(line.IsAction);
 
         var action = TwitchChatLog.FromPrivmsg(TwitchIrcMessage.Parse(":viewer!viewer@x PRIVMSG #c :\u0001ACTION waves\u0001")!);

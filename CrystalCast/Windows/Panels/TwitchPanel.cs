@@ -1,25 +1,41 @@
 using System.Numerics;
+using CrystalCast.Playlist;
+using CrystalCast.Rendering;
+using CrystalCast.Rooms;
 using CrystalCast.Sources;
 using CrystalCast.Sources.Providers;
 using CrystalCast.Twitch;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Plugin.Services;
 using static CrystalCast.Windows.Style.CrystalCastUiTheme;
 using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 
 namespace CrystalCast.Windows.Panels;
 
 /// <summary>
-/// The Twitch tab, shown while the selected screen plays Twitch: the channel's live chat. Reading chat needs no
-/// account. Only the chat of the selected screen is open, and the connection closes a minute after the tab is
-/// left.
+/// The Twitch tab, shown while the selected screen plays Twitch: the user's Twitch login, the channels they
+/// follow that are live, and the channel's live chat. Reading chat needs no account. Only the chat of the
+/// selected screen is open, and the connection closes a minute after the tab is left.
 /// </summary>
-internal sealed class TwitchPanel : ISourceTab
+internal sealed partial class TwitchPanel(
+    WorldScreenManager renderer,
+    TwitchAccount account,
+    PlaylistMetadataService metadata,
+    RoomService? rooms,
+    ITextureProvider? textures) : ISourceTab
 {
     private const float MinimumChatHeight = 220.0f;
+    private const long BadgeRetryMs = 300_000;
 
     private readonly TwitchChatConnection connection = new();
     private readonly TwitchChatLog log = new();
+    private readonly TwitchImageCache images = new(textures);
+    private readonly TwitchBadgeCatalog badges = new();
+    private Task<IReadOnlyList<(TwitchBadge Badge, TwitchBadgeImage Image)>>? globalBadgesTask;
+    private Task<IReadOnlyList<(TwitchBadge Badge, TwitchBadgeImage Image)>>? channelBadgesTask;
+    private string channelBadgesFor = string.Empty;
+    private long globalBadgesRetryTick;
     private readonly Dictionary<TwitchChatLine, (float Width, bool Deleted, float Height)> heights = new(ReferenceEqualityComparer.Instance);
     private long seenGeneration;
     private long seenVersion;
@@ -31,26 +47,39 @@ internal sealed class TwitchPanel : ISourceTab
 
     public bool AppliesTo(BrowserScreenProfile screen) => TryGetSource(screen, out _);
 
-    public void Dispose() => connection.Dispose();
+    public void Dispose()
+    {
+        connection.Dispose();
+        DisposeAccountTasks();
+        images.Dispose();
+    }
+
+    public void Update(BrowserScreenProfile? activeScreen) => UpdateSignIn();
 
     public bool Draw(BrowserScreenProfile screen)
     {
         if (!TryGetSource(screen, out var source))
             return false;
 
+        var changed = DrawAccount(screen);
+        Ui.VerticalSpace(20.0f);
+        changed |= DrawFollowing(screen, source);
+        Ui.VerticalSpace(20.0f);
+
         if (source.Kind != TwitchSourceKind.Channel)
         {
             Ui.SectionHeader("Chat", "This screen plays a Twitch video. Chat is shown for live channels.");
-            return false;
+            return changed;
         }
 
         UpdateChat(source.ChannelName);
+        UpdateBadges();
         DrawHeader();
         Ui.VerticalSpace(10.0f);
-        DrawChat();
+        DrawChat(ComposerHeight());
         Ui.VerticalSpace(8.0f);
-        Ui.Meta("Read-only. Logging in to send messages is coming next.");
-        return false;
+        DrawComposer(source.ChannelName);
+        return changed;
     }
 
     internal static bool TryGetSource(BrowserScreenProfile screen, out TwitchSourceReference source)
@@ -124,9 +153,9 @@ internal sealed class TwitchPanel : ISourceTab
         return string.Join(" · ", modes);
     }
 
-    private void DrawChat()
+    private void DrawChat(float footerHeight)
     {
-        var height = Math.Max(S(MinimumChatHeight), ImGui.GetContentRegionAvail().Y - S(28.0f));
+        var height = Math.Max(S(MinimumChatHeight), ImGui.GetContentRegionAvail().Y - footerHeight - S(8.0f));
         var width = ImGui.GetContentRegionAvail().X;
         var min = ImGui.GetCursorScreenPos();
         var outer = ImGui.GetWindowDrawList();
@@ -235,122 +264,225 @@ internal sealed class TwitchPanel : ISourceTab
 
     // ---------------------------------------------------------------- line layout
 
-    private readonly record struct Run(string Text, Vector4 Color);
+    /// <summary>Emotes are drawn this many text lines tall, about as big as on Twitch.</summary>
+    private const float EmoteScale = 1.6f;
+
+    /// <summary>
+    /// One thing on a chat line: a word in a color, or a picture (an emote or badge) of a fixed square size.
+    /// <see cref="Gap"/> is the space before it, dropped when it starts a new row.
+    /// </summary>
+    private readonly record struct Piece(string Text, Vector4 Color, float Gap, string ImageUrl = "", float ImageSize = 0.0f, string Tooltip = "")
+    {
+        public bool IsImage => ImageSize > 0.0f;
+    }
+
+    private readonly record struct Placed(Piece Piece, int Row, float X);
 
     private float MeasureLine(TwitchChatLine line, float width)
     {
         if (heights.TryGetValue(line, out var cached) && MathF.Abs(cached.Width - width) < 0.5f && cached.Deleted == line.Deleted)
             return cached.Height;
 
-        var height = Layout(BuildRuns(line), Vector2.Zero, width, null);
+        var height = Layout(BuildPieces(line), Vector2.Zero, width, null);
         if (line.Kind == TwitchChatLineKind.Event && line.EventText.Length > 0)
-            height += Layout([new Run(line.EventText, Accent)], Vector2.Zero, width - S(10.0f), null);
+            height += Layout(TextPieces(line.EventText, Accent), Vector2.Zero, width - S(10.0f), null);
 
         heights[line] = (width, line.Deleted, height);
         return height;
     }
 
-    private static void DrawLine(ImDrawListPtr dl, TwitchChatLine line, Vector2 start, float width)
+    private void DrawLine(ImDrawListPtr dl, TwitchChatLine line, Vector2 start, float width)
     {
         if (line.Kind == TwitchChatLineKind.Event)
         {
             var eventHeight = line.EventText.Length > 0
-                ? Layout([new Run(line.EventText, Accent)], start + new Vector2(S(10.0f), 0.0f), width - S(10.0f), dl)
+                ? Layout(TextPieces(line.EventText, Accent), start + new Vector2(S(10.0f), 0.0f), width - S(10.0f), dl)
                 : 0.0f;
-            var runs = BuildRuns(line);
-            var messageHeight = runs.Count > 0 ? Layout(runs, start + new Vector2(S(10.0f), eventHeight), width - S(10.0f), dl) : 0.0f;
+            var pieces = BuildPieces(line);
+            var messageHeight = pieces.Count > 0 ? Layout(pieces, start + new Vector2(S(10.0f), eventHeight), width - S(10.0f), dl) : 0.0f;
             dl.AddRectFilled(start, start + new Vector2(S(3.0f), eventHeight + messageHeight), U32(Accent), S(1.5f));
             return;
         }
 
-        Layout(BuildRuns(line), start, width, dl);
+        Layout(BuildPieces(line), start, width, dl);
     }
 
-    private static List<Run> BuildRuns(TwitchChatLine line)
+    private List<Piece> BuildPieces(TwitchChatLine line)
     {
-        var runs = new List<Run>();
+        var pieces = new List<Piece>();
         if (line.Kind == TwitchChatLineKind.Notice)
         {
             foreach (var segment in line.Segments)
-                runs.Add(new Run(segment.Text, TextTertiary));
-            return runs;
+                pieces.AddRange(TextPieces(segment.Text, TextTertiary));
+            return pieces;
         }
 
         // An event with no message of its own is just Twitch's line.
         if (line.Kind == TwitchChatLineKind.Event && line.Segments.Count == 0)
-            return runs;
+            return pieces;
 
-        var nameColor = TwitchChatColors.NameColor(line.Login, line.Color);
-        runs.Add(new Run(line.DisplayName, nameColor));
-        if (line.Deleted)
+        var lineHeight = ImGui.GetTextLineHeight();
+        var badgeSize = MathF.Round(lineHeight);
+        foreach (var badge in line.Badges)
         {
-            runs.Add(new Run(": ", CrystalCastUiTheme.Text));
-            runs.Add(new Run("<message deleted>", TextDisabled));
-            return runs;
+            if (badges.Resolve(badge) is { } image)
+                pieces.Add(new Piece(string.Empty, Vector4.One, pieces.Count > 0 ? S(3.0f) : 0.0f, image.Url, badgeSize, image.Title));
         }
 
-        runs.Add(new Run(line.IsAction ? " " : ": ", CrystalCastUiTheme.Text));
+        var nameColor = TwitchChatColors.NameColor(line.Login, line.Color);
+        pieces.Add(new Piece(line.DisplayName, nameColor, pieces.Count > 0 ? S(4.0f) : 0.0f));
+        if (line.Deleted)
+        {
+            pieces.AddRange(TextPieces(": ", CrystalCastUiTheme.Text));
+            pieces.AddRange(TextPieces("<message deleted>", TextDisabled));
+            return pieces;
+        }
+
+        pieces.AddRange(TextPieces(line.IsAction ? " " : ": ", CrystalCastUiTheme.Text));
         var textColor = line.IsAction ? nameColor : CrystalCastUiTheme.Text;
+        var emoteSize = MathF.Round(lineHeight * EmoteScale);
         foreach (var segment in line.Segments)
-            runs.Add(new Run(segment.Text, segment.Kind == TwitchChatSegmentKind.Emote ? AccentHover : textColor));
-        return runs;
+        {
+            if (segment.Kind == TwitchChatSegmentKind.Emote && segment.EmoteId.Length > 0)
+                pieces.Add(new Piece(segment.Text, textColor, 0.0f, TwitchImageCache.EmoteUrl(segment.EmoteId), emoteSize, segment.Text));
+            else
+                pieces.AddRange(TextPieces(segment.Text, textColor));
+        }
+
+        return pieces;
     }
 
     /// <summary>
-    /// Lays runs out word by word, wrapping at <paramref name="width"/>; words wider than a line break between
-    /// letters. Draws when given a draw list. Returns the height used.
+    /// Text split into words; a word after a space has the space's width as its gap. Trailing spaces become a
+    /// bare gap, so they still separate the text from an emote after it.
     /// </summary>
-    private static float Layout(IReadOnlyList<Run> runs, Vector2 origin, float width, ImDrawListPtr? dl)
+    private static IEnumerable<Piece> TextPieces(string text, Vector4 color)
+    {
+        var spaceWidth = ImGui.CalcTextSize(" ").X;
+        var words = text.Split(' ');
+        var pendingGap = 0.0f;
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (i > 0)
+                pendingGap += spaceWidth;
+            if (words[i].Length == 0)
+                continue;
+
+            yield return new Piece(words[i], color, pendingGap);
+            pendingGap = 0.0f;
+        }
+
+        if (pendingGap > 0.0f)
+            yield return new Piece(string.Empty, color, pendingGap);
+    }
+
+    /// <summary>
+    /// Lays pieces out in rows, wrapping at <paramref name="width"/>; words wider than a row break between
+    /// letters. A row is as tall as its tallest picture, and everything in it is centered on that height. Draws
+    /// when given a draw list. Returns the height used.
+    /// </summary>
+    private float Layout(IEnumerable<Piece> pieces, Vector2 origin, float width, ImDrawListPtr? dl)
     {
         var lineHeight = ImGui.GetTextLineHeight();
+        var placed = new List<Placed>();
+        var row = 0;
         var x = 0.0f;
-        var y = 0.0f;
-        var spaceWidth = ImGui.CalcTextSize(" ").X;
-        foreach (var run in runs)
+        var carriedGap = 0.0f;
+        foreach (var piece in pieces)
         {
-            var color = U32(run.Color);
-            var words = run.Text.Split(' ');
-            for (var i = 0; i < words.Length; i++)
+            if (!piece.IsImage && piece.Text.Length == 0)
             {
-                if (i > 0)
-                    x += spaceWidth;
+                carriedGap += piece.Gap;
+                continue;
+            }
 
-                var word = words[i];
-                if (word.Length == 0)
+            var gap = x > 0.0f ? piece.Gap + carriedGap : 0.0f;
+            carriedGap = 0.0f;
+            var itemWidth = piece.IsImage ? piece.ImageSize : ImGui.CalcTextSize(piece.Text).X;
+            if (x > 0.0f && x + gap + itemWidth > width)
+            {
+                row++;
+                x = 0.0f;
+                gap = 0.0f;
+            }
+
+            x += gap;
+            if (piece.IsImage)
+            {
+                placed.Add(new Placed(piece, row, x));
+                x += itemWidth;
+                continue;
+            }
+
+            // A word longer than a whole row (links, spam) breaks wherever it has to.
+            var word = piece.Text;
+            while (itemWidth > width - x && word.Length > 1)
+            {
+                var fit = FitChars(word, width - x);
+                if (fit == 0 && x > 0.0f)
+                {
+                    row++;
+                    x = 0.0f;
                     continue;
-
-                var wordWidth = ImGui.CalcTextSize(word).X;
-                if (x > 0.0f && x + wordWidth > width)
-                {
-                    x = 0.0f;
-                    y += lineHeight;
                 }
 
-                // A word longer than a whole line (links, spam) breaks wherever it has to.
-                while (wordWidth > width && word.Length > 1)
-                {
-                    var fit = FitChars(word, width - x);
-                    if (fit == 0 && x > 0.0f)
-                    {
-                        x = 0.0f;
-                        y += lineHeight;
-                        continue;
-                    }
+                fit = Math.Max(1, fit);
+                placed.Add(new Placed(piece with { Text = word[..fit] }, row, x));
+                word = word[fit..];
+                itemWidth = ImGui.CalcTextSize(word).X;
+                row++;
+                x = 0.0f;
+            }
 
-                    fit = Math.Max(1, fit);
-                    dl?.AddText(origin + new Vector2(x, y), color, word[..fit]);
-                    word = word[fit..];
-                    wordWidth = ImGui.CalcTextSize(word).X;
-                    x = 0.0f;
-                    y += lineHeight;
-                }
+            placed.Add(new Placed(piece with { Text = word }, row, x));
+            x += itemWidth;
+        }
 
-                dl?.AddText(origin + new Vector2(x, y), color, word);
-                x += wordWidth;
+        var rowHeights = new float[row + 1];
+        Array.Fill(rowHeights, lineHeight);
+        foreach (var item in placed)
+        {
+            if (item.Piece.IsImage)
+                rowHeights[item.Row] = Math.Max(rowHeights[item.Row], item.Piece.ImageSize);
+        }
+
+        if (dl is { } drawList)
+        {
+            var rowTops = new float[rowHeights.Length];
+            for (var i = 1; i < rowTops.Length; i++)
+                rowTops[i] = rowTops[i - 1] + rowHeights[i - 1];
+
+            foreach (var item in placed)
+            {
+                var itemHeight = item.Piece.IsImage ? item.Piece.ImageSize : lineHeight;
+                var pos = origin + new Vector2(item.X, rowTops[item.Row] + MathF.Round((rowHeights[item.Row] - itemHeight) * 0.5f));
+                if (item.Piece.IsImage)
+                    DrawPicture(drawList, item.Piece, pos);
+                else
+                    drawList.AddText(pos, U32(item.Piece.Color), item.Piece.Text);
             }
         }
 
-        return y + lineHeight;
+        return rowHeights.Sum();
+    }
+
+    /// <summary>An emote or badge. Nothing shows until it loads; hovering it names it.</summary>
+    private void DrawPicture(ImDrawListPtr dl, Piece piece, Vector2 pos)
+    {
+        var max = pos + new Vector2(piece.ImageSize);
+        if (images.Get(piece.ImageUrl) is { } image)
+        {
+            // Pictures keep their shape inside the square.
+            var aspect = (float)image.Width / Math.Max(1, image.Height);
+            var size = aspect >= 1.0f
+                ? new Vector2(piece.ImageSize, piece.ImageSize / aspect)
+                : new Vector2(piece.ImageSize * aspect, piece.ImageSize);
+            var topLeft = pos + ((new Vector2(piece.ImageSize) - size) * 0.5f);
+            dl.AddImage(image.Handle, topLeft, topLeft + size);
+        }
+
+        if (piece.Tooltip.Length > 0 && ImGui.IsWindowHovered() && ImGui.IsMouseHoveringRect(pos, max))
+            ImGui.SetTooltip(piece.Tooltip);
     }
 
     private static int FitChars(string word, float width)
@@ -362,5 +494,51 @@ internal sealed class TwitchPanel : ISourceTab
         if (fit > 0 && fit < word.Length && char.IsHighSurrogate(word[fit - 1]))
             fit--;
         return fit;
+    }
+
+    // ---------------------------------------------------------------- badges
+
+    /// <summary>
+    /// Loads Twitch's full badge lists while logged in: the global list once, and the channel's own badges
+    /// whenever the chat moves to another channel. Logged out, the built-in common badges are used.
+    /// </summary>
+    private void UpdateBadges()
+    {
+        if (globalBadgesTask is { IsCompleted: true } global)
+        {
+            globalBadgesTask = null;
+            if (global.IsCompletedSuccessfully)
+            {
+                badges.SetGlobal(global.Result);
+                heights.Clear();
+            }
+            else
+            {
+                globalBadgesRetryTick = Environment.TickCount64 + BadgeRetryMs;
+            }
+        }
+
+        if (channelBadgesTask is { IsCompleted: true } own)
+        {
+            channelBadgesTask = null;
+            if (own.IsCompletedSuccessfully && channelBadgesFor == log.RoomId)
+            {
+                badges.SetChannel(channelBadgesFor, own.Result);
+                heights.Clear();
+            }
+        }
+
+        if (account.State != TwitchAccountState.SignedIn)
+            return;
+
+        if (!badges.HasGlobal && globalBadgesTask == null && Environment.TickCount64 >= globalBadgesRetryTick)
+            globalBadgesTask = account.GetBadgesAsync(null, accountCancel.Token);
+
+        var roomId = log.RoomId;
+        if (roomId.Length > 0 && badges.ChannelId != roomId && channelBadgesTask == null && channelBadgesFor != roomId)
+        {
+            channelBadgesFor = roomId;
+            channelBadgesTask = account.GetBadgesAsync(roomId, accountCancel.Token);
+        }
     }
 }

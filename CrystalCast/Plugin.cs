@@ -4,6 +4,7 @@ using CrystalCast.Browser.WebView2;
 using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
+using CrystalCast.Twitch;
 using CrystalCast.Windows;
 using CrystalCast.Windows.Style;
 using Dalamud.Game.Command;
@@ -47,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly RoomsWindow roomsWindow;
     private readonly ScreenPlaylistAdvancer playlistAdvancer;
     private readonly PlaylistMetadataService playlistMetadata;
+    private readonly TwitchAccount twitchAccount;
     private readonly CrystalCastFonts fonts;
 
     public Plugin()
@@ -94,7 +96,8 @@ public sealed class Plugin : IDalamudPlugin
         ipcScreenDeleteWindow = new IpcScreenDeleteWindow(Configuration);
         rooms = new RoomService(Configuration, ipc, Framework, ClientState, ObjectTable, Log);
         roomsWindow = new RoomsWindow(rooms, Configuration, ToggleConfigUi);
-        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow);
+        twitchAccount = new TwitchAccount(new TwitchTokenStore(PluginInterface.GetPluginConfigDirectory()), Log, TwitchApp.ClientId);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow, twitchAccount);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
@@ -159,6 +162,7 @@ public sealed class Plugin : IDalamudPlugin
         rooms.Dispose();
         ipc.Dispose();
         playlistMetadata.Dispose();
+        twitchAccount.Dispose();
         renderer.Dispose();
         EndLeftoverBrowsers();
         genericWebIpcApprovals.Dispose();

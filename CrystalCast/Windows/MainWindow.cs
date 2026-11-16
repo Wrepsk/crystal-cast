@@ -3,6 +3,7 @@ using System.Numerics;
 using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
+using CrystalCast.Twitch;
 using CrystalCast.Windows.Panels;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
@@ -42,7 +43,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     private readonly PlaylistPanel playlistPanel;
     private readonly BrowserSourceControlsPanel sourceControlsPanel;
     /// <summary>Tabs that belong to one kind of source; each shows only while the screen plays that source.</summary>
-    private readonly ISourceTab[] sourceTabs = [new TwitchPanel()];
+    private readonly ISourceTab[] sourceTabs;
     private readonly Dictionary<string, SourceProgressUiState> progressStates = new(StringComparer.Ordinal);
     private readonly ComReferenceHold previewHold = new();
     private float volumeReveal;
@@ -63,7 +64,8 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         PlaylistMetadataService playlistMetadata,
         IpcScreenDeleteWindow ipcScreenDeleteWindow,
         RoomService rooms,
-        RoomsWindow roomsWindow)
+        RoomsWindow roomsWindow,
+        TwitchAccount twitchAccount)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
@@ -78,6 +80,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
+        sourceTabs = [new TwitchPanel(renderer, twitchAccount, playlistMetadata, rooms, Plugin.TextureProvider)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -113,6 +116,8 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
 
         changed |= DrawTitleBar(config);
         var activeScreen = config.GetActiveBrowserScreen();
+        foreach (var tab in sourceTabs)
+            tab.Update(activeScreen);
         changed |= DrawPlayerHeader(config, activeScreen);
         if (activeScreen != null)
             changed |= DrawTransport(config, activeScreen);

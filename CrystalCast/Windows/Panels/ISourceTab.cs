@@ -10,6 +10,9 @@ internal interface ISourceTab : IDisposable
 
     bool AppliesTo(BrowserScreenProfile screen);
 
+    /// <summary>Called every frame the main window draws, whether or not this tab is shown.</summary>
+    void Update(BrowserScreenProfile? activeScreen);
+
     /// <summary>Draws the tab. Returns true when the screen's settings changed.</summary>
     bool Draw(BrowserScreenProfile screen);
 }

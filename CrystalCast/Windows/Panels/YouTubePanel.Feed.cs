@@ -32,9 +32,22 @@ internal sealed partial class YouTubePanel
     private bool feedRead;
     private string feedNote = string.Empty;
 
+    private string searchDraft = string.Empty;
+    /// <summary>What the shown results are for; empty shows For You instead.</summary>
+    private string searchQuery = string.Empty;
+    private Task<YouTubeFeedRead>? searchTask;
+    private IReadOnlyList<YouTubeVideo> searchResults = [];
+    private string searchError = string.Empty;
+
     private bool DrawForYou(BrowserScreenProfile screen)
     {
         UpdateFeed();
+        UpdateSearch();
+        DrawSearchBox();
+        Ui.VerticalSpace(20.0f);
+        if (searchQuery.Length > 0)
+            return DrawSearchResults(screen);
+
         DrawFeedHeader();
 
         if (feedTask != null && videos.Count == 0)
@@ -55,7 +68,85 @@ internal sealed partial class YouTubePanel
         if (videos.Count > 0)
             Ui.VerticalSpace(8.0f);
 
-        return DrawGrid(screen);
+        return DrawGrid(screen, videos);
+    }
+
+    private void DrawSearchBox()
+    {
+        var spacing = S(8.0f);
+        const string search = "Search";
+        var fieldWidth = ImGui.GetContentRegionAvail().X - Ui.ButtonWidth(search) - spacing;
+        var draft = searchDraft;
+        var entered = Ui.TextField("##YouTubeSearch", ref draft, 200, "Search YouTube", fieldWidth, flags: ImGuiInputTextFlags.EnterReturnsTrue);
+        searchDraft = draft;
+        ImGui.SameLine(0.0f, spacing);
+        var canSearch = searchTask == null && !string.IsNullOrWhiteSpace(searchDraft);
+        if ((Ui.Button(search, ButtonKind.Primary, disabled: !canSearch) || entered) && canSearch)
+            StartSearch(searchDraft.Trim());
+    }
+
+    private void StartSearch(string query)
+    {
+        searchQuery = query;
+        searchResults = [];
+        searchError = string.Empty;
+        feedNote = string.Empty;
+        var token = feedCancel.Token;
+        var url = YouTubeHomeReader.SearchUrl(query);
+        searchTask = Task.Run(async () =>
+        {
+            var page = await YouTubeHomeReader.ReadAsync(url, log, token).ConfigureAwait(false);
+            return new YouTubeFeedRead(page.Data == null ? [] : YouTubeFeed.Parse(page.Data), page.LoggedIn);
+        }, token);
+    }
+
+    private void UpdateSearch()
+    {
+        if (searchTask is not { IsCompleted: true } done)
+            return;
+
+        searchTask = null;
+        if (done.IsCompletedSuccessfully)
+        {
+            searchResults = done.Result.Videos;
+            readerLoggedIn = done.Result.LoggedIn;
+        }
+        else if (!done.IsCanceled)
+        {
+            searchError = $"Couldn't search YouTube: {done.Exception?.GetBaseException().Message}";
+        }
+    }
+
+    private bool DrawSearchResults(BrowserScreenProfile screen)
+    {
+        Ui.Heading(searchResults.Count > 0 ? $"Results for \"{searchQuery}\" · {searchResults.Count}" : $"Results for \"{searchQuery}\"");
+        const string back = "Back to For You";
+        ImGui.SameLine(ImGui.GetContentRegionMax().X - Ui.ButtonWidth(back));
+        if (Ui.Button(back, ButtonKind.Ghost))
+        {
+            searchQuery = string.Empty;
+            searchResults = [];
+            searchError = string.Empty;
+            return false;
+        }
+
+        if (searchTask != null)
+        {
+            Ui.Meta("Searching YouTube…");
+            return false;
+        }
+
+        if (searchError.Length > 0)
+            Ui.ErrorText(searchError);
+        else if (searchResults.Count == 0)
+            Ui.Meta("No videos found. YouTube may have changed its page if this keeps happening.");
+
+        if (feedNote.Length > 0)
+            Ui.Meta(feedNote);
+        if (searchResults.Count > 0)
+            Ui.VerticalSpace(8.0f);
+
+        return DrawGrid(screen, searchResults);
     }
 
     private void DrawFeedHeader()
@@ -107,7 +198,7 @@ internal sealed partial class YouTubePanel
 
     private sealed record YouTubeFeedRead(IReadOnlyList<YouTubeVideo> Videos, bool LoggedIn);
 
-    private bool DrawGrid(BrowserScreenProfile screen)
+    private bool DrawGrid(BrowserScreenProfile screen, IReadOnlyList<YouTubeVideo> videos)
     {
         if (videos.Count == 0)
             return false;

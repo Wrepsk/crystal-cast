@@ -124,4 +124,20 @@ public sealed class YouTubeFeedTests
         configuration.YouTubeTabEnabled = false;
         Assert.False(tab.AppliesTo(youTube));
     }
+
+    [Theory]
+    [InlineData("final fantasy", "https://www.youtube.com/results?search_query=final%20fantasy")]
+    [InlineData("  a&b=c  ", "https://www.youtube.com/results?search_query=a%26b%3Dc")]
+    [InlineData("ファイナル", "https://www.youtube.com/results?search_query=%E3%83%95%E3%82%A1%E3%82%A4%E3%83%8A%E3%83%AB")]
+    public void BuildsSearchLinks(string query, string expected)
+    {
+        Assert.Equal(expected, YouTubeHomeReader.SearchUrl(query));
+        Assert.True(YouTubeHomeReader.IsAllowedPage(expected));
+    }
+
+    [Fact]
+    public async Task ReadsOnlyYouTubePages()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => YouTubeHomeReader.ReadAsync("https://example.com/", null!, CancellationToken.None));
+    }
 }

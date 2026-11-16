@@ -29,10 +29,21 @@ internal static class YouTubeHomeReader
     /// The page's data as JSON (null when YouTube's page had none, for example a consent page), and whether the
     /// profile is logged in to YouTube, so the tab knows even while no screen's player is running.
     /// </summary>
-    public static Task<YouTubeHomePage> ReadAsync(IPluginLog log, CancellationToken cancellationToken)
+    public static Task<YouTubeHomePage> ReadAsync(IPluginLog log, CancellationToken cancellationToken) =>
+        ReadAsync(HomeUrl, log, cancellationToken);
+
+    /// <summary>YouTube's search results for <paramref name="query"/>, the page youtube.com shows for it.</summary>
+    public static string SearchUrl(string query) =>
+        $"https://www.youtube.com/results?search_query={Uri.EscapeDataString(query.Trim())}";
+
+    /// <summary>Reads any YouTube page the same way: its data and whether the profile is logged in.</summary>
+    public static Task<YouTubeHomePage> ReadAsync(string url, IPluginLog log, CancellationToken cancellationToken)
     {
+        if (!IsAllowedPage(url))
+            throw new ArgumentException("Only YouTube pages can be read.", nameof(url));
+
         var result = new TaskCompletionSource<YouTubeHomePage>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() => ThreadMain(result, log, cancellationToken))
+        var thread = new Thread(() => ThreadMain(url, result, log, cancellationToken))
         {
             IsBackground = true,
             Name = "CrystalCast YouTube home reader",
@@ -43,13 +54,13 @@ internal static class YouTubeHomeReader
     }
 
     /// <summary>WebView2 needs a thread with a message loop; this one lives only as long as the read.</summary>
-    private static void ThreadMain(TaskCompletionSource<YouTubeHomePage> result, IPluginLog log, CancellationToken cancellationToken)
+    private static void ThreadMain(string url, TaskCompletionSource<YouTubeHomePage> result, IPluginLog log, CancellationToken cancellationToken)
     {
         using var context = new BrowserSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(context);
         try
         {
-            var work = ReadOnThreadAsync(cancellationToken);
+            var work = ReadOnThreadAsync(url, cancellationToken);
             var quit = false;
             while (!work.IsCompleted && !quit)
             {
@@ -81,7 +92,7 @@ internal static class YouTubeHomeReader
         }
     }
 
-    private static async Task<YouTubeHomePage> ReadOnThreadAsync(CancellationToken cancellationToken)
+    private static async Task<YouTubeHomePage> ReadOnThreadAsync(string url, CancellationToken cancellationToken)
     {
         if (!WebView2BrowserFrameSource.TryGetWebView2Runtime(out _, out var runtimeError, out var browserFolder))
             throw new InvalidOperationException($"WebView2 isn't available: {runtimeError}");
@@ -121,7 +132,7 @@ internal static class YouTubeHomeReader
 
             var loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             webView.NavigationCompleted += (_, args) => loaded.TrySetResult(args.IsSuccess);
-            webView.Navigate(HomeUrl);
+            webView.Navigate(url);
 
             var finished = await Task.WhenAny(loaded.Task, Task.Delay(LoadTimeout, cancellationToken));
             cancellationToken.ThrowIfCancellationRequested();

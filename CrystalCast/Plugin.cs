@@ -6,6 +6,7 @@ using CrystalCast.Playlist;
 using CrystalCast.Rendering;
 using CrystalCast.Twitch;
 using CrystalCast.Windows;
+using CrystalCast.Windows.Panels;
 using CrystalCast.Windows.Style;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
@@ -49,6 +50,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ScreenPlaylistAdvancer playlistAdvancer;
     private readonly PlaylistMetadataService playlistMetadata;
     private readonly TwitchAccount twitchAccount;
+    private readonly TwitchChatView twitchChat;
+    private readonly TwitchChatWindow twitchChatWindow;
     private readonly CrystalCastFonts fonts;
 
     public Plugin()
@@ -97,7 +100,9 @@ public sealed class Plugin : IDalamudPlugin
         rooms = new RoomService(Configuration, ipc, Framework, ClientState, ObjectTable, Log);
         roomsWindow = new RoomsWindow(rooms, Configuration, ToggleConfigUi);
         twitchAccount = new TwitchAccount(new TwitchTokenStore(PluginInterface.GetPluginConfigDirectory()), Log, TwitchApp.ClientId);
-        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow, twitchAccount);
+        twitchChat = new TwitchChatView(twitchAccount, TextureProvider);
+        twitchChatWindow = new TwitchChatWindow(Configuration, twitchChat);
+        mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow, twitchAccount, twitchChat, twitchChatWindow);
         configWindow = new ConfigWindow(this, renderer, ipc);
 #if DEBUG
         wineWebView2SetupWindow = new WineWebView2SetupWindow(this);
@@ -116,6 +121,7 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.AddWindow(genericWebIpcApprovalWindow);
         windowSystem.AddWindow(ipcScreenDeleteWindow);
         windowSystem.AddWindow(roomsWindow);
+        windowSystem.AddWindow(twitchChatWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -162,6 +168,7 @@ public sealed class Plugin : IDalamudPlugin
         rooms.Dispose();
         ipc.Dispose();
         playlistMetadata.Dispose();
+        twitchChat.Dispose();
         twitchAccount.Dispose();
         renderer.Dispose();
         EndLeftoverBrowsers();

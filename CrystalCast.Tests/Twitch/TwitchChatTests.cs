@@ -138,12 +138,12 @@ public sealed class TwitchChatTests
 
         log.Apply(TwitchIrcMessage.Parse("@emote-only=0;followers-only=-1;r9k=0;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #c")!);
         Assert.True(log.Joined);
-        Assert.Equal(string.Empty, TwitchPanel.DescribeModes(log.RoomState));
+        Assert.Equal(string.Empty, TwitchChatView.DescribeModes(log.RoomState));
 
         // Later ROOMSTATEs carry only the mode that changed.
         log.Apply(TwitchIrcMessage.Parse("@followers-only=10 :tmi.twitch.tv ROOMSTATE #c")!);
         log.Apply(TwitchIrcMessage.Parse("@slow=30 :tmi.twitch.tv ROOMSTATE #c")!);
-        Assert.Equal("Followers-only (10 min) · Slow mode (30s)", TwitchPanel.DescribeModes(log.RoomState));
+        Assert.Equal("Followers-only (10 min) · Slow mode (30s)", TwitchChatView.DescribeModes(log.RoomState));
     }
 
     [Fact]

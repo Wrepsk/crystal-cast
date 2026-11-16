@@ -65,7 +65,9 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         IpcScreenDeleteWindow ipcScreenDeleteWindow,
         RoomService rooms,
         RoomsWindow roomsWindow,
-        TwitchAccount twitchAccount)
+        TwitchAccount twitchAccount,
+        TwitchChatView twitchChat,
+        TwitchChatWindow twitchChatWindow)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
@@ -80,7 +82,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
-        sourceTabs = [new TwitchPanel(renderer, twitchAccount, playlistMetadata, rooms, Plugin.TextureProvider)];
+        sourceTabs = [new TwitchPanel(renderer, twitchAccount, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -485,8 +487,9 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         Ui.VerticalSpace(sectionGap);
         var sourceTab = sourceTabs.FirstOrDefault(tab => tab.AppliesTo(activeScreen));
         var labels = new List<string>(FixedTabs);
+        // Right after Source, since it belongs to what the screen plays.
         if (sourceTab != null)
-            labels.Add(sourceTab.Label);
+            labels.Insert(1, sourceTab.Label);
 #if DEBUG
         labels.Add(IpcTestingTab);
 #endif

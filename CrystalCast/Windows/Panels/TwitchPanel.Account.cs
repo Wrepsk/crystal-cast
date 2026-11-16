@@ -21,7 +21,6 @@ internal sealed partial class TwitchPanel
     private const float LabelGap = MainLabelGap;
     private const long FollowingRefreshMs = 60_000;
     private const int FollowingShownCollapsed = 5;
-    private const int MaxMessageLength = 500;
 
     private readonly CancellationTokenSource accountCancel = new();
     private readonly Dictionary<string, PlaylistEntry> previewEntries = new(StringComparer.Ordinal);
@@ -39,11 +38,6 @@ internal sealed partial class TwitchPanel
     private string followingUser = string.Empty;
     private bool showAllFollowing;
     private string playlistNote = string.Empty;
-
-    private string messageDraft = string.Empty;
-    private Task<TwitchSendResult>? sending;
-    private string sendError = string.Empty;
-    private bool refocusComposer;
 
     private void DisposeAccountTasks()
     {
@@ -391,73 +385,4 @@ internal sealed partial class TwitchPanel
         < 1_000_000 => FormattableString.Invariant($"{viewers / 1000.0:0.#}K viewers"),
         _ => FormattableString.Invariant($"{viewers / 1_000_000.0:0.#}M viewers"),
     };
-
-    // ---------------------------------------------------------------- sending
-
-    private float ComposerHeight()
-    {
-        var height = Ui.FrameHeight;
-        if (sendError.Length > 0 || account.State != TwitchAccountState.SignedIn)
-            height += S(22.0f);
-        return height;
-    }
-
-    private void DrawComposer(string channel)
-    {
-        if (account.State != TwitchAccountState.SignedIn)
-        {
-            Ui.Meta(account.Configured ? "Log in to send messages." : "Read-only chat.");
-            return;
-        }
-
-        if (sending is { IsCompleted: true } done)
-        {
-            sending = null;
-            var result = done.IsCompletedSuccessfully ? done.Result : new TwitchSendResult(false, done.Exception?.GetBaseException().Message ?? "Not sent.");
-            if (result.Sent)
-            {
-                messageDraft = string.Empty;
-                sendError = string.Empty;
-            }
-            else
-            {
-                sendError = result.Error;
-            }
-
-            refocusComposer = true;
-        }
-
-        var busy = sending != null;
-        var sendLabel = "Chat";
-        var spacing = S(8.0f);
-        var fieldWidth = ImGui.GetContentRegionAvail().X - Ui.ButtonWidth(sendLabel) - spacing;
-        if (refocusComposer)
-        {
-            ImGui.SetKeyboardFocusHere();
-            refocusComposer = false;
-        }
-
-        var draft = messageDraft;
-        var pressedEnter = Ui.TextField(
-            "##TwitchMessage",
-            ref draft,
-            MaxMessageLength,
-            $"Send a message to #{channel}",
-            fieldWidth,
-            disabled: busy,
-            flags: ImGuiInputTextFlags.EnterReturnsTrue);
-        if (draft != messageDraft)
-        {
-            messageDraft = draft;
-            sendError = string.Empty;
-        }
-
-        ImGui.SameLine(0.0f, spacing);
-        var canSend = !busy && !string.IsNullOrWhiteSpace(messageDraft);
-        if ((Ui.Button(sendLabel, ButtonKind.Primary, disabled: !canSend) || pressedEnter) && canSend)
-            sending = account.SendChatMessageAsync(channel, messageDraft.Trim(), accountCancel.Token);
-
-        if (sendError.Length > 0)
-            Ui.ErrorText(sendError);
-    }
 }

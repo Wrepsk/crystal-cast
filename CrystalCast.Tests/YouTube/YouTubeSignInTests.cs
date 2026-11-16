@@ -65,4 +65,15 @@ public sealed class YouTubeSignInTests
     {
         Assert.Equal(finish, YouTubePanel.ShouldFinishSignIn(youTubeCookie, msSinceGoogleCookie));
     }
+
+    [Theory]
+    [InlineData("WebView2 showing a login page", false, "logging in")]
+    [InlineData("blocked login navigation to https://accounts.google.com.tr/accounts/SetSID", false, "logging in")]
+    [InlineData("WebView2 window capture running", true, "logging in")]
+    [InlineData("WebView2 window capture running", false, "WebView2 window capture running")]
+    [InlineData("blocked browser navigation outside the provider player", false, "blocked browser navigation outside the provider player")]
+    public void OtherPluginsDontSeeLoginPages(string status, bool signingIn, string expected)
+    {
+        Assert.Equal(expected, BrowserSignInPolicy.StatusForIpc(status, signingIn));
+    }
 }

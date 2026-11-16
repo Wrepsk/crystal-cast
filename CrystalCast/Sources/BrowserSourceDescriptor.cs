@@ -91,6 +91,28 @@ internal sealed record BrowserSignIn(string Url, IReadOnlyList<string> Domains, 
 /// <summary>Which pages a login may visit, and when it is done.</summary>
 internal static class BrowserSignInPolicy
 {
+    /// <summary>A screen's status while its browser shows a login page.</summary>
+    public const string ShowingLoginStatus = "WebView2 showing a login page";
+
+    /// <summary>Starts a screen's status when a login was kept from a page; the page follows.</summary>
+    public const string BlockedLoginStatusPrefix = "blocked login navigation to ";
+
+    /// <summary>What other plugins see instead of a login status.</summary>
+    public const string IpcLoginStatus = "logging in";
+
+    /// <summary>
+    /// A screen's status for other plugins. During a login it names the login site and page, which only the
+    /// user needs (in Diagnostics); other plugins just learn that the screen is logging in.
+    /// </summary>
+    public static string StatusForIpc(string status, bool signingIn)
+    {
+        return signingIn
+            || status.Contains(ShowingLoginStatus, StringComparison.Ordinal)
+            || status.Contains(BlockedLoginStatusPrefix, StringComparison.Ordinal)
+            ? IpcLoginStatus
+            : status;
+    }
+
     public static bool IsAllowed(string? url, BrowserSignIn? signIn)
     {
         return signIn != null

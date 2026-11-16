@@ -108,7 +108,7 @@ internal sealed class ScreenStateBuilder
             SourceKind = ScreenSourceKind.Browser,
             Provider = screen.ProviderKind.ToString(),
             SourceName = renderer.GetSourceName(screen),
-            SourceStatus = renderer.GetSourceStatus(screen),
+            SourceStatus = BrowserSignInPolicy.StatusForIpc(renderer.GetSourceStatus(screen), renderer.IsShowingSignIn(screen)),
             Source = BrowserSourceIpcAdapters.Get(screen.ProviderKind)
                 .BuildSourceDetails(screen, renderer.GetPlaybackTelemetry(screen)),
         };

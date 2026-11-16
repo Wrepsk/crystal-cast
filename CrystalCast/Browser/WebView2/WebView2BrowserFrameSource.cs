@@ -149,7 +149,7 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBro
         signIn = request;
         if (OpenOtherPage(request.Url))
         {
-            BrowserStatus = "WebView2 showing a login page";
+            BrowserStatus = BrowserSignInPolicy.ShowingLoginStatus;
             return true;
         }
 
@@ -204,7 +204,7 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBro
             {
                 var page = BrowserSignInPolicy.Describe(args.Uri);
                 Log.Warning("CrystalCast login was blocked from {Page}.", page);
-                BrowserStatus = $"blocked login navigation to {page}";
+                BrowserStatus = $"{BrowserSignInPolicy.BlockedLoginStatusPrefix}{page}";
             }
             else
             {

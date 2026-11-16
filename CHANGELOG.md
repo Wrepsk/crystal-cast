@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.9 - 2026-11-16
+
 ### Added
 
 - **Twitch emote picker:** the smiley button next to the chat box lists the emotes you can use in the channel (this channel's, your other subscriptions', and Twitch's global ones), with search. Picking one adds it to your message. Logins from 0.9.8 show only global emotes until you log out and in again, since the picker needs one more Twitch permission.

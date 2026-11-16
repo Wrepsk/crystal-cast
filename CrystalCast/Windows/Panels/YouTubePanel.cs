@@ -1,5 +1,9 @@
 using CrystalCast.Browser;
+using CrystalCast.Playlist;
 using CrystalCast.Rendering;
+using CrystalCast.Rooms;
+using CrystalCast.YouTube;
+using Dalamud.Plugin.Services;
 using CrystalCast.Sources;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
@@ -12,9 +16,13 @@ namespace CrystalCast.Windows.Panels;
 /// The YouTube tab, shown while the selected screen plays YouTube. Logging in uses Google's own sign-in page,
 /// shown in the screen's player browser the way Show controls brings it forward, so the player plays as the
 /// user (YouTube Premium applies). The plugin never sees the password or the session; it only checks whether
-/// the player's browser holds YouTube's login cookie.
+/// the player's browser holds YouTube's login cookie. Below the login, the user's For You videos.
 /// </summary>
-internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
+internal sealed partial class YouTubePanel(
+    WorldScreenManager renderer,
+    PlaylistMetadataService metadata,
+    RoomService? rooms,
+    IPluginLog log) : ISourceTab
 {
     private const float LabelWidth = MainLabelWidth;
     private const float LabelGap = MainLabelGap;
@@ -29,7 +37,7 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
     internal const string FinishUrl = "https://www.youtube.com/";
 
     /// <summary>A cookie Google sets for YouTube once the account is logged in.</summary>
-    internal const string LoginCookie = "SAPISID";
+    internal const string LoginCookie = YouTubeHomeReader.LoginCookie;
 
     /// <summary>YouTube's own login cookie, set on the last step of the login.</summary>
     internal const string YouTubeLoginCookie = "LOGIN_INFO";
@@ -42,8 +50,14 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
 
     private Task<bool?>? loginCheck;
     private long? lastLoginCheckTick;
-    /// <summary>Null until checked, or while the player's browser isn't running.</summary>
-    private bool? loggedIn;
+    /// <summary>What the screen's player browser says; null until checked, or while it isn't running.</summary>
+    private bool? playerLoggedIn;
+
+    /// <summary>What the For You reader's browser found, for when no player is running.</summary>
+    private bool? readerLoggedIn;
+
+    /// <summary>Logged in to YouTube: the player's answer when it has one, otherwise the reader's.</summary>
+    private bool? LoggedIn => playerLoggedIn ?? readerLoggedIn;
     private string? signInScreenId;
     private string note = string.Empty;
 
@@ -119,13 +133,16 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
     {
         if (signInScreenId != null)
             renderer.EndSignIns();
+        feedCancel.Cancel();
+        feedCancel.Dispose();
     }
 
     public bool Draw(BrowserScreenProfile screen)
     {
         UpdateLoginCheck(screen);
         DrawAccount(screen);
-        return false;
+        Ui.VerticalSpace(24.0f);
+        return DrawForYou(screen);
     }
 
     private void UpdateLoginCheck(BrowserScreenProfile screen)
@@ -133,7 +150,7 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
         if (loginCheck is { IsCompleted: true } done)
         {
             loginCheck = null;
-            loggedIn = done.IsCompletedSuccessfully ? done.Result : null;
+            playerLoggedIn = done.IsCompletedSuccessfully ? done.Result : null;
         }
 
         var now = Environment.TickCount64;
@@ -160,7 +177,7 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
             return;
         }
 
-        switch (loggedIn)
+        switch (LoggedIn)
         {
             case true:
                 Ui.RowText("Logged in to YouTube", CrystalCastUiTheme.Text);
@@ -188,11 +205,14 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
                 }
 
                 Ui.RowIndent(LabelWidth, LabelGap);
-                Ui.Meta("Opens Google's sign-in in this screen's browser, so the player plays as you.");
+                Ui.Meta(canShow
+                    ? "Opens Google's sign-in in this screen's browser, so the player plays as you."
+                    : "Google's sign-in opens in this screen's browser, so play a video on this screen first.");
                 break;
 
             default:
-                Ui.RowText(loginCheck != null ? "Checking…" : "Play a video on this screen to log in", TextSecondary);
+                // Neither the player nor the For You reader has answered yet.
+                Ui.RowText(loginCheck != null || feedTask != null ? "Checking…" : "Couldn't tell whether you're logged in", TextSecondary);
                 break;
         }
 
@@ -205,7 +225,10 @@ internal sealed class YouTubePanel(WorldScreenManager renderer) : ISourceTab
 
     private void SignOut()
     {
-        loggedIn = false;
+        playerLoggedIn = false;
+        readerLoggedIn = false;
+        // The account's picks go with it; the page is read again logged out.
+        videos = [];
         lastLoginCheckTick = Environment.TickCount64;
         if (renderer.SignOutBrowsers(BrowserSourceProviderKind.YouTube) > 0)
             return;

@@ -82,7 +82,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
-        sourceTabs = [new YouTubePanel(renderer), new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
+        sourceTabs = [new YouTubePanel(renderer, playlistMetadata, rooms, Plugin.Log), new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);

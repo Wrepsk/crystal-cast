@@ -31,6 +31,24 @@ internal sealed partial class TwitchPanel
     private BrowserScreenProfile? signInRequestedFor;
     private string signInNote = string.Empty;
 
+    /// <summary>A cookie twitch.tv sets only for a logged-in account.</summary>
+    internal const string PlayerLoginCookie = "auth-token";
+    private const string PlayerLoginCookieUrl = "https://www.twitch.tv/";
+    private const long PlayerLoginCheckMs = 10_000;
+
+    /// <summary>
+    /// Whether the Twitch player's browser is logged in, from its login cookie (only its presence is checked).
+    /// All Twitch screens share one profile, so the last answer stays while the screen plays something else.
+    /// Null until a Twitch player has been asked.
+    /// </summary>
+    private bool? playerLoggedIn;
+    private Task<bool?>? playerLoginCheck;
+    private long? lastPlayerLoginCheckTick;
+
+    private const string OwnBrowserNote =
+        "Your own browser logs in CrystalCast only: chat and Following work, but the Twitch player stays logged out, "
+        + "so your subscriptions and Turbo won't apply in it. The Twitch window logs in both.";
+
     private Task<IReadOnlyList<TwitchStream>>? followingTask;
     private IReadOnlyList<TwitchStream> following = [];
     private string followingError = string.Empty;
@@ -77,12 +95,40 @@ internal sealed partial class TwitchPanel
             {
                 renderer.EndSignIns();
                 signInScreenId = null;
+                // The player may have just logged in: ask again right away.
+                lastPlayerLoginCheckTick = null;
             }
         }
     }
 
+    private void UpdatePlayerLoginCheck(BrowserScreenProfile screen)
+    {
+        if (playerLoginCheck is { IsCompleted: true } done)
+        {
+            playerLoginCheck = null;
+            if (done.IsCompletedSuccessfully && done.Result is { } loggedIn)
+                playerLoggedIn = loggedIn;
+        }
+
+        // Another site's player has another profile; only a Twitch player can say.
+        if (screen.ProviderKind != BrowserSourceProviderKind.Twitch || signInScreenId != null || playerLoginCheck != null)
+            return;
+
+        var now = Environment.TickCount64;
+        if (lastPlayerLoginCheckTick is not { } last || now - last > PlayerLoginCheckMs)
+        {
+            lastPlayerLoginCheckTick = now;
+            playerLoginCheck = renderer.HasBrowserCookieAsync(screen, PlayerLoginCookieUrl, PlayerLoginCookie);
+        }
+    }
+
+    /// <summary>The plugin is logged in but the player isn't: the player plays logged out, without the account's perks.</summary>
+    internal static bool ShowsPlayerLoggedOutNote(TwitchAccountState state, bool? playerLoggedIn) =>
+        state == TwitchAccountState.SignedIn && playerLoggedIn == false;
+
     private bool DrawAccount(BrowserScreenProfile screen)
     {
+        UpdatePlayerLoginCheck(screen);
         Ui.RowLabel("Account", LabelWidth, LabelGap);
         if (!account.Configured)
         {
@@ -97,6 +143,12 @@ internal sealed partial class TwitchPanel
                 ImGui.SameLine(0.0f, S(12.0f));
                 if (Ui.Button("Log out", ButtonKind.Ghost, tooltip: "Logs CrystalCast and the Twitch player out of your account"))
                     SignOut();
+
+                if (ShowsPlayerLoggedOutNote(account.State, playerLoggedIn))
+                {
+                    Ui.RowIndent(LabelWidth, LabelGap);
+                    Ui.Meta("The Twitch player isn't logged in (as after logging in from your own browser), so your subscriptions and Turbo don't apply in it. To change that, log out and log in again with the Twitch window.");
+                }
 
                 if (!account.StaysLoggedIn)
                 {
@@ -163,13 +215,23 @@ internal sealed partial class TwitchPanel
         if (!inBrowser && renderer.CanShowSignIn(screen) && Ui.Button("Show the Twitch window"))
         {
             if (renderer.TryShowSignIn(screen, TwitchApp.SignIn(code.VerificationUri)))
+            {
                 signInScreenId = screen.ScreenId;
+            }
         }
 
         if (!inBrowser && renderer.CanShowSignIn(screen))
             ImGui.SameLine(0.0f, S(8.0f));
         if (Ui.Button("Open in my browser", tooltip: "Logs in CrystalCast only; the player stays logged out"))
+        {
             Util.OpenLink(code.VerificationUri);
+        }
+
+        if (!inBrowser)
+        {
+            Ui.RowIndent(LabelWidth, LabelGap);
+            Ui.Meta(OwnBrowserNote);
+        }
 
         if (signInNote.Length > 0)
         {
@@ -182,6 +244,9 @@ internal sealed partial class TwitchPanel
     private void SignOut()
     {
         account.SignOut();
+        // The player's cookies are cleared too; ask it again once it's back.
+        playerLoggedIn = null;
+        lastPlayerLoginCheckTick = null;
         following = [];
         followingLoadedTick = null;
         if (renderer.SignOutBrowsers(BrowserSourceProviderKind.Twitch) > 0)

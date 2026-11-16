@@ -168,6 +168,17 @@ public sealed class TwitchAccountTests : IDisposable
         Assert.Null(store.Load());
     }
 
+    [Theory]
+    [InlineData("SignedIn", false, true)]
+    [InlineData("SignedIn", true, false)]
+    [InlineData("SignedIn", null, false)]
+    [InlineData("SignedOut", false, false)]
+    [InlineData("WaitingForApproval", false, false)]
+    public void SaysWhenOnlyThePluginIsLoggedIn(string state, bool? playerLoggedIn, bool shown)
+    {
+        Assert.Equal(shown, TwitchPanel.ShowsPlayerLoggedOutNote(Enum.Parse<TwitchAccountState>(state), playerLoggedIn));
+    }
+
     private static async Task WaitFor(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

@@ -7,7 +7,7 @@ namespace CrystalCast.Browser;
 
 using Dalamud.Plugin.Services;
 
-internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost
+internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameSource, INativeVideoFrameAcknowledgement, IMediaPlaybackTelemetrySource, IMediaPlaybackController, IBrowserFrameSourceRuntime, ICaptureRateSource, IBrowserControlsHost, IBrowserSignInHost
 {
     private readonly BrowserSourceDescriptor descriptor;
     private readonly string input;
@@ -191,6 +191,27 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
     public bool HideBrowserControls()
     {
         return activeSource is IBrowserControlsHost controlsHost && controlsHost.HideBrowserControls();
+    }
+
+    public bool SignInAvailable => activeSource is IBrowserSignInHost { SignInAvailable: true };
+
+    public bool SigningIn => activeSource is IBrowserSignInHost { SigningIn: true };
+
+    public bool BeginSignIn(string url, string domain)
+    {
+        return activeSource is IBrowserSignInHost host && host.BeginSignIn(url, domain);
+    }
+
+    public void EndSignIn()
+    {
+        if (activeSource is IBrowserSignInHost host)
+            host.EndSignIn();
+    }
+
+    public void SignOut()
+    {
+        if (activeSource is IBrowserSignInHost host)
+            host.SignOut();
     }
 
     public void Dispose()

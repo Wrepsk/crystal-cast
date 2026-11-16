@@ -340,6 +340,30 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
         return true;
     }
 
+    /// <summary>True once the browser is up, so another page can be opened in it.</summary>
+    protected bool BrowserReady => browserThread?.PageLoaded == true;
+
+    /// <summary>Leaves the start page for <paramref name="url"/> and brings the browser forward.</summary>
+    protected bool OpenOtherPage(string url)
+    {
+        if (browserThread is not { PageLoaded: true } thread)
+            return false;
+
+        thread.OpenPage(url);
+        return true;
+    }
+
+    /// <summary>Loads the start page again and returns the browser to the screen.</summary>
+    protected void ReturnToStartPage() => browserThread?.ReturnToStartPage();
+
+    /// <summary>Deletes every cookie in this browser's profile, then loads the start page again.</summary>
+    protected void ClearCookiesAndReturnToStartPage() => browserThread?.ReturnToStartPage(clearCookies: true);
+
+    /// <summary>Called on the browser thread when the user closes the brought-forward browser window.</summary>
+    protected virtual void OnBrowserControlsDismissed()
+    {
+    }
+
     private bool EnsureBrowserThread()
     {
         if (!isValidSource)
@@ -435,6 +459,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
         private Task? captureLoopTask;
         private bool windowCaptureStartRequested;
         private bool playerReady;
+        private bool webViewCreated;
         private volatile bool browserControlsVisible;
         private long interactionDismissedAtTick;
 
@@ -461,6 +486,41 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
         }
 
         public bool BrowserControlsVisible => browserControlsVisible;
+
+        /// <summary>True once the browser has started loading its first page.</summary>
+        public bool PageLoaded => Volatile.Read(ref webViewCreated);
+
+        public void OpenPage(string url)
+        {
+            Post(() =>
+            {
+                if (webView != null)
+                {
+                    playerReady = false;
+                    webView.Navigate(url);
+                }
+
+                return Task.CompletedTask;
+            });
+            ShowBrowserControls();
+        }
+
+        public void ReturnToStartPage(bool clearCookies = false)
+        {
+            Post(() =>
+            {
+                if (webView != null)
+                {
+                    if (clearCookies)
+                        webView.CookieManager.DeleteAllCookies();
+                    playerReady = false;
+                    webView.Navigate(owner.StartUrl);
+                }
+
+                return Task.CompletedTask;
+            });
+            HideBrowserControls();
+        }
 
         public void Play()
         {
@@ -584,6 +644,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
             Volatile.Write(ref interactionDismissedAtTick, Environment.TickCount64);
             browserControlsVisible = false;
             ReturnToCaptureMode();
+            owner.OnBrowserControlsDismissed();
         }
 
         private void ReturnToCaptureMode()
@@ -771,6 +832,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
                 playerReady = false;
                 owner.browserStatus = $"WebView2 loading {owner.LoadingDescription}";
                 webView.Navigate(owner.StartUrl);
+                Volatile.Write(ref webViewCreated, true);
 
                 if (!lifecycle.TryMarkRunning())
                     cancellationToken.ThrowIfCancellationRequested();

@@ -3,6 +3,7 @@ using System.Numerics;
 using CrystalCast.Ipc;
 using CrystalCast.Playlist;
 using CrystalCast.Rendering;
+using CrystalCast.Twitch;
 using CrystalCast.Windows.Panels;
 using CrystalCast.Windows.Style;
 using Dalamud.Bindings.ImGui;
@@ -17,13 +18,15 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
 {
 #if DEBUG
     private const string DebugIpcOwnerId = "CrystalCast.Debug";
-    private static readonly string[] TabLabels = ["Source", "Audio", "Playlist", "Placement", "IPC testing"];
-#else
-    private static readonly string[] TabLabels = ["Source", "Audio", "Playlist", "Placement"];
+    private const string IpcTestingTab = "IPC testing";
 #endif
 
+    private const string SourceTab = "Source";
+    private const string AudioTab = "Audio";
+    private const string PlaylistTab = "Playlist";
     /// <summary>The Placement tab; the in-world gizmo shows only while it is open.</summary>
-    private const int PlacementTab = 3;
+    private const string PlacementTab = "Placement";
+    private static readonly string[] FixedTabs = [SourceTab, AudioTab, PlaylistTab, PlacementTab];
 
     private const float ArtworkHeight = 260.0f;
     private const float TransportHeight = 52.0f;
@@ -39,11 +42,18 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     private readonly PlacementPanel placementPanel;
     private readonly PlaylistPanel playlistPanel;
     private readonly BrowserSourceControlsPanel sourceControlsPanel;
+    /// <summary>Tabs that belong to one kind of source; each shows only while the screen plays that source.</summary>
+    private readonly ISourceTab[] sourceTabs;
     private readonly Dictionary<string, SourceProgressUiState> progressStates = new(StringComparer.Ordinal);
     private readonly ComReferenceHold previewHold = new();
     private float volumeReveal;
     private double volumeLastHoveredAt = double.NegativeInfinity;
-    private int selectedTab;
+    /// <summary>
+    /// The tab the user picked. A source tab that isn't there for the selected screen shows Source instead,
+    /// but stays picked, so going back to a screen playing that source shows it again.
+    /// </summary>
+    private string selectedTab = SourceTab;
+    private string shownTab = SourceTab;
 
     internal MainWindow(
         Plugin plugin,
@@ -54,7 +64,10 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         PlaylistMetadataService playlistMetadata,
         IpcScreenDeleteWindow ipcScreenDeleteWindow,
         RoomService rooms,
-        RoomsWindow roomsWindow)
+        RoomsWindow roomsWindow,
+        TwitchAccount twitchAccount,
+        TwitchChatView twitchChat,
+        TwitchChatWindow twitchChatWindow)
         : base("CrystalCast###CrystalCastMain", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         this.plugin = plugin;
@@ -69,6 +82,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
+        sourceTabs = [new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -83,6 +97,8 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     public void Dispose()
     {
         previewHold.Dispose();
+        foreach (var tab in sourceTabs)
+            tab.Dispose();
     }
 
     public override void OnClose()
@@ -102,6 +118,8 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
 
         changed |= DrawTitleBar(config);
         var activeScreen = config.GetActiveBrowserScreen();
+        foreach (var tab in sourceTabs)
+            tab.Update(activeScreen);
         changed |= DrawPlayerHeader(config, activeScreen);
         if (activeScreen != null)
             changed |= DrawTransport(config, activeScreen);
@@ -117,7 +135,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         ImGui.EndChild();
 
         activeScreen = config.GetActiveBrowserScreen();
-        if (activeScreen != null && selectedTab == PlacementTab)
+        if (activeScreen != null && shownTab == PlacementTab)
             changed |= placementPanel.DrawGizmo(config, activeScreen);
 
         if (changed)
@@ -467,18 +485,30 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
             return changed;
 
         Ui.VerticalSpace(sectionGap);
-        selectedTab = Ui.Tabs("CrystalCastMainTabs", TabLabels, Math.Clamp(selectedTab, 0, TabLabels.Length - 1));
+        var sourceTab = sourceTabs.FirstOrDefault(tab => tab.AppliesTo(activeScreen));
+        var labels = new List<string>(FixedTabs);
+        // Right after Source, since it belongs to what the screen plays.
+        if (sourceTab != null)
+            labels.Insert(1, sourceTab.Label);
+#if DEBUG
+        labels.Add(IpcTestingTab);
+#endif
+        shownTab = labels.Contains(selectedTab) ? selectedTab : SourceTab;
+        var picked = Ui.Tabs("CrystalCastMainTabs", labels, labels.IndexOf(shownTab));
+        if (labels[picked] != shownTab)
+            selectedTab = shownTab = labels[picked];
         Ui.VerticalSpace(16.0f);
 
-        changed |= selectedTab switch
+        changed |= shownTab switch
         {
-            0 => sourceControlsPanel.Draw(activeScreen),
-            1 => audioControlsPanel.Draw(activeScreen),
-            2 => playlistPanel.Draw(activeScreen),
+            SourceTab => sourceControlsPanel.Draw(activeScreen),
+            AudioTab => audioControlsPanel.Draw(activeScreen),
+            PlaylistTab => playlistPanel.Draw(activeScreen),
             PlacementTab => placementPanel.Draw(config, activeScreen),
 #if DEBUG
-            4 => DrawIpcTesting(config, activeScreen),
+            IpcTestingTab => DrawIpcTesting(config, activeScreen),
 #endif
+            _ when sourceTab != null && shownTab == sourceTab.Label => sourceTab.Draw(activeScreen),
             _ => false,
         };
 

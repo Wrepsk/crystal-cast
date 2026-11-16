@@ -40,6 +40,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         new(PageId.Browser, "Browser", FontAwesomeIcon.Globe, "Which browser renders pages and how they are captured into screen textures."),
         new(PageId.Diagnostics, "Diagnostics", FontAwesomeIcon.WaveSquare, "Checks and a full report to share when asking for support."),
         new(PageId.Rooms, "Rooms", FontAwesomeIcon.Users, "Share a screen with a room code, or join someone else's."),
+        new(PageId.Twitch, "Twitch", FontAwesomeIcon.Comments, "The Twitch tab: chat, your Twitch login and the channels you follow."),
         new(PageId.Ipc, "IPC", FontAwesomeIcon.Link, "Let other Dalamud plugins create and control CrystalCast screens."),
 #if DEBUG
         new(PageId.Debug, "Debug", FontAwesomeIcon.Terminal, "Preview setup windows without editing the saved configuration."),
@@ -80,6 +81,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         Browser,
         Diagnostics,
         Rooms,
+        Twitch,
         Ipc,
         Debug,
     }
@@ -125,6 +127,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
                 PageId.Browser => DrawBrowserMedia(config),
                 PageId.Diagnostics => DrawDiagnostics(config),
                 PageId.Rooms => DrawRooms(config),
+                PageId.Twitch => DrawTwitch(config),
                 PageId.Ipc => DrawIpc(config),
 #if DEBUG
                 PageId.Debug => DrawDebugWindows(),
@@ -731,6 +734,34 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
 
     private bool IsValidRelayDraft() =>
         roomRelayDraft.Trim().Length == 0 || RoomRelayApi.TryParseRelayUri(roomRelayDraft, out _);
+
+    private static bool DrawTwitch(Configuration config)
+    {
+        var changed = false;
+        Ui.SectionHeader("Twitch tab");
+
+        var enabled = config.TwitchTabEnabled;
+        Ui.RowLabel("Twitch tab", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled("##TwitchTabEnabled", "Show the Twitch tab", ref enabled))
+        {
+            config.TwitchTabEnabled = enabled;
+            changed = true;
+        }
+
+        var always = config.TwitchTabAlwaysVisible;
+        Ui.RowLabel("On every screen", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled("##TwitchTabAlwaysVisible", "Show it on every screen", ref always, disabled: !config.TwitchTabEnabled))
+        {
+            config.TwitchTabAlwaysVisible = always;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(config.TwitchTabEnabled
+            ? "Normally the tab shows only while the screen plays Twitch. On every screen, it also shows your login and the channels you follow, so you can start one from any screen; chat shows while a Twitch channel plays."
+            : "The Twitch tab, its chat and the chat window are hidden.");
+        return changed;
+    }
 
     private bool DrawIpc(Configuration config)
     {

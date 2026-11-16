@@ -231,6 +231,42 @@ public sealed class WorldScreenManager : IDisposable
         return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.BrowserControlsVisible;
     }
 
+    /// <summary>True when the screen's player browser is up and can show a site's login page.</summary>
+    public bool CanShowSignIn(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.SignInAvailable;
+    }
+
+    public bool IsShowingSignIn(BrowserScreenProfile screen)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.SigningIn;
+    }
+
+    /// <summary>Opens a login page in the screen's player browser and brings it forward.</summary>
+    public bool TryShowSignIn(BrowserScreenProfile screen, string url, string domain)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryBeginSignIn(url, domain);
+    }
+
+    /// <summary>Ends a login in every screen's browser, so each goes back to its player.</summary>
+    public void EndSignIns()
+    {
+        foreach (var instance in browserScreens.Values)
+            instance.EndSignIn();
+    }
+
+    /// <summary>
+    /// Logs the running browsers of <paramref name="provider"/> out of every site (they share one profile).
+    /// Returns how many there were; with none running, the caller can delete the profile folder instead.
+    /// </summary>
+    public int SignOutBrowsers(BrowserSourceProviderKind provider)
+    {
+        return browserScreens.Values.Count(instance => instance.TrySignOut(provider));
+    }
+
     public bool AreBrowserControlsAvailable(BrowserScreenProfile screen)
     {
         SyncBrowserScreens();
@@ -928,6 +964,28 @@ public sealed class WorldScreenManager : IDisposable
                 return false;
 
             return controlsHost.HideBrowserControls();
+        }
+
+        public bool SignInAvailable => frameSource is IBrowserSignInHost { SignInAvailable: true };
+
+        public bool SigningIn => frameSource is IBrowserSignInHost { SigningIn: true };
+
+        public bool TryBeginSignIn(string url, string domain) => frameSource is IBrowserSignInHost host && host.BeginSignIn(url, domain);
+
+        public void EndSignIn()
+        {
+            if (frameSource is IBrowserSignInHost host)
+                host.EndSignIn();
+        }
+
+        /// <summary>Logs this screen's browser out of every site, when it plays <paramref name="provider"/>.</summary>
+        public bool TrySignOut(BrowserSourceProviderKind provider)
+        {
+            if (frameSource is not (IBrowserSignInHost host and IBrowserFrameSourceRuntime runtime) || runtime.ProviderKind != provider)
+                return false;
+
+            host.SignOut();
+            return true;
         }
 
         public void Stop()

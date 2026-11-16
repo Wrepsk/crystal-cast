@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- **Twitch tab:** while a screen plays a Twitch channel, a **Twitch** tab shows that channel's live chat, with name colors, subs and raids, deleted messages and chat modes. Reading chat needs no Twitch account.
+
 ## 0.9.7 - 2026-11-15
 
 ### Added

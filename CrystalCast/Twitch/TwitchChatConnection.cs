@@ -67,6 +67,21 @@ internal sealed class TwitchChatConnection : IDisposable
             Wake();
     }
 
+    /// <summary>
+    /// Closes the connection now instead of a minute after the tab stops asking, for when the screen is turned
+    /// off. The next <see cref="Want"/> opens it again.
+    /// </summary>
+    public void Release()
+    {
+        if (string.IsNullOrEmpty(wantedChannel))
+            return;
+
+        wantedChannel = string.Empty;
+        Interlocked.Exchange(ref lastWantedTick, 0);
+        if (signal.CurrentCount == 0)
+            Wake();
+    }
+
     public bool TryDequeue(out TwitchIrcMessage message) => inbox.TryDequeue(out message!);
 
     public void Dispose()

@@ -98,6 +98,14 @@ internal sealed partial class TwitchPanel(
             return;
         }
 
+        // A screen that's off doesn't keep a connection to Twitch.
+        if (!TwitchChatView.ShouldConnect(configuration, screen))
+        {
+            chat.Release();
+            Ui.SectionHeader("Chat", TwitchChatView.OffNote(configuration));
+            return;
+        }
+
         var height = Math.Clamp(
             ImGui.GetContentRegionAvail().Y - S(BelowChatPeek),
             S(TwitchChatView.MinimumChatHeight),

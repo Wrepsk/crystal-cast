@@ -70,6 +70,14 @@ internal sealed class TwitchChatWindow : CrystalCastWindow
             return;
         }
 
+        var screen = configuration.BrowserScreens.First(candidate => candidate.ScreenId == ScreenId);
+        if (!TwitchChatView.ShouldConnect(configuration, screen))
+        {
+            view.Release();
+            Ui.Meta(TwitchChatView.OffNote(configuration));
+            return;
+        }
+
         if (view.Draw(channel, TwitchChatHeaderButton.PopIn))
             IsOpen = false;
     }

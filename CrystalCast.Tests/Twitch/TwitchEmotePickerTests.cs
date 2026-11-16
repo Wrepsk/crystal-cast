@@ -59,4 +59,16 @@ public sealed class TwitchEmotePickerTests
         var full = new string('a', TwitchEmotePicker.MaxMessageLength - 3);
         Assert.Equal(full, TwitchEmotePicker.Insert(full, "Kappa"));
     }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    public void ConnectsToChatOnlyWhileTheScreenIsOn(bool pluginOn, bool screenOn, bool connects)
+    {
+        var configuration = new Configuration { Enabled = pluginOn };
+        var screen = new BrowserScreenProfile { Enabled = screenOn };
+        Assert.Equal(connects, CrystalCast.Windows.Panels.TwitchChatView.ShouldConnect(configuration, screen));
+        Assert.Contains(pluginOn ? "screen is off" : "CrystalCast is off", CrystalCast.Windows.Panels.TwitchChatView.OffNote(configuration));
+    }
 }

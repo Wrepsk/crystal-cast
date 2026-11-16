@@ -79,6 +79,21 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         return pressed;
     }
 
+    /// <summary>Closes the chat connection now, for a screen that was turned off. Its messages stay.</summary>
+    public void Release() => connection.Release();
+
+    /// <summary>
+    /// Whether a screen's chat should be open: only while the plugin and that screen are on, so a Twitch link
+    /// on a switched-off screen doesn't keep a connection to Twitch.
+    /// </summary>
+    internal static bool ShouldConnect(Configuration configuration, BrowserScreenProfile screen) =>
+        configuration.Enabled && screen.Enabled;
+
+    /// <summary>The note shown instead of the chat while <see cref="ShouldConnect"/> is false.</summary>
+    internal static string OffNote(Configuration configuration) => configuration.Enabled
+        ? "This screen is off. Turn it on to see its chat."
+        : "CrystalCast is off. Turn it on to see the chat.";
+
     private void UpdateChat(string channel)
     {
         if (log.Channel != channel.ToLowerInvariant())

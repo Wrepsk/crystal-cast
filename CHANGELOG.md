@@ -13,6 +13,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 - The Twitch tab says when the Twitch player isn't logged in (for example after logging in from your own browser), since subscriptions and Turbo then don't apply in it.
 - Other plugins see only that a screen is logging in, not which login page it's on.
 
+### Fixed
+
+- Twitch chat no longer connects for a screen that is turned off, or while CrystalCast is off; the tab and chat window say to turn it on.
+
 ## 0.9.8 - 2026-11-16
 
 ### Added

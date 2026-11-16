@@ -12,4 +12,10 @@ internal static class TwitchApp
 
     /// <summary>The site Twitch's login and activate pages live on; the player may visit it while logging in.</summary>
     internal const string SignInDomain = "twitch.tv";
+
+    /// <summary>
+    /// Twitch's activate page in the player. It ends when the plugin's login comes through, not on a page, since
+    /// Twitch's pages after Authorize differ.
+    /// </summary>
+    internal static Sources.BrowserSignIn SignIn(string verificationUri) => new(verificationUri, [SignInDomain]);
 }

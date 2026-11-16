@@ -78,9 +78,80 @@ internal interface IBrowserControlsHost
 }
 
 /// <summary>
+/// A login shown in a player's browser: the page it starts on, the sites it may move between (each with its
+/// subdomains, https only), and optionally the page that means it's done. Reaching that page ends the login
+/// and returns to the player instead of loading it.
+/// <para>
+/// A site written <c>google.*</c> also covers that name's country sites (<c>google.de</c>,
+/// <c>google.com.tr</c>, <c>google.co.uk</c>), which Google's login visits to set the session in each.
+/// </para>
+/// </summary>
+internal sealed record BrowserSignIn(string Url, IReadOnlyList<string> Domains, string? FinishUrl = null);
+
+/// <summary>Which pages a login may visit, and when it is done.</summary>
+internal static class BrowserSignInPolicy
+{
+    public static bool IsAllowed(string? url, BrowserSignIn? signIn)
+    {
+        return signIn != null
+            && BrowserUriPolicy.TryCreateHttpUri(url, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttps
+            && signIn.Domains.Any(domain => domain.EndsWith(".*", StringComparison.Ordinal)
+                ? IsCountrySite(uri.IdnHost, domain[..^2])
+                : BrowserUriPolicy.IsHostOrSubdomain(uri, domain));
+    }
+
+    /// <summary>
+    /// True for <paramref name="name"/> under a top-level domain in the shapes country sites use, or a subdomain
+    /// of one: <c>name.com</c>, <c>name.de</c>, <c>name.com.tr</c>, <c>name.co.uk</c>. Anything else after the
+    /// name, such as <c>name.example.com</c>, doesn't count.
+    /// </summary>
+    internal static bool IsCountrySite(string host, string name)
+    {
+        var labels = host.ToLowerInvariant().TrimEnd('.').Split('.');
+        var at = Array.LastIndexOf(labels, name.ToLowerInvariant());
+        if (at < 0)
+            return false;
+
+        var suffix = labels[(at + 1)..];
+        static bool IsCountry(string label) => label.Length == 2 && label.All(char.IsAsciiLetterLower);
+        return suffix switch
+        {
+            ["com"] => true,
+            [var country] => IsCountry(country),
+            ["com" or "co", var country] => IsCountry(country),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// A page for the log: scheme, host and path only. The query and fragment are left out, since during a
+    /// login they carry codes and tokens.
+    /// </summary>
+    public static string Describe(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return url is { Length: > 0 } ? url.Split('?', '#')[0] : "(empty)";
+
+        return uri.Scheme is "http" or "https"
+            ? $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}"
+            : $"{uri.Scheme}:";
+    }
+
+    /// <summary>True for the finish page: same scheme, host and path; the query doesn't matter.</summary>
+    public static bool IsFinish(string? url, BrowserSignIn? signIn)
+    {
+        return signIn?.FinishUrl != null
+            && BrowserUriPolicy.TryCreateHttpUri(url, out var uri)
+            && BrowserUriPolicy.TryCreateHttpUri(signIn.FinishUrl, out var finish)
+            && Uri.Compare(uri, finish, UriComponents.Scheme | UriComponents.Host | UriComponents.Path, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
+    }
+}
+
+/// <summary>
 /// A player browser that can leave its player for a moment to show a site's own login page, the way Show
-/// controls brings it forward, and then go back to the player. Used for logging in to Twitch, so the player
-/// plays as the user's account.
+/// controls brings it forward, and then go back to the player. Used for logging in to Twitch and YouTube, so
+/// the player plays as the user's account.
 /// </summary>
 internal interface IBrowserSignInHost
 {
@@ -90,17 +161,21 @@ internal interface IBrowserSignInHost
     /// <summary>True while the login page is showing.</summary>
     bool SigningIn { get; }
 
-    /// <summary>
-    /// Opens <paramref name="url"/> in the player's browser and brings it forward. While it is open, the browser
-    /// may move between pages on <paramref name="domain"/> and its subdomains, over https only.
-    /// </summary>
-    bool BeginSignIn(string url, string domain);
+    /// <summary>Opens the login in the player's browser and brings it forward.</summary>
+    bool BeginSignIn(BrowserSignIn signIn);
 
     /// <summary>Goes back to the player and returns the browser to the screen.</summary>
     void EndSignIn();
 
     /// <summary>Deletes the browser's cookies, which logs it out of every site, and reloads the player.</summary>
     void SignOut();
+
+    /// <summary>
+    /// Whether the browser holds a cookie named <paramref name="name"/> for <paramref name="url"/>, which tells
+    /// whether it's logged in to a site. Only presence is reported, never the value. Null when the browser
+    /// isn't running.
+    /// </summary>
+    Task<bool?> HasCookieAsync(string url, string name);
 }
 
 internal static class BrowserSourceDescriptors

@@ -244,11 +244,32 @@ public sealed class WorldScreenManager : IDisposable
         return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.SigningIn;
     }
 
+    /// <summary>
+    /// True while the screen's player is away on a login page, or reloading afterwards until it's back at its
+    /// position. Its playback then says nothing about the video, so rooms don't pass it on.
+    /// </summary>
+    public bool IsReloadingForSignIn(BrowserScreenProfile screen)
+    {
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.IsReloadingForSignIn;
+    }
+
     /// <summary>Opens a login page in the screen's player browser and brings it forward.</summary>
-    public bool TryShowSignIn(BrowserScreenProfile screen, string url, string domain)
+    internal bool TryShowSignIn(BrowserScreenProfile screen, BrowserSignIn signIn)
     {
         SyncBrowserScreens();
-        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryBeginSignIn(url, domain);
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance) && instance.TryBeginSignIn(signIn);
+    }
+
+    /// <summary>
+    /// Whether the screen's player browser holds the named cookie, which tells whether it's logged in to a
+    /// site. Null when that browser isn't running.
+    /// </summary>
+    public Task<bool?> HasBrowserCookieAsync(BrowserScreenProfile screen, string url, string name)
+    {
+        SyncBrowserScreens();
+        return browserScreens.TryGetValue(screen.ScreenId, out var instance)
+            ? instance.HasCookieAsync(url, name)
+            : Task.FromResult<bool?>(null);
     }
 
     /// <summary>Ends a login in every screen's browser, so each goes back to its player.</summary>
@@ -757,6 +778,13 @@ public sealed class WorldScreenManager : IDisposable
         private long pendingResumeWaitStartUnixMs;
         private long lastResumeSeekUnixMs;
 
+        /// <summary>Telemetry right after a resume seek can still show the old position for this long.</summary>
+        private const long ResumeSettleMs = 3000;
+
+        // Set by a login or logout until the reloaded player is back where it was. See IsReloadingForSignIn.
+        private bool holdForSignIn;
+        private long signInReturnStartedUnixMs;
+
         public WorldScreenInstance(Configuration configuration, BrowserScreenProfile browserScreen, CrystalCastServices services)
         {
             this.configuration = configuration;
@@ -970,7 +998,47 @@ public sealed class WorldScreenManager : IDisposable
 
         public bool SigningIn => frameSource is IBrowserSignInHost { SigningIn: true };
 
-        public bool TryBeginSignIn(string url, string domain) => frameSource is IBrowserSignInHost host && host.BeginSignIn(url, domain);
+        public bool TryBeginSignIn(BrowserSignIn signIn)
+        {
+            if (frameSource is not IBrowserSignInHost host || !host.BeginSignIn(signIn))
+                return false;
+
+            HoldForSignInReload();
+            return true;
+        }
+
+        /// <summary>
+        /// True from the start of a login (or logout) until the reloaded player has settled and gone back to its
+        /// position. A room host's screen sends no updates meanwhile, so viewers keep playing instead of following
+        /// the login page and the reload.
+        /// </summary>
+        public bool IsReloadingForSignIn => SigningIn || holdForSignIn;
+
+        /// <summary>A login or logout leaves the player page and loads it again: carry on from here afterwards.</summary>
+        private void HoldForSignInReload()
+        {
+            RememberPlaybackForReload();
+            holdForSignIn = true;
+            signInReturnStartedUnixMs = 0;
+        }
+
+        private void UpdateSignInHold(MediaPlaybackTelemetry telemetry, long now)
+        {
+            if (!holdForSignIn)
+                return;
+
+            if (signInReturnStartedUnixMs == 0)
+                signInReturnStartedUnixMs = now;
+
+            var resumed = pendingResume == null
+                && PlaybackResumePolicy.IsSettled(telemetry)
+                && now - lastResumeSeekUnixMs >= ResumeSettleMs;
+            if (resumed || now - signInReturnStartedUnixMs > PlaybackResumePolicy.ReadyTimeoutMs)
+                holdForSignIn = false;
+        }
+
+        public Task<bool?> HasCookieAsync(string url, string name) =>
+            frameSource is IBrowserSignInHost host ? host.HasCookieAsync(url, name) : Task.FromResult<bool?>(null);
 
         public void EndSignIn()
         {
@@ -984,6 +1052,7 @@ public sealed class WorldScreenManager : IDisposable
             if (frameSource is not (IBrowserSignInHost host and IBrowserFrameSourceRuntime runtime) || runtime.ProviderKind != provider)
                 return false;
 
+            HoldForSignInReload();
             host.SignOut();
             return true;
         }
@@ -1517,8 +1586,13 @@ public sealed class WorldScreenManager : IDisposable
 
         private void TrackPlaybackForResume(MediaPlaybackTelemetry telemetry)
         {
+            // On a login page the player isn't there; its last report is stale and says nothing about the video.
+            if (SigningIn)
+                return;
+
             var url = BrowserSourceProviderRegistry.GetUrl(browserScreen);
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            UpdateSignInHold(telemetry, now);
             if (pendingResume is { } pending)
             {
                 if (!CanResumePlayback || !PlaybackResumePolicy.SameLink(pending, url))
@@ -1550,7 +1624,7 @@ public sealed class WorldScreenManager : IDisposable
             }
 
             // Telemetry just after the resume seek can still show the old position.
-            if (now - lastResumeSeekUnixMs < 3000)
+            if (now - lastResumeSeekUnixMs < ResumeSettleMs)
                 return;
 
             if (PlaybackResumePolicy.IsSettled(telemetry))

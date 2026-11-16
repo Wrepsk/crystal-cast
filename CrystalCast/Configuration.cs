@@ -67,6 +67,15 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public bool TwitchTabAlwaysVisible { get; set; }
 
+    /// <summary>Shows the YouTube tab next to Source while the selected screen plays YouTube.</summary>
+    public bool YouTubeTabEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Shows the YouTube tab on every screen, for the login and For You videos. Needs
+    /// <see cref="YouTubeTabEnabled"/>.
+    /// </summary>
+    public bool YouTubeTabAlwaysVisible { get; set; }
+
     /// <summary>
     /// Wine used to default to native overlay; set once a Wine configuration has been moved to scene
     /// composite, so a later native overlay choice sticks.

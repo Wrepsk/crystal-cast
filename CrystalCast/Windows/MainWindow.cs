@@ -82,7 +82,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
-        sourceTabs = [new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
+        sourceTabs = [new YouTubePanel(renderer, plugin.Configuration, playlistMetadata, rooms, Plugin.Log), new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -485,11 +485,14 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
             return changed;
 
         Ui.VerticalSpace(sectionGap);
-        var sourceTab = sourceTabs.FirstOrDefault(tab => tab.AppliesTo(activeScreen));
+        // The tab of the site the screen plays comes first, then any shown on every screen.
+        var shownSourceTabs = sourceTabs
+            .Where(tab => tab.AppliesTo(activeScreen))
+            .OrderBy(tab => tab.IsPlaying(activeScreen) ? 0 : 1)
+            .ToArray();
         var labels = new List<string>(FixedTabs);
-        // Right after Source, since it belongs to what the screen plays.
-        if (sourceTab != null)
-            labels.Insert(1, sourceTab.Label);
+        // Right after Source, since they belong to what the screen plays.
+        labels.InsertRange(1, shownSourceTabs.Select(tab => tab.Label));
 #if DEBUG
         labels.Add(IpcTestingTab);
 #endif
@@ -508,8 +511,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
 #if DEBUG
             IpcTestingTab => DrawIpcTesting(config, activeScreen),
 #endif
-            _ when sourceTab != null && shownTab == sourceTab.Label => sourceTab.Draw(activeScreen),
-            _ => false,
+            _ => shownSourceTabs.FirstOrDefault(tab => tab.Label == shownTab)?.Draw(activeScreen) ?? false,
         };
 
         return changed;

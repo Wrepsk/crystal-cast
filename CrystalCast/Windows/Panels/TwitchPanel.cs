@@ -33,6 +33,8 @@ internal sealed partial class TwitchPanel(
 
     public bool AppliesTo(BrowserScreenProfile screen) => IsShown(configuration, TryGetSource(screen, out _));
 
+    public bool IsPlaying(BrowserScreenProfile screen) => TryGetSource(screen, out _);
+
     /// <summary>
     /// Whether the tab shows: only while the screen plays Twitch, or on every screen when the user turned that
     /// on, and never when the tab is off.

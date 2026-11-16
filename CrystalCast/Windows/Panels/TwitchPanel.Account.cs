@@ -59,7 +59,7 @@ internal sealed partial class TwitchPanel
         if (signInRequestedFor is { } screen && account.PendingCode is { } code)
         {
             signInRequestedFor = null;
-            if (renderer.TryShowSignIn(screen, code.VerificationUri, TwitchApp.SignInDomain))
+            if (renderer.TryShowSignIn(screen, TwitchApp.SignIn(code.VerificationUri)))
             {
                 signInScreenId = screen.ScreenId;
                 signInNote = string.Empty;
@@ -162,7 +162,7 @@ internal sealed partial class TwitchPanel
         Ui.RowIndent(LabelWidth, LabelGap);
         if (!inBrowser && renderer.CanShowSignIn(screen) && Ui.Button("Show the Twitch window"))
         {
-            if (renderer.TryShowSignIn(screen, code.VerificationUri, TwitchApp.SignInDomain))
+            if (renderer.TryShowSignIn(screen, TwitchApp.SignIn(code.VerificationUri)))
                 signInScreenId = screen.ScreenId;
         }
 

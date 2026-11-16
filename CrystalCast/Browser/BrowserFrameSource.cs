@@ -197,9 +197,14 @@ internal sealed class BrowserFrameSource : IVideoFrameSource, INativeVideoFrameS
 
     public bool SigningIn => activeSource is IBrowserSignInHost { SigningIn: true };
 
-    public bool BeginSignIn(string url, string domain)
+    public bool BeginSignIn(BrowserSignIn signIn)
     {
-        return activeSource is IBrowserSignInHost host && host.BeginSignIn(url, domain);
+        return activeSource is IBrowserSignInHost host && host.BeginSignIn(signIn);
+    }
+
+    public Task<bool?> HasCookieAsync(string url, string name)
+    {
+        return activeSource is IBrowserSignInHost host ? host.HasCookieAsync(url, name) : Task.FromResult<bool?>(null);
     }
 
     public void EndSignIn()

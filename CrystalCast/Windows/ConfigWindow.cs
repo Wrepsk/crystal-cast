@@ -40,7 +40,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         new(PageId.Browser, "Browser", FontAwesomeIcon.Globe, "Which browser renders pages and how they are captured into screen textures."),
         new(PageId.Diagnostics, "Diagnostics", FontAwesomeIcon.WaveSquare, "Checks and a full report to share when asking for support."),
         new(PageId.Rooms, "Rooms", FontAwesomeIcon.Users, "Share a screen with a room code, or join someone else's."),
-        new(PageId.Twitch, "Twitch", FontAwesomeIcon.Comments, "The Twitch tab: chat, your Twitch login and the channels you follow."),
+        new(PageId.SourceTabs, "Source tabs", FontAwesomeIcon.Th, "The Twitch and YouTube tabs next to Source: when they show."),
         new(PageId.Ipc, "IPC", FontAwesomeIcon.Link, "Let other Dalamud plugins create and control CrystalCast screens."),
 #if DEBUG
         new(PageId.Debug, "Debug", FontAwesomeIcon.Terminal, "Preview setup windows without editing the saved configuration."),
@@ -81,7 +81,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
         Browser,
         Diagnostics,
         Rooms,
-        Twitch,
+        SourceTabs,
         Ipc,
         Debug,
     }
@@ -127,7 +127,7 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
                 PageId.Browser => DrawBrowserMedia(config),
                 PageId.Diagnostics => DrawDiagnostics(config),
                 PageId.Rooms => DrawRooms(config),
-                PageId.Twitch => DrawTwitch(config),
+                PageId.SourceTabs => DrawSourceTabs(config),
                 PageId.Ipc => DrawIpc(config),
 #if DEBUG
                 PageId.Debug => DrawDebugWindows(),
@@ -735,31 +735,53 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
     private bool IsValidRelayDraft() =>
         roomRelayDraft.Trim().Length == 0 || RoomRelayApi.TryParseRelayUri(roomRelayDraft, out _);
 
-    private static bool DrawTwitch(Configuration config)
+    /// <summary>The Twitch and YouTube tabs: each can be off, shown while its site plays, or shown on every screen.</summary>
+    private static bool DrawSourceTabs(Configuration config)
     {
         var changed = false;
-        Ui.SectionHeader("Twitch tab");
-
-        var enabled = config.TwitchTabEnabled;
-        Ui.RowLabel("Twitch tab", LabelWidth, LabelGap);
-        if (Ui.SwitchLabeled("##TwitchTabEnabled", "Show the Twitch tab", ref enabled))
+        Ui.SectionHeader("Twitch");
+        var twitchEnabled = config.TwitchTabEnabled;
+        var twitchAlways = config.TwitchTabAlwaysVisible;
+        if (DrawSourceTabSwitches("Twitch", ref twitchEnabled, ref twitchAlways))
         {
-            config.TwitchTabEnabled = enabled;
-            changed = true;
-        }
-
-        var always = config.TwitchTabAlwaysVisible;
-        Ui.RowLabel("On every screen", LabelWidth, LabelGap);
-        if (Ui.SwitchLabeled("##TwitchTabAlwaysVisible", "Show it on every screen", ref always, disabled: !config.TwitchTabEnabled))
-        {
-            config.TwitchTabAlwaysVisible = always;
+            config.TwitchTabEnabled = twitchEnabled;
+            config.TwitchTabAlwaysVisible = twitchAlways;
             changed = true;
         }
 
         Ui.RowIndent(LabelWidth, LabelGap);
         Ui.Meta(config.TwitchTabEnabled
-            ? "Normally the tab shows only while the screen plays Twitch. On every screen, it also shows your login and the channels you follow, so you can start one from any screen; chat shows while a Twitch channel plays."
+            ? "On every screen, the tab also shows your login and the channels you follow, so you can start one from any screen. Chat shows while a Twitch channel plays."
             : "The Twitch tab, its chat and the chat window are hidden.");
+
+        Ui.VerticalSpace(SectionGap);
+        Ui.SectionHeader("YouTube");
+        var youTubeEnabled = config.YouTubeTabEnabled;
+        var youTubeAlways = config.YouTubeTabAlwaysVisible;
+        if (DrawSourceTabSwitches("YouTube", ref youTubeEnabled, ref youTubeAlways))
+        {
+            config.YouTubeTabEnabled = youTubeEnabled;
+            config.YouTubeTabAlwaysVisible = youTubeAlways;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta(config.YouTubeTabEnabled
+            ? "On every screen, the tab also shows your For You videos, so you can start one from any screen."
+            : "The YouTube tab is hidden. The player stays logged in.");
+        return changed;
+    }
+
+    private static bool DrawSourceTabSwitches(string site, ref bool enabled, ref bool always)
+    {
+        var changed = false;
+        Ui.RowLabel($"{site} tab", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled($"##{site}TabEnabled", $"Show the {site} tab", ref enabled))
+            changed = true;
+
+        Ui.RowLabel("On every screen", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled($"##{site}TabAlwaysVisible", $"Show it on every screen, not only while {site} plays", ref always, disabled: !enabled))
+            changed = true;
         return changed;
     }
 

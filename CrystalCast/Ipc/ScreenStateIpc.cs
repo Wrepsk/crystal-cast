@@ -99,6 +99,12 @@ public sealed class ScreenStateIpc : IDisposable
     /// <summary>Tells other plugins the user deleted one of their screens, and whether to keep it hidden.</summary>
     public void OnUserDeletedScreen(BrowserScreenProfile screen, bool hide) => mutationService.RemovedByUser(screen, hide);
 
+    /// <summary>
+    /// Rooms: true while the host's player is on a login page or reloading after one. The room then waits
+    /// instead of sending the reload's pause and restart to the viewers.
+    /// </summary>
+    internal bool IsReloadingForSignIn(BrowserScreenProfile screen) => renderer.IsReloadingForSignIn(screen);
+
     /// <summary>Rooms: the state a shared screen sends, with its resolved world placement.</summary>
     internal bool TryBuildRoomState(BrowserScreenProfile screen, out ScreenStateEnvelope state, out ResolvedScreenPlacement placement)
     {

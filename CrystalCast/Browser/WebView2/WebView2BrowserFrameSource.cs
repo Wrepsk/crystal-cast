@@ -17,7 +17,7 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBro
     private readonly BrowserPlayerState playerState;
     private CoreWebView2Environment? pageEnvironment;
     private bool playlistAutoplayNext;
-    private volatile string? signInDomain;
+    private volatile BrowserSignIn? signIn;
 
     public WebView2BrowserFrameSource(
         BrowserSourceDescriptor descriptor,
@@ -139,59 +139,77 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBro
 
     public bool SignInAvailable => IsValidSource && BrowserReady;
 
-    public bool SigningIn => signInDomain != null;
+    public bool SigningIn => signIn != null;
 
-    public bool BeginSignIn(string url, string domain)
+    public bool BeginSignIn(BrowserSignIn request)
     {
-        if (!IsAllowedSignInPage(url, domain))
+        if (!BrowserSignInPolicy.IsAllowed(request.Url, request))
             return false;
 
-        signInDomain = domain;
-        if (OpenOtherPage(url))
+        signIn = request;
+        if (OpenOtherPage(request.Url))
         {
             BrowserStatus = "WebView2 showing a login page";
             return true;
         }
 
-        signInDomain = null;
+        signIn = null;
         return false;
     }
 
     public void EndSignIn()
     {
-        if (Interlocked.Exchange(ref signInDomain, null) == null)
+        if (Interlocked.Exchange(ref signIn, null) == null)
             return;
 
+        playerState.ResetForReload();
         ReturnToStartPage();
     }
 
     public void SignOut()
     {
-        signInDomain = null;
+        signIn = null;
+        playerState.ResetForReload();
         ClearCookiesAndReturnToStartPage();
     }
+
+    public Task<bool?> HasCookieAsync(string url, string name) => HasBrowserCookieAsync(url, name);
 
     /// <summary>Closing the browser window during a login ends it and goes back to the player.</summary>
     protected override void OnBrowserControlsDismissed() => EndSignIn();
 
-    /// <summary>During a login, https pages on the login's site and its subdomains.</summary>
-    internal static bool IsAllowedSignInPage(string url, string? domain)
-    {
-        return domain != null
-            && BrowserUriPolicy.TryCreateHttpUri(url, out var uri)
-            && uri.Scheme == Uri.UriSchemeHttps
-            && BrowserUriPolicy.IsHostOrSubdomain(uri, domain);
-    }
-
     protected override void OnNavigationStarting(CoreWebView2NavigationStartingEventArgs args)
     {
-        if (IsAllowedSignInPage(args.Uri, signInDomain))
+        var current = signIn;
+        if (BrowserSignInPolicy.IsFinish(args.Uri, current))
+        {
+            // Logged in: back to the player instead of loading the site's home page.
+            Log.Information("CrystalCast login reached its finish page {Page}.", BrowserSignInPolicy.Describe(args.Uri));
+            args.Cancel = true;
+            EndSignIn();
             return;
+        }
+
+        if (BrowserSignInPolicy.IsAllowed(args.Uri, current))
+        {
+            Log.Information("CrystalCast login page {Page}.", BrowserSignInPolicy.Describe(args.Uri));
+            return;
+        }
 
         if (playerPage == null || !BrowserNavigationPolicy.IsAllowedProviderDocument(args.Uri, playerPage.Url))
         {
             args.Cancel = true;
-            BrowserStatus = "blocked browser navigation outside the provider player";
+            // During a login, name the site, so Diagnostics and the log show what the login tried to reach.
+            if (current != null)
+            {
+                var page = BrowserSignInPolicy.Describe(args.Uri);
+                Log.Warning("CrystalCast login was blocked from {Page}.", page);
+                BrowserStatus = $"blocked login navigation to {page}";
+            }
+            else
+            {
+                BrowserStatus = "blocked browser navigation outside the provider player";
+            }
         }
     }
 

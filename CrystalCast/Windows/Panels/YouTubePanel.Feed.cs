@@ -128,7 +128,7 @@ internal sealed partial class YouTubePanel
         var cardHeight = thumbHeight + S(8.0f) + (titleLine * 2.0f) + S(4.0f) + (smallLine * 2.0f);
         var rowStep = cardHeight + S(CardRowGap);
 
-        var playing = YouTubeVideoId.TryParseSource(screen.YouTubeUrl, out var current) ? current.VideoId : string.Empty;
+        var playing = PlaysYouTube(screen) && YouTubeVideoId.TryParseSource(screen.YouTubeUrl, out var current) ? current.VideoId : string.Empty;
         var locked = SourceControlUi.IsSourceControlsLocked(screen);
         var addBlocked = PlaylistPanel.DescribeBlocks(screen).Add;
 

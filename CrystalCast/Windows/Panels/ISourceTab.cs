@@ -10,6 +10,9 @@ internal interface ISourceTab : IDisposable
 
     bool AppliesTo(BrowserScreenProfile screen);
 
+    /// <summary>True when the screen plays this tab's site; that tab comes first when several show.</summary>
+    bool IsPlaying(BrowserScreenProfile screen);
+
     /// <summary>Called every frame the main window draws, whether or not this tab is shown.</summary>
     void Update(BrowserScreenProfile? activeScreen);
 

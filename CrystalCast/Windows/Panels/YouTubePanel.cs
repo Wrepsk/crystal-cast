@@ -20,6 +20,7 @@ namespace CrystalCast.Windows.Panels;
 /// </summary>
 internal sealed partial class YouTubePanel(
     WorldScreenManager renderer,
+    Configuration configuration,
     PlaylistMetadataService metadata,
     RoomService? rooms,
     IPluginLog log) : ISourceTab
@@ -67,7 +68,12 @@ internal sealed partial class YouTubePanel(
 
     public string Label => "YouTube";
 
-    public bool AppliesTo(BrowserScreenProfile screen) => screen.ProviderKind == BrowserSourceProviderKind.YouTube;
+    public bool AppliesTo(BrowserScreenProfile screen) =>
+        configuration.YouTubeTabEnabled && (PlaysYouTube(screen) || configuration.YouTubeTabAlwaysVisible);
+
+    public bool IsPlaying(BrowserScreenProfile screen) => PlaysYouTube(screen);
+
+    internal static bool PlaysYouTube(BrowserScreenProfile screen) => screen.ProviderKind == BrowserSourceProviderKind.YouTube;
 
     public void Update(BrowserScreenProfile? activeScreen)
     {
@@ -153,6 +159,14 @@ internal sealed partial class YouTubePanel(
             playerLoggedIn = done.IsCompletedSuccessfully ? done.Result : null;
         }
 
+        // Another site's player has another profile, so only a YouTube player can say; otherwise the For You
+        // reader's answer is used.
+        if (!PlaysYouTube(screen))
+        {
+            playerLoggedIn = null;
+            return;
+        }
+
         var now = Environment.TickCount64;
         if (loginCheck == null && signInScreenId == null && (lastLoginCheckTick is not { } last || now - last > LoginCheckMs))
         {
@@ -189,7 +203,8 @@ internal sealed partial class YouTubePanel(
                 break;
 
             case false:
-                var canShow = renderer.CanShowSignIn(screen);
+                // The login must happen in a YouTube player, so it lands in YouTube's profile.
+                var canShow = PlaysYouTube(screen) && renderer.CanShowSignIn(screen);
                 if (Ui.Button("Log in to YouTube", ButtonKind.Primary, disabled: !canShow,
                         tooltip: canShow ? null : "Play a video on this screen first"))
                 {

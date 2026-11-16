@@ -82,7 +82,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         audioControlsPanel = new AudioControlsPanel(renderer);
         placementPanel = new PlacementPanel(renderer, placementUndoService, placementResolver);
         playlistPanel = new PlaylistPanel(playlistAdvancer, ipc, playlistMetadata, rooms);
-        sourceTabs = [new YouTubePanel(renderer, playlistMetadata, rooms, Plugin.Log), new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
+        sourceTabs = [new YouTubePanel(renderer, plugin.Configuration, playlistMetadata, rooms, Plugin.Log), new TwitchPanel(renderer, twitchAccount, plugin.Configuration, playlistMetadata, rooms, twitchChat, twitchChatWindow)];
         sourceControlsPanel = new BrowserSourceControlsPanel(renderer);
 
         Size = new Vector2(580, 920);
@@ -485,7 +485,11 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
             return changed;
 
         Ui.VerticalSpace(sectionGap);
-        var shownSourceTabs = sourceTabs.Where(tab => tab.AppliesTo(activeScreen)).ToArray();
+        // The tab of the site the screen plays comes first, then any shown on every screen.
+        var shownSourceTabs = sourceTabs
+            .Where(tab => tab.AppliesTo(activeScreen))
+            .OrderBy(tab => tab.IsPlaying(activeScreen) ? 0 : 1)
+            .ToArray();
         var labels = new List<string>(FixedTabs);
         // Right after Source, since they belong to what the screen plays.
         labels.InsertRange(1, shownSourceTabs.Select(tab => tab.Label));

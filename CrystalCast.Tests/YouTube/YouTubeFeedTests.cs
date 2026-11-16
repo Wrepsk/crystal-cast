@@ -105,4 +105,23 @@ public sealed class YouTubeFeedTests
     {
         Assert.Equal(allowed, YouTubeHomeReader.IsAllowedPage(url));
     }
+
+    [Fact]
+    public void ShowsTheYouTubeTabAsSet()
+    {
+        var youTube = new BrowserScreenProfile { ProviderKind = BrowserSourceProviderKind.YouTube };
+        var twitch = new BrowserScreenProfile { ProviderKind = BrowserSourceProviderKind.Twitch };
+        var configuration = new Configuration();
+        var tab = new CrystalCast.Windows.Panels.YouTubePanel(null!, configuration, null!, null, null!);
+
+        Assert.True(tab.AppliesTo(youTube));
+        Assert.False(tab.AppliesTo(twitch));
+
+        configuration.YouTubeTabAlwaysVisible = true;
+        Assert.True(tab.AppliesTo(twitch));
+        Assert.False(tab.IsPlaying(twitch));
+
+        configuration.YouTubeTabEnabled = false;
+        Assert.False(tab.AppliesTo(youTube));
+    }
 }

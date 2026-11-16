@@ -6,11 +6,11 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
-- **YouTube tab:** while a screen plays YouTube, a **YouTube** tab next to Source. **Log in to YouTube** opens Google's own sign-in in the screen's browser, so the player plays as you (YouTube Premium applies). Logged in, **For You** shows the videos YouTube picks for you; click one to play it on the screen, or **+** to add it to the playlist.
+- **YouTube tab:** while a screen plays YouTube, a **YouTube** tab next to Source. **Log in to YouTube** opens Google's own sign-in in the screen's browser, so the player plays as you (YouTube Premium applies). Logged in, **For You** shows the videos YouTube picks for you; click one to play it on the screen, or **+** to add it to the playlist. **Settings > Source tabs** can turn the tab off, or show it on every screen to start a For You video from any screen.
 
 ### Added
 
-- **Twitch tab:** while a screen plays a Twitch channel, a **Twitch** tab shows that channel's live chat, with badges, emotes, name colors, subs and raids, deleted messages and chat modes. Hover a badge or emote to see its name. The chat can open in its own window (the button at the right of its header), which stays open without the main window. **Settings > Twitch** can turn the tab off, or show it on every screen to start a followed channel from any screen. Reading chat needs no Twitch account; logged in, the channel's own sub and bits badges show too.
+- **Twitch tab:** while a screen plays a Twitch channel, a **Twitch** tab shows that channel's live chat, with badges, emotes, name colors, subs and raids, deleted messages and chat modes. Hover a badge or emote to see its name. The chat can open in its own window (the button at the right of its header), which stays open without the main window. **Settings > Source tabs** can turn the tab off, or show it on every screen to start a followed channel from any screen. Reading chat needs no Twitch account; logged in, the channel's own sub and bits badges show too.
 - **Twitch login** in the Twitch tab: approve CrystalCast on Twitch's own page, shown in the screen's browser, and the player watches as you (subscriptions and Turbo apply), you can send chat messages, and the tab lists the channels you follow that are live, with **Watch** and add-to-playlist buttons. **Log out** revokes the login and clears the player's Twitch cookies.
 
 ## 0.9.7 - 2026-11-15

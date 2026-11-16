@@ -24,7 +24,7 @@ internal enum TwitchChatHeaderButton
 /// when logged in. One chat is shared by the Twitch tab and the chat window, so both show the same messages
 /// and only one connection is open. Reading chat needs no account.
 /// </summary>
-internal sealed class TwitchChatView(TwitchAccount account, ITextureProvider? textures) : IDisposable
+internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProvider? textures) : IDisposable
 {
     internal const float MinimumChatHeight = 220.0f;
     private const long BadgeRetryMs = 300_000;
@@ -578,7 +578,7 @@ internal sealed class TwitchChatView(TwitchAccount account, ITextureProvider? te
         var busy = sending != null;
         var sendLabel = "Chat";
         var spacing = S(8.0f);
-        var fieldWidth = ImGui.GetContentRegionAvail().X - Ui.ButtonWidth(sendLabel) - spacing;
+        var fieldWidth = ImGui.GetContentRegionAvail().X - Ui.ButtonWidth(sendLabel) - Ui.FrameHeight - (spacing * 2.0f);
         if (refocusComposer)
         {
             ImGui.SetKeyboardFocusHere();
@@ -599,6 +599,9 @@ internal sealed class TwitchChatView(TwitchAccount account, ITextureProvider? te
             messageDraft = draft;
             sendError = string.Empty;
         }
+
+        ImGui.SameLine(0.0f, spacing);
+        DrawEmoteButton(disabled: busy);
 
         ImGui.SameLine(0.0f, spacing);
         var canSend = !busy && !string.IsNullOrWhiteSpace(messageDraft);

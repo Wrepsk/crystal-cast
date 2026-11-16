@@ -4,6 +4,15 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- **Twitch emote picker:** the smiley button next to the chat box lists the emotes you can use in the channel (this channel's, your other subscriptions', and Twitch's global ones), with search. Picking one adds it to your message. Logins from 0.9.8 show only global emotes until you log out and in again, since the picker needs one more Twitch permission.
+
+### Changed
+
+- The Twitch tab says when the Twitch player isn't logged in (for example after logging in from your own browser), since subscriptions and Turbo then don't apply in it.
+- Other plugins see only that a screen is logging in, not which login page it's on.
+
 ## 0.9.8 - 2026-11-16
 
 ### Added

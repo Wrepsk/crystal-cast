@@ -43,7 +43,7 @@ internal readonly record struct TwitchSendResult(bool Sent, string Error);
 /// </summary>
 internal sealed class TwitchAccount : IDisposable
 {
-    internal const string Scopes = "user:read:follows user:write:chat";
+    internal const string Scopes = "user:read:follows user:write:chat user:read:emotes";
     private const string IdBase = "https://id.twitch.tv/oauth2";
     private const string ApiBase = "https://api.twitch.tv/helix";
     private static readonly TimeSpan ValidateInterval = TimeSpan.FromHours(1);
@@ -310,6 +310,63 @@ internal sealed class TwitchAccount : IDisposable
             if (!await RefreshAsync(token, cancellationToken).ConfigureAwait(false))
                 throw new InvalidOperationException("Twitch logged you out. Log in again.");
         }
+    }
+
+    /// <summary>
+    /// The emotes the user can send in <paramref name="broadcasterId"/>'s chat: global ones, their subscriptions'
+    /// and Bits emotes, and that channel's follower emotes. A login from before the emote permission gets
+    /// Twitch's global emotes instead, with <see cref="TwitchEmoteList.MissingScope"/> set.
+    /// </summary>
+    public async Task<TwitchEmoteList> GetEmotesAsync(string broadcasterId, CancellationToken cancellationToken)
+    {
+        var userId = UserId;
+        if (string.IsNullOrEmpty(userId))
+            return new TwitchEmoteList([], false);
+
+        var emotes = new List<TwitchEmote>();
+        string? cursor = null;
+        for (var page = 0; page < 20; page++)
+        {
+            var url = $"{ApiBase}/chat/emotes/user?user_id={Uri.EscapeDataString(userId)}";
+            if (!string.IsNullOrEmpty(broadcasterId))
+                url += $"&broadcaster_id={Uri.EscapeDataString(broadcasterId)}";
+            if (cursor != null)
+                url += $"&after={Uri.EscapeDataString(cursor)}";
+
+            using var response = await SendApiAsync(() => new HttpRequestMessage(HttpMethod.Get, url), cancellationToken).ConfigureAwait(false);
+            // Twitch answers 401 when the token lacks user:read:emotes.
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                return new TwitchEmoteList(await GetGlobalEmotesAsync(cancellationToken).ConfigureAwait(false), true);
+
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<HelixEmotePage>(cancellationToken).ConfigureAwait(false);
+            emotes.AddRange(ToEmotes(result?.Data));
+            cursor = result?.Pagination?.Cursor;
+            if (string.IsNullOrEmpty(cursor))
+                break;
+        }
+
+        return new TwitchEmoteList(emotes, false);
+    }
+
+    private async Task<IReadOnlyList<TwitchEmote>> GetGlobalEmotesAsync(CancellationToken cancellationToken)
+    {
+        using var response = await SendApiAsync(() => new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/chat/emotes/global"), cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<HelixEmotePage>(cancellationToken).ConfigureAwait(false);
+        return ToEmotes(result?.Data, defaultType: "globals");
+    }
+
+    internal static IReadOnlyList<TwitchEmote> ToEmotes(IEnumerable<HelixEmote>? emotes, string defaultType = "")
+    {
+        return (emotes ?? [])
+            .Where(emote => !string.IsNullOrWhiteSpace(emote.Id) && !string.IsNullOrWhiteSpace(emote.Name))
+            .Select(emote => new TwitchEmote(
+                emote.Id!,
+                emote.Name!,
+                string.IsNullOrEmpty(emote.EmoteType) ? defaultType : emote.EmoteType,
+                emote.OwnerId ?? string.Empty))
+            .ToArray();
     }
 
     // ---------------------------------------------------------------- tokens

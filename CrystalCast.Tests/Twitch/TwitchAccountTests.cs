@@ -179,6 +179,51 @@ public sealed class TwitchAccountTests : IDisposable
         Assert.Equal(shown, TwitchPanel.ShowsPlayerLoggedOutNote(Enum.Parse<TwitchAccountState>(state), playerLoggedIn));
     }
 
+    [Fact]
+    public async Task ListsTheUsersEmotesAcrossPages()
+    {
+        var store = new TwitchTokenStore(directory);
+        store.Save(new TwitchTokens("at", "rt", DateTimeOffset.UtcNow.AddHours(1), "viewer", "42", "Viewer"));
+        var twitch = new FakeTwitch();
+        twitch.On("GET", "/oauth2/validate", 200, """{"login":"viewer","user_id":"42"}""");
+        twitch.On("GET", "/helix/chat/emotes/user", 200, """{"data":[{"id":"25","name":"Kappa","emote_type":"globals","owner_id":"0"},{"id":"e1","name":"chanHype","emote_type":"subscriptions","owner_id":"7"}],"pagination":{"cursor":"next"}}""");
+        twitch.On("GET", "/helix/chat/emotes/user", 200, """{"data":[{"id":"e2","name":"otherWave","emote_type":"subscriptions","owner_id":"9"},{"id":"","name":"broken"}],"pagination":{}}""");
+
+        using var account = new TwitchAccount(store, null, "cid", twitch);
+        var list = await account.GetEmotesAsync("7", CancellationToken.None);
+
+        Assert.False(list.MissingScope);
+        Assert.Equal(["Kappa", "chanHype", "otherWave"], list.Emotes.Select(emote => emote.Name));
+        Assert.Contains("broadcaster_id=7", twitch.LastQuery["/helix/chat/emotes/user"]);
+        Assert.Contains("after=next", twitch.LastQuery["/helix/chat/emotes/user"]);
+    }
+
+    [Fact]
+    public async Task FallsBackToGlobalEmotesForOlderLogins()
+    {
+        var store = new TwitchTokenStore(directory);
+        store.Save(new TwitchTokens("at", "rt", DateTimeOffset.UtcNow.AddHours(1), "viewer", "42", "Viewer"));
+        var twitch = new FakeTwitch();
+        twitch.On("GET", "/oauth2/validate", 200, """{"login":"viewer","user_id":"42"}""");
+        twitch.On("GET", "/helix/chat/emotes/user", 401, """{"message":"Missing scope: user:read:emotes"}""");
+        twitch.On("POST", "/oauth2/token", 200, """{"access_token":"at2","refresh_token":"rt2","expires_in":14000}""");
+        twitch.On("GET", "/helix/chat/emotes/global", 200, """{"data":[{"id":"25","name":"Kappa"}]}""");
+
+        using var account = new TwitchAccount(store, null, "cid", twitch);
+        var list = await account.GetEmotesAsync("7", CancellationToken.None);
+
+        Assert.True(list.MissingScope);
+        var kappa = Assert.Single(list.Emotes);
+        Assert.Equal("globals", kappa.Type);
+        Assert.Equal(TwitchAccountState.SignedIn, account.State);
+    }
+
+    [Fact]
+    public void AsksForTheEmotePermission()
+    {
+        Assert.Contains("user:read:emotes", TwitchAccount.Scopes.Split(' '));
+    }
+
     private static async Task WaitFor(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
@@ -196,6 +241,7 @@ public sealed class TwitchAccountTests : IDisposable
         private readonly Dictionary<string, List<(int Status, string Body)>> answers = new();
         public Dictionary<string, string> Bodies { get; } = new();
         public Dictionary<string, string> LastAuthorization { get; } = new();
+        public Dictionary<string, string> LastQuery { get; } = new();
 
         public void On(string method, string path, int status, string body)
         {
@@ -208,6 +254,7 @@ public sealed class TwitchAccountTests : IDisposable
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            LastQuery[path] = request.RequestUri.Query;
             if (request.Content != null)
                 Bodies[path] = await request.Content.ReadAsStringAsync(cancellationToken);
             if (request.Headers.Authorization is { } authorization)

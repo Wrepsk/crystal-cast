@@ -58,6 +58,15 @@ public class Configuration : IPluginConfiguration
     /// <summary>Scene composite only: screens stay visible in GPose, so they show up in screenshots.</summary>
     public bool KeepScreensInGpose { get; set; } = true;
 
+    /// <summary>Shows the Twitch tab next to Source while the selected screen plays Twitch.</summary>
+    public bool TwitchTabEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Shows the Twitch tab on every screen, for the login and followed channels; its chat still needs the
+    /// screen to play a Twitch channel. Needs <see cref="TwitchTabEnabled"/>.
+    /// </summary>
+    public bool TwitchTabAlwaysVisible { get; set; }
+
     /// <summary>
     /// Wine used to default to native overlay; set once a Wine configuration has been moved to scene
     /// composite, so a later native overlay choice sticks.

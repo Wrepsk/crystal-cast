@@ -202,7 +202,7 @@ internal sealed partial class TwitchPanel
 
     // ---------------------------------------------------------------- following
 
-    private bool DrawFollowing(BrowserScreenProfile screen, TwitchSourceReference source)
+    private bool DrawFollowing(BrowserScreenProfile screen, TwitchSourceReference? source)
     {
         if (account.State != TwitchAccountState.SignedIn)
             return false;
@@ -265,7 +265,7 @@ internal sealed partial class TwitchPanel
         }
     }
 
-    private bool DrawStream(BrowserScreenProfile screen, TwitchSourceReference source, TwitchStream stream)
+    private bool DrawStream(BrowserScreenProfile screen, TwitchSourceReference? source, TwitchStream stream)
     {
         var changed = false;
         var width = ImGui.GetContentRegionAvail().X;
@@ -273,7 +273,7 @@ internal sealed partial class TwitchPanel
         var rowHeight = thumbSize.Y + S(8.0f);
         var min = ImGui.GetCursorScreenPos();
         var dl = ImGui.GetWindowDrawList();
-        var watching = source.Kind == TwitchSourceKind.Channel && source.ChannelName == stream.Login;
+        var watching = source is { Kind: TwitchSourceKind.Channel } playing && playing.ChannelName == stream.Login;
 
         var thumbMin = min + new Vector2(0.0f, S(4.0f));
         dl.AddRectFilled(thumbMin, thumbMin + thumbSize, U32(Inset), S(4.0f));
@@ -312,6 +312,8 @@ internal sealed partial class TwitchPanel
                 disabled: watching || locked,
                 tooltip: locked ? $"Locked by {SourceControlUi.LockedOwner(screen)}" : $"Play {stream.DisplayName} on this screen"))
         {
+            // From any screen: a screen playing something else switches to Twitch, like loading a link.
+            screen.ProviderKind = BrowserSourceProviderKind.Twitch;
             BrowserProviderSettings.For(screen).SetUrl(screen, ChannelUrl(stream.Login));
             screen.PlaybackPaused = false;
             changed = true;

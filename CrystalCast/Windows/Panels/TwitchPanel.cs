@@ -19,6 +19,7 @@ namespace CrystalCast.Windows.Panels;
 internal sealed partial class TwitchPanel(
     WorldScreenManager renderer,
     TwitchAccount account,
+    Configuration configuration,
     PlaylistMetadataService metadata,
     RoomService? rooms,
     TwitchChatView chat,
@@ -30,20 +31,32 @@ internal sealed partial class TwitchPanel(
 
     public string Label => "Twitch";
 
-    public bool AppliesTo(BrowserScreenProfile screen) => TryGetSource(screen, out _);
+    public bool AppliesTo(BrowserScreenProfile screen) => IsShown(configuration, TryGetSource(screen, out _));
+
+    /// <summary>
+    /// Whether the tab shows: only while the screen plays Twitch, or on every screen when the user turned that
+    /// on, and never when the tab is off.
+    /// </summary>
+    internal static bool IsShown(Configuration configuration, bool playsTwitch)
+    {
+        return configuration.TwitchTabEnabled && (playsTwitch || configuration.TwitchTabAlwaysVisible);
+    }
 
     public void Dispose() => DisposeAccountTasks();
 
-    public void Update(BrowserScreenProfile? activeScreen) => UpdateSignIn();
+    public void Update(BrowserScreenProfile? activeScreen)
+    {
+        UpdateSignIn();
+        if (!configuration.TwitchTabEnabled && chatWindow.IsOpen)
+            chatWindow.IsOpen = false;
+    }
 
     public bool Draw(BrowserScreenProfile screen)
     {
-        if (!TryGetSource(screen, out var source))
-            return false;
-
-        if (source.Kind == TwitchSourceKind.Channel)
+        TwitchSourceReference? source = TryGetSource(screen, out var playing) ? playing : null;
+        if (source is { Kind: TwitchSourceKind.Channel } channel)
         {
-            DrawChat(screen, source.ChannelName);
+            DrawChat(screen, channel.ChannelName);
             Ui.VerticalSpace(24.0f);
         }
 
@@ -51,10 +64,15 @@ internal sealed partial class TwitchPanel(
         Ui.VerticalSpace(20.0f);
         changed |= DrawFollowing(screen, source);
 
-        if (source.Kind != TwitchSourceKind.Channel)
+        if (source is { Kind: TwitchSourceKind.Video })
         {
             Ui.VerticalSpace(20.0f);
             Ui.SectionHeader("Chat", "This screen plays a Twitch video. Chat is shown for live channels.");
+        }
+        else if (source == null && account.State != TwitchAccountState.SignedIn)
+        {
+            Ui.VerticalSpace(20.0f);
+            Ui.Meta("Chat shows here while this screen plays a Twitch channel.");
         }
 
         return changed;

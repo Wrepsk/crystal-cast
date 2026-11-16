@@ -52,6 +52,13 @@ internal sealed class TwitchChatWindow : CrystalCastWindow
 
     public override void Draw()
     {
+        // Turning the Twitch tab off in Settings closes its chat window too.
+        if (!configuration.TwitchTabEnabled)
+        {
+            IsOpen = false;
+            return;
+        }
+
         if (!TryGetChannel(out var channel))
         {
             Ui.Meta(configuration.BrowserScreens.Any(screen => screen.ScreenId == ScreenId)

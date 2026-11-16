@@ -84,4 +84,23 @@ public sealed class TwitchBadgeTests
     {
         Assert.Equal("https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_abc/static/dark/2.0", TwitchImageCache.EmoteUrl("emotesv2_abc"));
     }
+
+    [Theory]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, false, false, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(false, true, true, false)]
+    public void ShowsTheTwitchTabAsSet(bool enabled, bool always, bool playsTwitch, bool shown)
+    {
+        var configuration = new Configuration { TwitchTabEnabled = enabled, TwitchTabAlwaysVisible = always };
+        Assert.Equal(shown, CrystalCast.Windows.Panels.TwitchPanel.IsShown(configuration, playsTwitch));
+    }
+
+    [Fact]
+    public void ShowsTheTwitchTabOnlyForTwitchByDefault()
+    {
+        var configuration = new Configuration();
+        Assert.True(configuration.TwitchTabEnabled);
+        Assert.False(configuration.TwitchTabAlwaysVisible);
+    }
 }

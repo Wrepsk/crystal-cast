@@ -162,12 +162,14 @@ internal sealed class WebView2BrowserFrameSource : WebView2FrameSourceBase, IBro
         if (Interlocked.Exchange(ref signIn, null) == null)
             return;
 
+        playerState.ResetForReload();
         ReturnToStartPage();
     }
 
     public void SignOut()
     {
         signIn = null;
+        playerState.ResetForReload();
         ClearCookiesAndReturnToStartPage();
     }
 

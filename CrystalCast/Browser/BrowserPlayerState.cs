@@ -82,6 +82,16 @@ internal sealed class BrowserPlayerState
         }
     }
 
+    /// <summary>
+    /// Forgets the old page's report when the player page is loaded again (after a login), so nothing takes it
+    /// for the reloaded player's position before that player reports its own.
+    /// </summary>
+    public void ResetForReload()
+    {
+        lock (telemetryLock)
+            telemetry = new MediaPlaybackTelemetry();
+    }
+
     /// <summary>Keeps the last known position, duration and title while changing state.</summary>
     public void SetState(ScreenPlaybackState state, float playbackRate)
     {

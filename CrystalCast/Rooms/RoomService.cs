@@ -273,8 +273,10 @@ internal sealed class RoomService : IDisposable
             return;
         }
 
+        // A login on the host's screen: viewers keep playing on their own until the host's player is back.
         if (connection.Status != RoomConnectionStatus.Connected
             || !location.IsKnown
+            || ipc.IsReloadingForSignIn(screen)
             || !ipc.TryBuildRoomState(screen, out var envelope, out var placement))
         {
             return;

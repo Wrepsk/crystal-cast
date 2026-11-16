@@ -6,7 +6,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Added
 
-- **YouTube tab:** while a screen plays YouTube, a **YouTube** tab next to Source. **Log in to YouTube** opens Google's own sign-in in the screen's browser, so the player plays as you (YouTube Premium applies). Logged in, **For You** shows the videos YouTube picks for you, and the search box finds any video; click one to play it on the screen, or **+** to add it to the playlist. **Settings > Source tabs** can turn the tab off, or show it on every screen to start a For You video from any screen.
+- **YouTube tab:** while a screen plays YouTube, a **YouTube** tab next to Source. **Log in to YouTube** opens Google's own sign-in in the screen's browser, so the player plays as you (YouTube Premium applies). Logging in or out of Twitch or YouTube reloads the player, which then carries on where it was; in a room, viewers keep playing meanwhile. Logged in, **For You** shows the videos YouTube picks for you, and the search box finds any video; click one to play it on the screen, or **+** to add it to the playlist. **Settings > Source tabs** can turn the tab off, or show it on every screen to start a For You video from any screen.
 
 ### Added
 

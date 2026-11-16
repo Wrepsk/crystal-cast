@@ -209,9 +209,14 @@ internal sealed partial class TwitchPanel
 
         RefreshFollowing();
         var count = following.Count;
-        Ui.SectionHeader(
-            count > 0 ? $"Following · {count} live" : "Following",
-            followingTask != null && followingLoadedTick == null ? "Loading…" : null);
+        Ui.Heading(count > 0 ? $"Following · {count} live" : "Following");
+        const string refresh = "Refresh";
+        ImGui.SameLine(ImGui.GetContentRegionMax().X - Ui.ButtonWidth(refresh));
+        if (Ui.Button(refresh, ButtonKind.Ghost, disabled: followingTask != null, tooltip: "Check again who you follow is live"))
+            followingTask = account.GetFollowedLiveAsync(accountCancel.Token);
+
+        if (followingTask != null && followingLoadedTick == null)
+            Ui.Meta("Loading…");
 
         if (followingError.Length > 0)
             Ui.ErrorText(followingError);

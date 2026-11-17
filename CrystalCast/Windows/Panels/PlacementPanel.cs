@@ -12,7 +12,7 @@ namespace CrystalCast.Windows.Panels;
 internal sealed class PlacementPanel(
     WorldScreenManager renderer,
     PlacementUndoService undoService,
-    ScreenPlacementResolver placementResolver)
+    ScreenPlacementResolver placementResolver) : IDisposable
 {
     private const float LabelWidth = MainLabelWidth;
     private const float LabelGap = MainLabelGap;
@@ -57,6 +57,19 @@ internal sealed class PlacementPanel(
     private SurfaceSnapPose hoveredFurniturePose;
     private long hoveredFurniturePoseAtMs;
     private readonly List<Vector2> previewOutline = [];
+    private readonly CameraZoomHold pickZoomHold = new();
+    private readonly GameMouseWheelHook pickWheel = new();
+    private readonly GameEscapeHook pickEscape = new();
+
+    /// <summary>The screen being picked for, and its size when picking started; cancelling puts the size back.</summary>
+    private ScreenPlacementSettings? pickPlacement;
+    private (float Width, float Height) pickStartSize;
+
+    /// <summary>Each wheel step while picking makes the screen this much wider or narrower; with Ctrl, finer.</summary>
+    internal const float PickResizeStep = 1.1f;
+    internal const float PickResizeFineStep = 1.02f;
+    internal const float PickMinimumWidthMeters = 0.1f;
+    internal const float PickMaximumWidthMeters = 50.0f;
 
     public bool Draw(Configuration config, BrowserScreenProfile activeScreen)
     {
@@ -93,12 +106,15 @@ internal sealed class PlacementPanel(
             return false;
         }
 
+        var reverted = false;
         if (pickMode != PickMode.None)
         {
-            // Closing the window or leaving the tab ends picking.
+            // Closing the window or leaving the tab cancels picking.
             var frame = ImGui.GetFrameCount();
             if (pickLastFrame != 0 && frame - pickLastFrame > 1)
-                StopPicking();
+                reverted = CancelPicking();
+            else if (EscapePressed())
+                reverted = CancelPicking();
             pickLastFrame = frame;
         }
 
@@ -117,7 +133,7 @@ internal sealed class PlacementPanel(
             Snap: ImGui.GetIO().KeyCtrl,
             HeightPerWidth(activeScreen.Placement));
         if (!ScreenPlacementGizmo.Draw(activeScreen.Placement, options, placementResolver))
-            return false;
+            return reverted;
 
         undoService.Capture(activeScreen.ScreenId, before, activeScreen.Placement);
         return true;
@@ -196,7 +212,7 @@ internal sealed class PlacementPanel(
                 on: snapping,
                 tooltip: "Click a wall, floor or piece of furniture in the world to put the screen flat against it"))
         {
-            TogglePicking(PickMode.Surface);
+            changed |= TogglePicking(PickMode.Surface, placement);
         }
 
         ImGui.SameLine(0.0f, S(8.0f));
@@ -208,7 +224,7 @@ internal sealed class PlacementPanel(
                 tooltip: "Click a piece of housing furniture to attach the screen to it, on its front"))
         {
             if (pickingFurniture || placementResolver.ReadLocation().InHousing)
-                TogglePicking(PickMode.Furniture);
+                changed |= TogglePicking(PickMode.Furniture, placement);
             else
                 ShowFurnitureFailure("Furniture can only be picked in a house, apartment or housing ward.");
         }
@@ -225,12 +241,12 @@ internal sealed class PlacementPanel(
         if (pickMode == PickMode.Surface)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
-            Ui.Meta("Click where the screen's center should go. Dragging still turns the camera. Furniture without collision, like rugs and paintings, can't be picked.");
+            Ui.Meta("Click where the screen's center should go. Scroll to resize it (Ctrl for finer steps), Escape to cancel; dragging still turns the camera. Furniture without collision, like rugs and paintings, can't be picked.");
         }
         else if (pickMode == PickMode.Furniture)
         {
             Ui.RowIndent(LabelWidth, LabelGap);
-            Ui.Meta("Click a piece of furniture to attach the screen to its front. Dragging still turns the camera.");
+            Ui.Meta("Click a piece of furniture to attach the screen to its front. Scroll to resize it (Ctrl for finer steps), Escape to cancel; dragging still turns the camera.");
         }
 
         if (furnitureFailedAtTick > 0 && Environment.TickCount64 - furnitureFailedAtTick < 4000 && placement.Mode != ScreenPlacementMode.Furniture)
@@ -313,12 +329,13 @@ internal sealed class PlacementPanel(
             pose = SurfaceSnap.Pose(point, normal, viewer, config.SurfaceSnapGapMeters);
         }
 
+        var resized = ResizeWithWheel(screen, overGame);
         DrawPickPreview(screen.Placement, pose, mouse, overGame,
-            pose != null ? "Click to place the screen here" : "Point at a wall, floor or furniture");
+            pose != null ? "Click to place the screen here · scroll to resize" : "Point at a wall, floor or furniture");
 
         var clicked = pickClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, Environment.TickCount64);
         if (!clicked || pose is not { } target)
-            return false;
+            return resized;
 
         var placement = screen.Placement;
         var before = placement.Clone();
@@ -371,11 +388,12 @@ internal sealed class PlacementPanel(
         }
 
         hoveredFurniture = hovered;
+        var resized = ResizeWithWheel(screen, overGame);
         DrawPickPreview(screen.Placement, hovered != null ? hoveredFurniturePose : null, mouse, overGame,
-            hovered is { } named ? $"Click to attach to {FurnitureName(named.Name, named.Index)}" : "Point at a piece of furniture");
+            hovered is { } named ? $"Click to attach to {FurnitureName(named.Name, named.Index)} · scroll to resize" : "Point at a piece of furniture");
 
         if (!pickClicks.Update(SurfaceClickTracker.IsPrimaryButtonDown(), overGame, mouse, now) || hovered is not { } picked)
-            return false;
+            return resized;
 
         var placement = screen.Placement;
         var before = placement.Clone();
@@ -404,16 +422,111 @@ internal sealed class PlacementPanel(
             : null;
     }
 
-    private void TogglePicking(PickMode mode)
+    /// <summary>
+    /// Starts picking in <paramref name="mode"/>, or cancels it when it's already on. Returns true when cancelling
+    /// put the screen's size back.
+    /// </summary>
+    private bool TogglePicking(PickMode mode, ScreenPlacementSettings placement)
     {
         var start = pickMode != mode;
-        StopPicking();
+        var reverted = CancelPicking();
         if (start)
+        {
             pickMode = mode;
+            pickPlacement = placement;
+            pickStartSize = (placement.WidthMeters, placement.HeightMeters);
+        }
+
+        return reverted;
+    }
+
+    /// <summary>
+    /// Ends picking without placing: a size changed with the wheel while picking goes back to what it was.
+    /// Returns true when it did. A click that places the screen keeps the new size.
+    /// </summary>
+    private bool CancelPicking()
+    {
+        var placement = pickPlacement;
+        var reverted = placement != null && RestoreSize(placement, pickStartSize);
+        StopPicking();
+        return reverted;
+    }
+
+    internal static bool RestoreSize(ScreenPlacementSettings placement, (float Width, float Height) size)
+    {
+        if (MathF.Abs(placement.WidthMeters - size.Width) < 0.0001f && MathF.Abs(placement.HeightMeters - size.Height) < 0.0001f)
+            return false;
+
+        placement.WidthMeters = size.Width;
+        placement.HeightMeters = size.Height;
+        placement.Normalize();
+        return true;
+    }
+
+    /// <summary>
+    /// While picking, the mouse wheel over the game resizes the screen (Ctrl for finer steps) instead of zooming
+    /// the camera; the preview follows. Quick steps undo together.
+    /// </summary>
+    private bool ResizeWithWheel(BrowserScreenProfile screen, bool overGame)
+    {
+        var io = ImGui.GetIO();
+        // Over the game, ImGui doesn't see the wheel; the hook reads it and keeps it from the game's zoom.
+        if (!pickWheel.Active)
+            pickWheel.Start();
+        pickWheel.Swallow = overGame;
+        var hooked = pickWheel.Active ? pickWheel.TakeNotches() : 0.0f;
+        var wheel = overGame ? (hooked != 0.0f ? hooked : io.MouseWheel) : 0.0f;
+        // Backup for a game that reads the wheel some other way: put its zoom back.
+        pickZoomHold.Update(wheel != 0.0f, Environment.TickCount64);
+        if (wheel == 0.0f)
+            return false;
+
+        var placement = screen.Placement;
+        var width = ScrolledWidth(placement.WidthMeters, wheel, io.KeyCtrl || GameMouseWheelHook.IsControlDown());
+        if (MathF.Abs(width - placement.WidthMeters) < 0.0001f)
+            return false;
+
+        var before = placement.Clone();
+        placement.HeightMeters = width * HeightPerWidth(placement);
+        placement.WidthMeters = width;
+        placement.Normalize();
+        undoService.Capture(screen.ScreenId, before, placement);
+        return true;
+    }
+
+    /// <summary>The width after <paramref name="wheel"/> steps (up is wider), kept between sensible limits.</summary>
+    internal static float ScrolledWidth(float width, float wheel, bool fine)
+    {
+        var step = fine ? PickResizeFineStep : PickResizeStep;
+        return Math.Clamp(Math.Max(PickMinimumWidthMeters, width) * MathF.Pow(step, wheel), PickMinimumWidthMeters, PickMaximumWidthMeters);
+    }
+
+    /// <summary>
+    /// Escape cancels picking. With the game focused, ImGui may not see the key, so the hook catches it (and
+    /// keeps it from the game); while a plugin text field has the keyboard, Escape is left to that field.
+    /// </summary>
+    private bool EscapePressed()
+    {
+        var io = ImGui.GetIO();
+        if (!pickEscape.Active)
+            pickEscape.Start();
+        pickEscape.Capture = !io.WantCaptureKeyboard;
+        var caught = pickEscape.Active && pickEscape.TakePress();
+        return caught || (!io.WantCaptureKeyboard && ImGui.IsKeyPressed(ImGuiKey.Escape, false));
+    }
+
+    public void Dispose()
+    {
+        pickWheel.Dispose();
+        pickEscape.Dispose();
     }
 
     private void StopPicking()
     {
+        pickPlacement = null;
+        pickWheel.Stop();
+        pickEscape.Stop();
+        pickZoomHold.Reset();
         pickMode = PickMode.None;
         pickLastFrame = 0;
         pickClicks.Reset();

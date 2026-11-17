@@ -97,6 +97,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     public void Dispose()
     {
         previewHold.Dispose();
+        placementPanel.Dispose();
         foreach (var tab in sourceTabs)
             tab.Dispose();
     }

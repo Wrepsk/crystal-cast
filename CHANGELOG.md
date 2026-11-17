@@ -7,6 +7,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 ### Added
 
 - `/cc` opens the main window, as a short form of `/crystalcast`.
+- While using **Snap to surface** or **Pick furniture**, scrolling resizes the screen (Ctrl for finer steps) instead of zooming the camera, and the preview shows the new size. Cancelling (the button or Escape) puts the old size back.
 
 ### Changed
 

@@ -2,7 +2,7 @@
     "Author": "Wrepsk",
     "Name": "Crystal Cast",
     "InternalName": "CrystalCast",
-    "AssemblyVersion": "0.9.9",
+    "AssemblyVersion": "0.9.9.1",
     "Description": "Put video screens into the game world. Play YouTube, Twitch, Dailymotion, Vimeo or any web page on screens you place on a wall, above a stage, on a piece of housing furniture or next to your character. Screens sit in the 3D scene, so characters and scenery in front of them stay in front.\n\nQueue playlists, set each screen's volume with spatial audio, and share a screen in a room so friends who join see it in the same spot, playing in sync.\n\nType /crystalcast to start.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Wrepsk/crystal-cast",

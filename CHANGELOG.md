@@ -4,6 +4,8 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+## 0.9.9.1 - 2026-11-17
+
 ### Added
 
 - `/cc` opens the main window, as a short form of `/crystalcast`.

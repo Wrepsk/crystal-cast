@@ -182,6 +182,10 @@ internal sealed partial class YouTubePanel(
         {
             Ui.RowText("Finish in the YouTube window", CrystalCastUiTheme.Text);
             ImGui.SameLine(0.0f, S(12.0f));
+            // The login window stays open when you click away, so it can end up behind the game.
+            if (Ui.Button("Show window", tooltip: "Bring the YouTube window to the front"))
+                renderer.TryShowBrowserControls(screen);
+            ImGui.SameLine(0.0f, S(8.0f));
             // Ends the login either way: finished, stuck on a page, or changed your mind.
             if (Ui.Button("Done", tooltip: "Send the window back to the player. Use it if the page stops after you've signed in."))
                 renderer.EndSignIns();

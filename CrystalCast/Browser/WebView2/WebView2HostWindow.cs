@@ -49,6 +49,8 @@ internal sealed class WebView2HostWindow : IDisposable
     private readonly int height;
     private bool interactionVisible;
     private bool interactionWasForeground;
+    /// <summary>Show controls closes when the user clicks away; a login page stays until it's closed.</summary>
+    private bool interactionClosesOnFocusLoss = true;
     private long interactionShownAtTick;
 
     private WebView2HostWindow(IntPtr hwnd, int width, int height)
@@ -118,11 +120,16 @@ internal sealed class WebView2HostWindow : IDisposable
         UpdateWindow(hwnd);
     }
 
-    public void ShowForInteraction(int clientWidth, int clientHeight)
+    /// <summary>
+    /// Brings the browser forward for mouse and keyboard. With <paramref name="closeOnFocusLoss"/> it goes back
+    /// to the screen once the user clicks elsewhere; without it, only its close button sends it back.
+    /// </summary>
+    public void ShowForInteraction(int clientWidth, int clientHeight, bool closeOnFocusLoss = true)
     {
         if (hwnd == IntPtr.Zero)
             return;
 
+        interactionClosesOnFocusLoss = closeOnFocusLoss;
         interactionVisible = true;
         interactionWasForeground = false;
         interactionShownAtTick = Environment.TickCount64;
@@ -168,7 +175,7 @@ internal sealed class WebView2HostWindow : IDisposable
 
     public void PollInteractionFocus()
     {
-        if (!interactionVisible || hwnd == IntPtr.Zero)
+        if (!interactionVisible || !interactionClosesOnFocusLoss || hwnd == IntPtr.Zero)
             return;
 
         var isForeground = IsInteractionForeground();

@@ -196,6 +196,11 @@ internal sealed partial class TwitchPanel
             && renderer.AreBrowserControlsVisible(screen);
         Ui.RowText(inBrowser ? "Finish in the Twitch window" : "Waiting for you to approve", CrystalCastUiTheme.Text);
         ImGui.SameLine(0.0f, S(12.0f));
+        // The login window stays open when you click away, so it can end up behind the game.
+        if (inBrowser && Ui.Button("Show window", tooltip: "Bring the Twitch window to the front"))
+            renderer.TryShowBrowserControls(screen);
+        if (inBrowser)
+            ImGui.SameLine(0.0f, S(8.0f));
         if (Ui.Button("Cancel", ButtonKind.Ghost))
         {
             account.CancelSignIn();

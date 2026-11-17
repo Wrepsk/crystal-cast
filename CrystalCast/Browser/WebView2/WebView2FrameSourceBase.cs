@@ -467,6 +467,8 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
         private bool playerReady;
         private bool webViewCreated;
         private volatile bool browserControlsVisible;
+        /// <summary>True while another page (a login) is open: its window stays when the user clicks away.</summary>
+        private volatile bool showingOtherPage;
         private long interactionDismissedAtTick;
 
         public BrowserThread(WebView2FrameSourceBase owner)
@@ -498,6 +500,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
 
         public void OpenPage(string url)
         {
+            showingOtherPage = true;
             Post(() =>
             {
                 if (webView != null)
@@ -540,6 +543,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
 
         public void ReturnToStartPage(bool clearCookies = false)
         {
+            showingOtherPage = false;
             Post(() =>
             {
                 if (webView != null)
@@ -607,7 +611,7 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
                 {
                     var (width, height) = hostWindow.GetInteractionClientSize();
                     controller.Bounds = new System.Drawing.Rectangle(0, 0, width, height);
-                    hostWindow.ShowForInteraction(width, height);
+                    hostWindow.ShowForInteraction(width, height, closeOnFocusLoss: !showingOtherPage);
                 }
 
                 owner.browserStatus = "WebView2 browser controls visible";

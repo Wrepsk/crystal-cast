@@ -225,6 +225,65 @@ public sealed class TwitchAccountTests : IDisposable
         Assert.Contains("user:read:emotes", TwitchAccount.Scopes.Split(' '));
     }
 
+    [Fact]
+    public async Task ConnectsChatAsTheUserOnceTwitchAllowsIt()
+    {
+        var store = new TwitchTokenStore(directory);
+        store.Save(new TwitchTokens("at", "rt", DateTimeOffset.UtcNow.AddHours(1), "viewer", "42", "Viewer"));
+        var twitch = new FakeTwitch();
+        twitch.On("GET", "/oauth2/validate", 200, """{"login":"viewer","user_id":"42","scopes":["user:read:follows","user:write:chat","user:read:emotes","chat:read"]}""");
+
+        using var account = new TwitchAccount(store, null, "cid", twitch);
+        await WaitFor(() => account.ChatIdentity.Length > 0);
+
+        Assert.Equal("viewer", account.ChatIdentity);
+        Assert.False(account.NeedsNewLogin);
+        var login = await account.GetChatLoginAsync(CancellationToken.None);
+        Assert.Equal(new TwitchChatLogin("viewer", "at"), login);
+    }
+
+    [Fact]
+    public async Task ReadsChatAsAGuestWithAnOlderLogin()
+    {
+        var store = new TwitchTokenStore(directory);
+        store.Save(new TwitchTokens("at", "rt", DateTimeOffset.UtcNow.AddHours(1), "viewer", "42", "Viewer"));
+        var twitch = new FakeTwitch();
+        twitch.On("GET", "/oauth2/validate", 200, """{"login":"viewer","user_id":"42","scopes":["user:read:follows","user:write:chat"]}""");
+
+        using var account = new TwitchAccount(store, null, "cid", twitch);
+        await WaitFor(() => account.NeedsNewLogin);
+
+        Assert.Equal(string.Empty, account.ChatIdentity);
+        Assert.Null(await account.GetChatLoginAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public void ListsMissingPermissionsOnlyOnceTwitchHasAnswered()
+    {
+        Assert.Empty(TwitchAccount.MissingScopes([]));
+        Assert.Equal(["user:read:emotes", "chat:read"], TwitchAccount.MissingScopes(["user:read:follows", "user:write:chat"]));
+        Assert.Empty(TwitchAccount.MissingScopes(TwitchAccount.Scopes.Split(' ')));
+    }
+
+    [Theory]
+    [InlineData("viewer", "", "viewer")]
+    [InlineData("viewer", "viewer", "")]
+    [InlineData("", "", "")]
+    [InlineData("viewer", "someoneelse", "viewer")]
+    public void ConnectsAsAGuestAfterTwitchRefusesTheLogin(string wanted, string refused, string expected)
+    {
+        Assert.Equal(expected, TwitchChatConnection.EffectiveIdentity(wanted, refused));
+    }
+
+    [Theory]
+    [InlineData(":tmi.twitch.tv NOTICE * :Login authentication failed", true)]
+    [InlineData(":tmi.twitch.tv NOTICE * :Improperly formatted auth", true)]
+    [InlineData("@msg-id=slow_on :tmi.twitch.tv NOTICE #c :This room is now in slow mode.", false)]
+    public void SpotsTwitchRefusingTheLogin(string line, bool refused)
+    {
+        Assert.Equal(refused, TwitchChatConnection.IsLoginRefusal(TwitchIrcMessage.Parse(line)!));
+    }
+
     private static async Task WaitFor(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

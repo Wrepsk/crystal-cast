@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- Logged in to Twitch, chat now connects as your account instead of as a guest, so you show in the channel's list of who's in chat. This needs one more Twitch permission: if you logged in before this version, log out and in again once (the Twitch tab says so).
+
 ## 0.9.9.1 - 2026-11-17
 
 ### Added

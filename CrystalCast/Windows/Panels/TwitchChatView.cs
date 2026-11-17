@@ -30,7 +30,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     private const long BadgeRetryMs = 300_000;
     private const int MaxMessageLength = 500;
 
-    private readonly TwitchChatConnection connection = new();
+    private readonly TwitchChatConnection connection = new(account.GetChatLoginAsync);
     private readonly TwitchChatLog log = new();
     private readonly TwitchImageCache images = new(textures);
     private readonly TwitchBadgeCatalog badges = new();
@@ -104,7 +104,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
             scrollToBottom = true;
         }
 
-        connection.Want(channel);
+        connection.Want(channel, account.ChatIdentity);
         var generation = connection.ConnectionGeneration;
         if (generation != seenGeneration)
         {
@@ -145,6 +145,8 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         };
 
         var details = $"#{log.Channel}";
+        if (connection.ConnectedAsUser)
+            details += $" · as {account.DisplayName}";
         var modes = DescribeModes(log.RoomState);
         if (modes.Length > 0)
             details += $" · {modes}";
@@ -152,6 +154,8 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
 
         if (connection.Status == TwitchChatStatus.Reconnecting && !string.IsNullOrWhiteSpace(connection.LastError))
             Ui.Meta(connection.LastError);
+        if (connection.LoginRefused)
+            Ui.Meta("Twitch's chat didn't accept your login, so chat is read as a guest and you don't show in its list of who's here.");
         return pressed;
     }
 

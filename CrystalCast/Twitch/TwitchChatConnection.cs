@@ -4,6 +4,9 @@ using System.Text;
 
 namespace CrystalCast.Twitch;
 
+/// <summary>A Twitch login for chat: the account's login name and an access token that may read chat.</summary>
+internal sealed record TwitchChatLogin(string Login, string AccessToken);
+
 internal enum TwitchChatStatus
 {
     Idle,
@@ -13,8 +16,10 @@ internal enum TwitchChatStatus
 }
 
 /// <summary>
-/// A read-only connection to Twitch chat, without an account. Twitch lets anyone read chat as an anonymous
-/// "justinfan" user. Runs on a background task; parsed lines are queued for the game's main thread.
+/// A read-only connection to Twitch chat. With the user's login (when their token may read chat) it connects as
+/// them, so they show in the channel's list of who's in chat; otherwise as an anonymous "justinfan" guest, which
+/// Twitch allows anyone. Sending goes through Twitch's API, not this connection. Runs on a background task;
+/// parsed lines are queued for the game's main thread.
 /// <para>
 /// The connection opens only while the tab asks for a channel (<see cref="Want"/>), and closes on its own a
 /// minute after the tab stops asking, so a closed tab costs nothing.
@@ -41,11 +46,31 @@ internal sealed class TwitchChatConnection : IDisposable
     private volatile TwitchChatStatus status = TwitchChatStatus.Idle;
     private volatile string lastError = string.Empty;
     private long connectionGeneration;
+    private readonly Func<CancellationToken, Task<TwitchChatLogin?>>? getLogin;
 
-    public TwitchChatConnection()
+    /// <summary>Who the tab wants chat to connect as: a login name, or empty for a guest.</summary>
+    private volatile string wantedIdentity = string.Empty;
+    /// <summary>Who the open connection is logged in as; empty for a guest.</summary>
+    private volatile string connectedIdentity = string.Empty;
+    /// <summary>A login Twitch's chat refused; chat connects as a guest until the identity changes.</summary>
+    private volatile string refusedIdentity = string.Empty;
+    private volatile bool reconnectNow;
+
+    public TwitchChatConnection(Func<CancellationToken, Task<TwitchChatLogin?>>? getLogin = null)
     {
+        this.getLogin = getLogin;
         loop = Task.Run(RunAsync);
     }
+
+    /// <summary>True while connected as the user rather than as a guest.</summary>
+    public bool ConnectedAsUser => status == TwitchChatStatus.Connected && connectedIdentity.Length > 0;
+
+    /// <summary>True when Twitch's chat refused the user's login, so chat is read as a guest.</summary>
+    public bool LoginRefused => refusedIdentity.Length > 0 && refusedIdentity == wantedIdentity;
+
+    /// <summary>The identity to connect as: the wanted one, unless Twitch refused it.</summary>
+    internal static string EffectiveIdentity(string wanted, string refused) =>
+        wanted.Length > 0 && wanted != refused ? wanted : string.Empty;
 
     public TwitchChatStatus Status => status;
     public string LastError => lastError;
@@ -53,10 +78,24 @@ internal sealed class TwitchChatConnection : IDisposable
     /// <summary>Bumped on every new connection, so the tab knows to re-show "joining".</summary>
     public long ConnectionGeneration => Interlocked.Read(ref connectionGeneration);
 
-    /// <summary>Called every frame the tab shows a channel's chat. Joins it, leaving the previous one.</summary>
-    public void Want(string channel)
+    /// <summary>
+    /// Called every frame the tab shows a channel's chat. Joins it, leaving the previous one.
+    /// <paramref name="identity"/> is the login to connect as (empty for a guest); a change reconnects.
+    /// </summary>
+    public void Want(string channel, string identity = "")
     {
         Interlocked.Exchange(ref lastWantedTick, Environment.TickCount64);
+        if (wantedIdentity != identity)
+        {
+            wantedIdentity = identity;
+            if (status == TwitchChatStatus.Connected && connectedIdentity != EffectiveIdentity(identity, refusedIdentity))
+            {
+                reconnectNow = true;
+                if (signal.CurrentCount == 0)
+                    Wake();
+            }
+        }
+
         channel = channel.ToLowerInvariant();
         if (wantedChannel == channel && status != TwitchChatStatus.Idle)
             return;
@@ -138,6 +177,7 @@ internal sealed class TwitchChatConnection : IDisposable
             }
 
             status = attempt == 0 ? TwitchChatStatus.Connecting : TwitchChatStatus.Reconnecting;
+            reconnectNow = false;
             using var socket = new ClientWebSocket();
             socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
             var connectedForAWhile = false;
@@ -145,12 +185,14 @@ internal sealed class TwitchChatConnection : IDisposable
             {
                 using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 connectTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+                var login = await GetLoginAsync(connectTimeout.Token).ConfigureAwait(false);
                 await socket.ConnectAsync(ChatUri, connectTimeout.Token).ConfigureAwait(false);
                 Interlocked.Increment(ref connectionGeneration);
+                connectedIdentity = login?.Login ?? string.Empty;
                 status = TwitchChatStatus.Connected;
                 lastError = string.Empty;
                 var connectedAt = Environment.TickCount64;
-                await PumpAsync(socket).ConfigureAwait(false);
+                await PumpAsync(socket, login).ConfigureAwait(false);
                 connectedForAWhile = Environment.TickCount64 - connectedAt > 30_000;
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
@@ -165,9 +207,18 @@ internal sealed class TwitchChatConnection : IDisposable
             if (stop.IsCancellationRequested)
                 break;
 
+            connectedIdentity = string.Empty;
+
             // Closed because nobody is watching: wait quietly for the next Want.
             if (!IsWanted)
                 continue;
+
+            // The login changed, or Twitch refused it: connect again right away.
+            if (reconnectNow)
+            {
+                attempt = 0;
+                continue;
+            }
 
             if (connectedForAWhile)
                 attempt = 0;
@@ -186,7 +237,25 @@ internal sealed class TwitchChatConnection : IDisposable
         status = TwitchChatStatus.Idle;
     }
 
-    private async Task PumpAsync(ClientWebSocket socket)
+    /// <summary>The user's chat login when the tab wants it and Twitch hasn't refused it; null for a guest.</summary>
+    private async Task<TwitchChatLogin?> GetLoginAsync(CancellationToken cancellationToken)
+    {
+        var identity = EffectiveIdentity(wantedIdentity, refusedIdentity);
+        if (identity.Length == 0 || getLogin == null)
+            return null;
+
+        try
+        {
+            var login = await getLogin(cancellationToken).ConfigureAwait(false);
+            return login != null && string.Equals(login.Login, identity, StringComparison.OrdinalIgnoreCase) ? login : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private async Task PumpAsync(ClientWebSocket socket, TwitchChatLogin? login)
     {
         while (outbox.TryDequeue(out _))
         {
@@ -194,7 +263,16 @@ internal sealed class TwitchChatConnection : IDisposable
 
         // Tags give names, colors, emotes and message ids; commands give deletions, timeouts and chat modes.
         await SendLineAsync(socket, "CAP REQ :twitch.tv/tags twitch.tv/commands", stop.Token).ConfigureAwait(false);
-        await SendLineAsync(socket, $"NICK justinfan{Random.Shared.Next(10_000, 99_999)}", stop.Token).ConfigureAwait(false);
+        if (login != null)
+        {
+            // The token goes only to Twitch's chat server, over this encrypted connection, and is never logged.
+            await SendLineAsync(socket, $"PASS oauth:{login.AccessToken}", stop.Token).ConfigureAwait(false);
+            await SendLineAsync(socket, $"NICK {login.Login.ToLowerInvariant()}", stop.Token).ConfigureAwait(false);
+        }
+        else
+        {
+            await SendLineAsync(socket, $"NICK justinfan{Random.Shared.Next(10_000, 99_999)}", stop.Token).ConfigureAwait(false);
+        }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
         var receive = ReceiveAsync(socket, linked.Token);
@@ -270,6 +348,11 @@ internal sealed class TwitchChatConnection : IDisposable
                 return true;
             case "RECONNECT":
                 return false;
+            case "NOTICE" when IsLoginRefusal(message):
+                // Twitch closes the connection after this; the next one goes in as a guest.
+                refusedIdentity = connectedIdentity;
+                reconnectNow = true;
+                return false;
             case "PRIVMSG":
             case "USERNOTICE":
             case "NOTICE":
@@ -287,6 +370,12 @@ internal sealed class TwitchChatConnection : IDisposable
         }
     }
 
+    /// <summary>Twitch's answer to a login it won't take on chat, such as a token without chat:read.</summary>
+    internal static bool IsLoginRefusal(TwitchIrcMessage message) =>
+        message.Command == "NOTICE"
+        && (message.Trailing.Contains("Login authentication failed", StringComparison.OrdinalIgnoreCase)
+            || message.Trailing.Contains("Improperly formatted auth", StringComparison.OrdinalIgnoreCase));
+
     private async Task SendAsync(ClientWebSocket socket, CancellationToken token)
     {
         var joined = string.Empty;
@@ -296,7 +385,7 @@ internal sealed class TwitchChatConnection : IDisposable
             while (outbox.TryDequeue(out var text))
                 await SendLineAsync(socket, text, token).ConfigureAwait(false);
 
-            if (!IsWanted)
+            if (!IsWanted || reconnectNow)
                 return;
 
             var wanted = wantedChannel;

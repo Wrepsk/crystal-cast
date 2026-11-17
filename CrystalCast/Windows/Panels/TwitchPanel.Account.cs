@@ -144,6 +144,12 @@ internal sealed partial class TwitchPanel
                 if (Ui.Button("Log out", ButtonKind.Ghost, tooltip: "Logs CrystalCast and the Twitch player out of your account"))
                     SignOut();
 
+                if (account.NeedsNewLogin)
+                {
+                    Ui.RowIndent(LabelWidth, LabelGap);
+                    Ui.Meta("Log out and log in again once: this login is from an older version, so you don't show in chat's list of who's here, and the emote picker shows only global emotes.");
+                }
+
                 if (ShowsPlayerLoggedOutNote(account.State, playerLoggedIn))
                 {
                     Ui.RowIndent(LabelWidth, LabelGap);

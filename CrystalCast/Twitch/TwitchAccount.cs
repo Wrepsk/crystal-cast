@@ -43,7 +43,10 @@ internal readonly record struct TwitchSendResult(bool Sent, string Error);
 /// </summary>
 internal sealed class TwitchAccount : IDisposable
 {
-    internal const string Scopes = "user:read:follows user:write:chat user:read:emotes";
+    internal const string Scopes = "user:read:follows user:write:chat user:read:emotes chat:read";
+
+    /// <summary>Lets chat connect as the user, so they show in the channel's list of who's in chat.</summary>
+    internal const string ChatReadScope = "chat:read";
     private const string IdBase = "https://id.twitch.tv/oauth2";
     private const string ApiBase = "https://api.twitch.tv/helix";
     private static readonly TimeSpan ValidateInterval = TimeSpan.FromHours(1);
@@ -58,6 +61,12 @@ internal sealed class TwitchAccount : IDisposable
     private readonly ConcurrentDictionary<string, string> userIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly object sync = new();
     private TwitchTokens? tokens;
+
+    /// <summary>
+    /// What the current token may do, as Twitch reported when it was last checked. Empty until then, so a login
+    /// from an older version (with fewer permissions) is only trusted with what it has.
+    /// </summary>
+    private volatile string[] grantedScopes = [];
     private TwitchDeviceCode? pendingCode;
     private CancellationTokenSource? signInCancel;
     private volatile TwitchAccountState state;
@@ -93,6 +102,36 @@ internal sealed class TwitchAccount : IDisposable
     public string Login => tokens?.Login ?? string.Empty;
     public string DisplayName => tokens?.DisplayName is { Length: > 0 } name ? name : Login;
     public string UserId => tokens?.UserId ?? string.Empty;
+
+    /// <summary>
+    /// True when Twitch has reported the login's permissions and some that CrystalCast now asks for are missing:
+    /// a login from an older version. Logging in again grants them.
+    /// </summary>
+    public bool NeedsNewLogin => state == TwitchAccountState.SignedIn && MissingScopes(grantedScopes).Count > 0;
+
+    /// <summary>The permissions CrystalCast asks for that <paramref name="granted"/> lacks; none until Twitch has answered.</summary>
+    internal static IReadOnlyList<string> MissingScopes(IReadOnlyCollection<string> granted) =>
+        granted.Count == 0 ? [] : Scopes.Split(' ').Where(scope => !granted.Contains(scope)).ToArray();
+
+    /// <summary>Whether the current login has <paramref name="scope"/>, as Twitch last reported.</summary>
+    public bool HasScope(string scope) => state == TwitchAccountState.SignedIn && grantedScopes.Contains(scope, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Who chat connects as: the user's login when their token may read chat, otherwise empty for a guest
+    /// connection. A change makes the chat reconnect.
+    /// </summary>
+    public string ChatIdentity => HasScope(ChatReadScope) ? Login : string.Empty;
+
+    /// <summary>The login and a current token for connecting chat as the user, or null to connect as a guest.</summary>
+    public async Task<TwitchChatLogin?> GetChatLoginAsync(CancellationToken cancellationToken)
+    {
+        var login = Login;
+        if (!HasScope(ChatReadScope) || string.IsNullOrEmpty(login))
+            return null;
+
+        var token = await GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+        return string.IsNullOrEmpty(token) ? null : new TwitchChatLogin(login, token);
+    }
 
     /// <summary>False when the login couldn't be stored encrypted, so it ends when the game closes.</summary>
     public bool StaysLoggedIn => store.Persistent;
@@ -560,7 +599,10 @@ internal sealed class TwitchAccount : IDisposable
             return null;
 
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ValidateAnswer>(cancellationToken).ConfigureAwait(false);
+        var answer = await response.Content.ReadFromJsonAsync<ValidateAnswer>(cancellationToken).ConfigureAwait(false);
+        if (answer?.Scopes is { } scopes)
+            grantedScopes = scopes;
+        return answer;
     }
 
     private async Task<string> GetDisplayNameAsync(string accessToken, CancellationToken cancellationToken)
@@ -672,6 +714,7 @@ internal sealed class TwitchAccount : IDisposable
 
     private sealed class ValidateAnswer
     {
+        [JsonPropertyName("scopes")] public string[]? Scopes { get; set; }
         [JsonPropertyName("login")] public string? Login { get; set; }
         [JsonPropertyName("user_id")] public string? UserId { get; set; }
     }

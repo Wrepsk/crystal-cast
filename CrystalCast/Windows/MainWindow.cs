@@ -36,6 +36,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
     private readonly ScreenStateIpc ipc;
     private readonly IpcScreenDeleteWindow ipcScreenDeleteWindow;
     private readonly RoomService rooms;
+    private readonly RoomsWindow roomsWindow;
     private readonly PlacementUndoService placementUndoService = new();
     private readonly ScreenListPanel screenListPanel;
     private readonly AudioControlsPanel audioControlsPanel;
@@ -75,6 +76,7 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         this.ipc = ipc;
         this.ipcScreenDeleteWindow = ipcScreenDeleteWindow;
         this.rooms = rooms;
+        this.roomsWindow = roomsWindow;
         screenListPanel = new ScreenListPanel(
             renderer,
             playlistMetadata,
@@ -169,7 +171,8 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         var right = start.X + width - S(8.0f);
         var closeX = right - Ui.FrameHeight;
         var settingsX = closeX - S(4.0f) - Ui.FrameHeight;
-        var switchX = settingsX - S(10.0f) - S(34.0f);
+        var roomsX = settingsX - S(4.0f) - Ui.FrameHeight;
+        var switchX = roomsX - S(10.0f) - S(34.0f);
         var labelX = switchX - S(8.0f) - pluginLabelWidth;
         var rowY = start.Y + ((height - Ui.FrameHeight) * 0.5f);
 
@@ -180,6 +183,16 @@ public sealed class MainWindow : CrystalCastWindow, IDisposable
         {
             config.Enabled = enabled;
             changed = true;
+        }
+
+        ImGui.SetCursorScreenPos(new Vector2(roomsX, rowY));
+        var inRooms = rooms.Hosted.Count > 0 || rooms.Joined.Count > 0 || rooms.Persistent.Any(session => session.Connection != null);
+        if (Ui.IconButton("##OpenRooms", FontAwesomeIcon.Users, inRooms ? "Rooms (you're in one)" : "Rooms: watch together", on: roomsWindow.IsOpen || inRooms))
+        {
+            if (roomsWindow.IsOpen)
+                roomsWindow.IsOpen = false;
+            else
+                roomsWindow.Open();
         }
 
         ImGui.SetCursorScreenPos(new Vector2(settingsX, rowY));

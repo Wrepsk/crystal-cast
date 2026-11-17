@@ -2,6 +2,12 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
+## 0.9.9.4 - 2026-11-17 (testing)
+
+### Added
+
+- A **Rooms** button in the main window's top bar opens the Rooms window. It lights up while you're in a room.
+
 ## 0.9.9.3 - 2026-11-17 (testing)
 
 ### Added

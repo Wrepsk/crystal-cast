@@ -12,9 +12,9 @@
     "Punchline": "Watch videos on screens placed in the game world.",
     "DownloadLinkInstall": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.9.2/CrystalCast-0.9.9.2.zip",
     "DownloadLinkUpdate": "https://github.com/Wrepsk/crystal-cast/releases/download/0.9.9.2/CrystalCast-0.9.9.2.zip",
-    "TestingAssemblyVersion": "0.9.9.3",
+    "TestingAssemblyVersion": "0.9.9.4",
     "TestingDalamudApiLevel": 15,
-    "DownloadLinkTesting": "https://github.com/Wrepsk/crystal-cast/releases/download/testing-0.9.9.3/CrystalCast-0.9.9.3.zip",
+    "DownloadLinkTesting": "https://github.com/Wrepsk/crystal-cast/releases/download/testing-0.9.9.4/CrystalCast-0.9.9.4.zip",
     "Tags": [
       "video",
       "youtube",

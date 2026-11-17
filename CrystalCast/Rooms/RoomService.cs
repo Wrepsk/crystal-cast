@@ -192,7 +192,7 @@ internal sealed partial class RoomService : IDisposable
             return;
 
         lastTickMs = now;
-        if (hosted.Count == 0 && joined.Count == 0 && persistent.Count == 0)
+        if (hosted.Count == 0 && joined.Count == 0 && persistent.Count == 0 && creatingPersistent == null)
             return;
 
         try

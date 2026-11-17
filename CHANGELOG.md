@@ -2,6 +2,12 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
+## 0.9.9.5 - 2026-11-17 (testing)
+
+### Fixed
+
+- Creating a persistent room no longer gets stuck on "Creating…" when you aren't in any room yet.
+
 ## 0.9.9.4 - 2026-11-17 (testing)
 
 ### Added

@@ -19,6 +19,7 @@ namespace CrystalCast;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/crystalcast";
+    private const string ShortCommandName = "/cc";
     private const string SettingsCommandName = "/ccsettings";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
@@ -127,6 +128,10 @@ public sealed class Plugin : IDalamudPlugin
         {
             HelpMessage = "Open the CrystalCast world-screen controls.",
         });
+        CommandManager.AddHandler(ShortCommandName, new CommandInfo(OnCommand)
+        {
+            HelpMessage = $"Same as {CommandName}.",
+        });
         CommandManager.AddHandler(SettingsCommandName, new CommandInfo(OnSettingsCommand)
         {
             HelpMessage = "Open the CrystalCast settings window.",
@@ -155,6 +160,7 @@ public sealed class Plugin : IDalamudPlugin
         ClientState.Logout -= OnLogout;
 
         CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(ShortCommandName);
         CommandManager.RemoveHandler(SettingsCommandName);
         windowSystem.RemoveAllWindows();
         mainWindow.Dispose();

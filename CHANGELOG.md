@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- `/cc` opens the main window, as a short form of `/crystalcast`.
+
 ### Changed
 
 - The Twitch and YouTube login windows no longer close when you click elsewhere; close them with their close button, or **Cancel** or **Done** in the tab. **Show window** in the tab brings a login window back to the front. **Show controls** still closes when you click away.

@@ -51,7 +51,7 @@ CrystalCast never downloads or saves videos. Each screen runs the site's own emb
 
 <img src="docs/media/main-window.png" width="316" align="right" alt="The CrystalCast main window playing a YouTube video, with the Source tab open">
 
-1. Type `/crystalcast` to open the main window (`/ccsettings` opens the settings).
+1. Type `/crystalcast` (or `/cc`) to open the main window (`/ccsettings` opens the settings).
 2. Paste a link into **Link** on the **Source** tab and press **Load**.
 3. Open the **Placement** tab and press **Place in front of player**, or **Snap to surface** and click a wall. Drag the handles to move, turn or resize the screen.
 4. Use the **Playlist** tab to queue more videos, and the **Audio** tab for volume and spatial audio.

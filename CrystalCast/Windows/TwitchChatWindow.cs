@@ -78,7 +78,7 @@ internal sealed class TwitchChatWindow : CrystalCastWindow
             return;
         }
 
-        if (view.Draw(channel, TwitchChatHeaderButton.PopIn))
+        if (view.Draw(ScreenId, channel, TwitchChatHeaderButton.PopIn))
             IsOpen = false;
     }
 

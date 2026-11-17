@@ -110,7 +110,7 @@ internal sealed partial class TwitchPanel(
             ImGui.GetContentRegionAvail().Y - S(BelowChatPeek),
             S(TwitchChatView.MinimumChatHeight),
             S(MaximumChatHeight));
-        if (chat.Draw(channel, TwitchChatHeaderButton.PopOut, height))
+        if (chat.Draw(screen.ScreenId, channel, TwitchChatHeaderButton.PopOut, height))
             chatWindow.Open(screen.ScreenId);
     }
 

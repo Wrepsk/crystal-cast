@@ -11,6 +11,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 ### Fixed
 
 - Opening the Twitch chat in its own window (or putting it back) no longer leaves it paused, which hid new messages below the visible area.
+- Twitch chat keeps running while CrystalCast's windows are closed, as long as the screen is on and plays that channel, so reopening the tab or chat window shows it with nothing missing.
 
 ## 0.9.9.1 - 2026-11-17
 

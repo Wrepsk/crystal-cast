@@ -52,6 +52,12 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     private bool refocusComposer;
     private string sentText = string.Empty;
 
+    /// <summary>
+    /// The screen whose chat was shown last. Chat keeps running for it with the plugin's windows closed, as long
+    /// as that screen is on and still plays the channel (see <see cref="KeepUp"/>).
+    /// </summary>
+    private string screenId = string.Empty;
+
     /// <summary>Where the chat was drawn last (the tab or the chat window); a move starts it at the newest message.</summary>
     private TwitchChatHeaderButton? drawnIn;
 
@@ -67,8 +73,9 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     /// Draws the chat of <paramref name="channel"/>. With <paramref name="chatHeight"/> 0 the messages fill the
     /// space left above the message box. Returns true when the header button was pressed.
     /// </summary>
-    public bool Draw(string channel, TwitchChatHeaderButton button, float chatHeight = 0.0f)
+    public bool Draw(string screenId, string channel, TwitchChatHeaderButton button, float chatHeight = 0.0f)
     {
+        this.screenId = screenId;
         // The tab and the chat window share this view. Moving between them starts at the newest message and
         // follows again; otherwise the click that moved it looks like scrolling up, and chat stays paused.
         if (drawnIn != button)
@@ -137,6 +144,45 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         }
 
         connection.Want(channel, account.ChatIdentity);
+        TakeMessages();
+    }
+
+    /// <summary>
+    /// Called every frame, with or without the plugin's windows open: keeps the last shown screen's chat
+    /// connected and its messages read, so reopening the tab or chat window shows chat with nothing missing. It
+    /// lets go once that screen is off, plays something else, or the Twitch tab is turned off.
+    /// </summary>
+    public void KeepUp(Configuration configuration)
+    {
+        if (screenId.Length == 0 || log.Channel.Length == 0)
+            return;
+
+        var screen = configuration.BrowserScreens.FirstOrDefault(candidate => candidate.ScreenId == screenId);
+        if (!ShouldKeepUp(configuration, screen, log.Channel))
+        {
+            connection.Release();
+            screenId = string.Empty;
+            return;
+        }
+
+        connection.Want(log.Channel, account.ChatIdentity);
+        TakeMessages();
+    }
+
+    /// <summary>Whether chat should keep running for <paramref name="screen"/>, which showed <paramref name="channel"/>'s chat.</summary>
+    internal static bool ShouldKeepUp(Configuration configuration, BrowserScreenProfile? screen, string channel)
+    {
+        return screen != null
+            && configuration.TwitchTabEnabled
+            && ShouldConnect(configuration, screen)
+            && TwitchPanel.TryGetSource(screen, out var source)
+            && source.Kind == Sources.Providers.TwitchSourceKind.Channel
+            && string.Equals(source.ChannelName, channel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reads what the connection received into the chat.</summary>
+    private void TakeMessages()
+    {
         var generation = connection.ConnectionGeneration;
         if (generation != seenGeneration)
         {

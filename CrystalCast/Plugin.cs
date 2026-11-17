@@ -253,6 +253,8 @@ public sealed class Plugin : IDalamudPlugin
                 UpdateFirstRunGuide();
             genericWebIpcApprovalWindow.RefreshState();
             AdvancePlaylists();
+            // Twitch chat keeps up while the plugin's windows are closed, so it's current when they open.
+            twitchChat.KeepUp(Configuration);
         }
 
         if (showWindows)

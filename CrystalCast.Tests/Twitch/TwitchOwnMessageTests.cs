@@ -81,4 +81,31 @@ public sealed class TwitchOwnMessageTests
         Assert.True(result.Sent);
         Assert.Equal("abc-123", result.MessageId);
     }
+
+    [Fact]
+    public void KeepsChatRunningOnlyWhileTheScreenStillPlaysTheChannel()
+    {
+        var configuration = new Configuration();
+        var screen = new BrowserScreenProfile
+        {
+            Enabled = true,
+            ProviderKind = BrowserSourceProviderKind.Twitch,
+            TwitchUrl = "https://www.twitch.tv/somechannel",
+        };
+
+        Assert.True(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, screen, "somechannel"));
+        Assert.False(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, screen, "otherchannel"));
+        Assert.False(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, null, "somechannel"));
+
+        screen.Enabled = false;
+        Assert.False(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, screen, "somechannel"));
+
+        screen.Enabled = true;
+        configuration.TwitchTabEnabled = false;
+        Assert.False(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, screen, "somechannel"));
+
+        configuration.TwitchTabEnabled = true;
+        screen.ProviderKind = BrowserSourceProviderKind.YouTube;
+        Assert.False(CrystalCast.Windows.Panels.TwitchChatView.ShouldKeepUp(configuration, screen, "somechannel"));
+    }
 }

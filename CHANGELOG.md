@@ -4,6 +4,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Added
+
+- **7TV, BTTV and FFZ emotes** in Twitch chat: words that are emotes from these extensions show as pictures, including wide and zero-width (overlay) emotes. Animated ones show a still frame. Turn it off in **Settings > Source tabs**.
+
 ## 0.9.9.2 - 2026-11-17
 
 ### Changed

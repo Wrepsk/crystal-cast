@@ -24,7 +24,7 @@ internal enum TwitchChatHeaderButton
 /// when logged in. One chat is shared by the Twitch tab and the chat window, so both show the same messages
 /// and only one connection is open. Reading chat needs no account.
 /// </summary>
-internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProvider? textures) : IDisposable
+internal sealed partial class TwitchChatView(TwitchAccount account, Configuration configuration, ITextureProvider? textures) : IDisposable
 {
     internal const float MinimumChatHeight = 220.0f;
     private const long BadgeRetryMs = 300_000;
@@ -52,6 +52,14 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     private bool refocusComposer;
     private string sentText = string.Empty;
 
+    private readonly TwitchThirdPartyEmotes thirdPartyLoader = new();
+    private IReadOnlyDictionary<string, ThirdPartyEmote> thirdPartyEmotes = new Dictionary<string, ThirdPartyEmote>();
+    private Task<IReadOnlyDictionary<string, ThirdPartyEmote>>? thirdPartyTask;
+    /// <summary>The channel id the 7TV, BTTV and FFZ emotes are for.</summary>
+    private string thirdPartyFor = string.Empty;
+    /// <summary>Wide emotes' shapes, learned when their pictures load, by picture address.</summary>
+    private readonly Dictionary<string, float> learnedShapes = new(StringComparer.Ordinal);
+
     /// <summary>
     /// The screen whose chat was shown last. Chat keeps running for it with the plugin's windows closed, as long
     /// as that screen is on and still plays the channel (see <see cref="KeepUp"/>).
@@ -65,6 +73,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     {
         cancel.Cancel();
         connection.Dispose();
+        thirdPartyLoader.Dispose();
         images.Dispose();
         cancel.Dispose();
     }
@@ -88,6 +97,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
 
         UpdateChat(channel);
         UpdateBadges();
+        UpdateThirdPartyEmotes();
         var pressed = DrawHeader(button);
         Ui.VerticalSpace(10.0f);
         var footer = ComposerHeight();
@@ -368,9 +378,23 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     /// One thing on a chat line: a word in a color, or a picture (an emote or badge) of a fixed square size.
     /// <see cref="Gap"/> is the space before it, dropped when it starts a new row.
     /// </summary>
-    private readonly record struct Piece(string Text, Vector4 Color, float Gap, string ImageUrl = "", float ImageSize = 0.0f, string Tooltip = "")
+    /// <param name="ImageWidth">A picture's width when it isn't square (wide 7TV emotes); 0 for square.</param>
+    /// <param name="Overlay">A zero-width emote, drawn over the emote before it.</param>
+    /// <param name="LearnShape">The picture's shape isn't known until it loads (BTTV doesn't say).</param>
+    private readonly record struct Piece(
+        string Text,
+        Vector4 Color,
+        float Gap,
+        string ImageUrl = "",
+        float ImageSize = 0.0f,
+        string Tooltip = "",
+        float ImageWidth = 0.0f,
+        bool Overlay = false,
+        bool LearnShape = false)
     {
         public bool IsImage => ImageSize > 0.0f;
+
+        public float Width => ImageWidth > 0.0f ? ImageWidth : ImageSize;
     }
 
     private readonly record struct Placed(Piece Piece, int Row, float X);
@@ -443,7 +467,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
             if (segment.Kind == TwitchChatSegmentKind.Emote && segment.EmoteId.Length > 0)
                 pieces.Add(new Piece(segment.Text, textColor, 0.0f, TwitchImageCache.EmoteUrl(segment.EmoteId), emoteSize, segment.Text));
             else
-                pieces.AddRange(TextPieces(segment.Text, textColor));
+                pieces.AddRange(thirdPartyEmotes.Count > 0 ? ThirdPartyPieces(segment.Text, textColor, emoteSize) : TextPieces(segment.Text, textColor));
         }
 
         return pieces;
@@ -485,8 +509,16 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         var row = 0;
         var x = 0.0f;
         var carriedGap = 0.0f;
+        Placed? lastImage = null;
         foreach (var piece in pieces)
         {
+            // A zero-width emote sits on the emote right before it, centered, taking no room of its own.
+            if (piece.Overlay && lastImage is { } under && carriedGap == 0.0f)
+            {
+                placed.Add(new Placed(piece, under.Row, under.X + ((under.Piece.Width - piece.Width) * 0.5f)));
+                continue;
+            }
+
             if (!piece.IsImage && piece.Text.Length == 0)
             {
                 carriedGap += piece.Gap;
@@ -495,7 +527,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
 
             var gap = x > 0.0f ? piece.Gap + carriedGap : 0.0f;
             carriedGap = 0.0f;
-            var itemWidth = piece.IsImage ? piece.ImageSize : ImGui.CalcTextSize(piece.Text).X;
+            var itemWidth = piece.IsImage ? piece.Width : ImGui.CalcTextSize(piece.Text).X;
             if (x > 0.0f && x + gap + itemWidth > width)
             {
                 row++;
@@ -506,10 +538,14 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
             x += gap;
             if (piece.IsImage)
             {
-                placed.Add(new Placed(piece, row, x));
+                var image = new Placed(piece, row, x);
+                placed.Add(image);
+                lastImage = image;
                 x += itemWidth;
                 continue;
             }
+
+            lastImage = null;
 
             // A word longer than a whole row (links, spam) breaks wherever it has to.
             var word = piece.Text;
@@ -566,15 +602,20 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     /// <summary>An emote or badge. Nothing shows until it loads; hovering it names it.</summary>
     private void DrawPicture(ImDrawListPtr dl, Piece piece, Vector2 pos)
     {
-        var max = pos + new Vector2(piece.ImageSize);
+        var box = new Vector2(piece.Width, piece.ImageSize);
+        var max = pos + box;
         if (images.Get(piece.ImageUrl) is { } image)
         {
-            // Pictures keep their shape inside the square.
             var aspect = (float)image.Width / Math.Max(1, image.Height);
-            var size = aspect >= 1.0f
-                ? new Vector2(piece.ImageSize, piece.ImageSize / aspect)
-                : new Vector2(piece.ImageSize * aspect, piece.ImageSize);
-            var topLeft = pos + ((new Vector2(piece.ImageSize) - size) * 0.5f);
+            // A wide emote whose shape wasn't known: remember it and lay the chat out again.
+            if (piece.LearnShape && MathF.Abs(aspect - 1.0f) > 0.05f && learnedShapes.TryAdd(piece.ImageUrl, aspect))
+                heights.Clear();
+
+            // Pictures keep their shape inside their box.
+            var size = aspect >= box.X / box.Y
+                ? new Vector2(box.X, box.X / aspect)
+                : new Vector2(box.Y * aspect, box.Y);
+            var topLeft = pos + ((box - size) * 0.5f);
             dl.AddImage(image.Handle, topLeft, topLeft + size);
         }
 
@@ -591,6 +632,84 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         if (fit > 0 && fit < word.Length && char.IsHighSurrogate(word[fit - 1]))
             fit--;
         return fit;
+    }
+
+    // ---------------------------------------------------------------- 7TV, BTTV and FFZ emotes
+
+    /// <summary>
+    /// Text split into words like <see cref="TextPieces"/>, with words that are 7TV, BTTV or FFZ emote names
+    /// turned into their pictures.
+    /// </summary>
+    private IEnumerable<Piece> ThirdPartyPieces(string text, Vector4 color, float emoteSize)
+    {
+        var spaceWidth = ImGui.CalcTextSize(" ").X;
+        var words = text.Split(' ');
+        var pendingGap = 0.0f;
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (i > 0)
+                pendingGap += spaceWidth;
+            if (words[i].Length == 0)
+                continue;
+
+            if (thirdPartyEmotes.TryGetValue(words[i], out var emote))
+            {
+                var aspect = emote.Aspect > 0.0f ? emote.Aspect : learnedShapes.GetValueOrDefault(emote.Url, 1.0f);
+                yield return new Piece(
+                    emote.Name,
+                    color,
+                    pendingGap,
+                    emote.Url,
+                    emoteSize,
+                    $"{emote.Name} ({emote.Provider})",
+                    ImageWidth: MathF.Round(emoteSize * Math.Clamp(aspect, 0.25f, 4.0f)),
+                    Overlay: emote.ZeroWidth,
+                    LearnShape: emote.Aspect <= 0.0f);
+            }
+            else
+            {
+                yield return new Piece(words[i], color, pendingGap);
+            }
+
+            pendingGap = 0.0f;
+        }
+
+        if (pendingGap > 0.0f)
+            yield return new Piece(string.Empty, color, pendingGap);
+    }
+
+    /// <summary>Loads the channel's 7TV, BTTV and FFZ emotes once Twitch says the channel's id, when turned on.</summary>
+    private void UpdateThirdPartyEmotes()
+    {
+        if (!configuration.TwitchThirdPartyEmotes)
+        {
+            if (thirdPartyEmotes.Count > 0)
+            {
+                thirdPartyEmotes = new Dictionary<string, ThirdPartyEmote>();
+                thirdPartyFor = string.Empty;
+                heights.Clear();
+            }
+
+            return;
+        }
+
+        if (thirdPartyTask is { IsCompleted: true } done)
+        {
+            thirdPartyTask = null;
+            if (done.IsCompletedSuccessfully && thirdPartyFor == log.RoomId)
+            {
+                thirdPartyEmotes = done.Result;
+                heights.Clear();
+            }
+        }
+
+        var roomId = log.RoomId;
+        if (thirdPartyTask == null && roomId.Length > 0 && thirdPartyFor != roomId)
+        {
+            thirdPartyFor = roomId;
+            thirdPartyEmotes = new Dictionary<string, ThirdPartyEmote>();
+            thirdPartyTask = thirdPartyLoader.LoadAsync(roomId, cancel.Token);
+        }
     }
 
     // ---------------------------------------------------------------- badges

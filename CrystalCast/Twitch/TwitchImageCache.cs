@@ -11,7 +11,8 @@ namespace CrystalCast.Twitch;
 /// </summary>
 internal sealed class TwitchImageCache : IDisposable
 {
-    private const string ImageHost = "static-cdn.jtvnw.net";
+    /// <summary>Twitch's image host, and the 7TV, BTTV and FFZ emote hosts.</summary>
+    private static readonly string[] ImageHosts = ["static-cdn.jtvnw.net", "cdn.7tv.app", "cdn.betterttv.net", "cdn.frankerfacez.com"];
     private const int MaxImageBytes = 512 * 1024;
     private const int MaxConcurrentLoads = 4;
     private const long IdleReleaseMs = 300_000;
@@ -41,7 +42,7 @@ internal sealed class TwitchImageCache : IDisposable
     internal static bool IsAllowed(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps
-        && string.Equals(uri.Host, ImageHost, StringComparison.OrdinalIgnoreCase);
+        && ImageHosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The picture once loaded; starts loading it the first time. Null while loading or when it failed.</summary>
     public IDalamudTextureWrap? Get(string url)

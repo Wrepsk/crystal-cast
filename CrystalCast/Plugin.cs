@@ -101,7 +101,7 @@ public sealed class Plugin : IDalamudPlugin
         rooms = new RoomService(Configuration, ipc, Framework, ClientState, ObjectTable, Log);
         roomsWindow = new RoomsWindow(rooms, Configuration, ToggleConfigUi);
         twitchAccount = new TwitchAccount(new TwitchTokenStore(PluginInterface.GetPluginConfigDirectory()), Log, TwitchApp.ClientId);
-        twitchChat = new TwitchChatView(twitchAccount, TextureProvider);
+        twitchChat = new TwitchChatView(twitchAccount, Configuration, TextureProvider);
         twitchChatWindow = new TwitchChatWindow(Configuration, twitchChat);
         mainWindow = new MainWindow(this, renderer, ipc, placementResolver, playlistAdvancer, playlistMetadata, ipcScreenDeleteWindow, rooms, roomsWindow, twitchAccount, twitchChat, twitchChatWindow);
         configWindow = new ConfigWindow(this, renderer, ipc);

@@ -67,6 +67,12 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public bool TwitchTabAlwaysVisible { get; set; }
 
+    /// <summary>
+    /// Shows 7TV, BTTV and FFZ emotes in Twitch chat. Their lists come from those services (not Twitch), which
+    /// then see which channel's chat is open.
+    /// </summary>
+    public bool TwitchThirdPartyEmotes { get; set; } = true;
+
     /// <summary>Shows the YouTube tab next to Source while the selected screen plays YouTube.</summary>
     public bool YouTubeTabEnabled { get; set; } = true;
 

@@ -754,6 +754,17 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
             ? "On every screen, the tab also shows your login and the channels you follow, so you can start one from any screen. Chat shows while a Twitch channel plays."
             : "The Twitch tab, its chat and the chat window are hidden.");
 
+        var thirdParty = config.TwitchThirdPartyEmotes;
+        Ui.RowLabel("Chat emotes", LabelWidth, LabelGap);
+        if (Ui.SwitchLabeled("##TwitchThirdPartyEmotes", "Show 7TV, BTTV and FFZ emotes", ref thirdParty, disabled: !config.TwitchTabEnabled))
+        {
+            config.TwitchThirdPartyEmotes = thirdParty;
+            changed = true;
+        }
+
+        Ui.RowIndent(LabelWidth, LabelGap);
+        Ui.Meta("Emotes from these extensions show as pictures instead of words. Their lists come from 7TV, BTTV and FFZ, which then see which channel's chat you have open.");
+
         Ui.VerticalSpace(SectionGap);
         Ui.SectionHeader("YouTube");
         var youTubeEnabled = config.YouTubeTabEnabled;

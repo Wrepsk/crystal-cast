@@ -359,6 +359,7 @@ internal sealed class TwitchChatConnection : IDisposable
             case "CLEARMSG":
             case "CLEARCHAT":
             case "ROOMSTATE":
+            case "USERSTATE":
                 inbox.Enqueue(message);
                 while (inbox.Count > MaxQueuedLines && inbox.TryDequeue(out _))
                 {

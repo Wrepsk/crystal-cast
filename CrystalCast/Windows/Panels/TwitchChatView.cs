@@ -50,6 +50,10 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     private Task<TwitchSendResult>? sending;
     private string sendError = string.Empty;
     private bool refocusComposer;
+    private string sentText = string.Empty;
+
+    /// <summary>Where the chat was drawn last (the tab or the chat window); a move starts it at the newest message.</summary>
+    private TwitchChatHeaderButton? drawnIn;
 
     public void Dispose()
     {
@@ -65,6 +69,16 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
     /// </summary>
     public bool Draw(string channel, TwitchChatHeaderButton button, float chatHeight = 0.0f)
     {
+        // The tab and the chat window share this view. Moving between them starts at the newest message and
+        // follows again; otherwise the click that moved it looks like scrolling up, and chat stays paused.
+        if (drawnIn != button)
+        {
+            drawnIn = button;
+            stickToBottom = true;
+            scrollToBottom = true;
+            lastScrollY = 0.0f;
+        }
+
         UpdateChat(channel);
         UpdateBadges();
         var pressed = DrawHeader(button);
@@ -77,6 +91,24 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         Ui.VerticalSpace(8.0f);
         DrawComposer(channel);
         return pressed;
+    }
+
+    /// <summary>
+    /// Adds a message the user just sent. A chat connection logged in as the user doesn't get their own messages
+    /// back from Twitch; as a guest it does, so then Twitch's copy is shown instead. The id keeps it from showing
+    /// twice either way.
+    /// </summary>
+    private void ShowOwnMessage(string messageId, string text)
+    {
+        if (!connection.ConnectedAsUser || messageId.Length == 0 || text.Length == 0)
+            return;
+
+        var emotes = emoteList?.Emotes;
+        log.AddOwnMessage(
+            messageId,
+            account.Login,
+            account.DisplayName,
+            TwitchChatLog.SegmentByNames(text, word => emotes?.FirstOrDefault(emote => emote.Name == word)?.Id));
     }
 
     /// <summary>Closes the chat connection now, for a screen that was turned off. Its messages stay.</summary>
@@ -583,6 +615,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
             var result = done.IsCompletedSuccessfully ? done.Result : new TwitchSendResult(false, done.Exception?.GetBaseException().Message ?? "Not sent.");
             if (result.Sent)
             {
+                ShowOwnMessage(result.MessageId, sentText);
                 messageDraft = string.Empty;
                 sendError = string.Empty;
             }
@@ -625,7 +658,12 @@ internal sealed partial class TwitchChatView(TwitchAccount account, ITextureProv
         ImGui.SameLine(0.0f, spacing);
         var canSend = !busy && !string.IsNullOrWhiteSpace(messageDraft);
         if ((Ui.Button(sendLabel, ButtonKind.Primary, disabled: !canSend) || pressedEnter) && canSend)
-            sending = account.SendChatMessageAsync(channel, messageDraft.Trim(), cancel.Token);
+        {
+            sentText = messageDraft.Trim();
+            sending = account.SendChatMessageAsync(channel, sentText, cancel.Token);
+            // So the message shows with its emotes as pictures.
+            LoadEmotesIfNeeded();
+        }
 
         if (sendError.Length > 0)
             Ui.ErrorText(sendError);

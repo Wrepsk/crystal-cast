@@ -37,6 +37,9 @@ internal sealed class TwitchChatLine
     public bool Deleted { get; set; }
 }
 
+/// <summary>The user's own display name, name color and badges in a channel, as Twitch reports them.</summary>
+internal sealed record TwitchOwnChatState(string DisplayName, string Color, IReadOnlyList<TwitchBadge> Badges);
+
 /// <summary>Chat modes Twitch reports for the channel. Null where Twitch hasn't said yet.</summary>
 internal sealed record TwitchRoomState(bool? EmoteOnly, int? FollowersOnlyMinutes, int? SlowSeconds, bool? SubsOnly)
 {
@@ -61,6 +64,12 @@ internal sealed class TwitchChatLog
     public string RoomId { get; private set; } = string.Empty;
     public IReadOnlyList<TwitchChatLine> Lines => lines;
 
+    /// <summary>
+    /// The user's own name, color and badges in this channel, from Twitch's USERSTATE, which a chat connection
+    /// logged in as the user receives. Null while connected as a guest.
+    /// </summary>
+    public TwitchOwnChatState? Own { get; private set; }
+
     /// <summary>Counts every line ever added, so the view can tell new lines arrived after trimming.</summary>
     public long Version { get; private set; }
 
@@ -70,6 +79,7 @@ internal sealed class TwitchChatLog
         Joined = false;
         RoomState = TwitchRoomState.Unknown;
         RoomId = string.Empty;
+        Own = null;
         lines.Clear();
         Version++;
     }
@@ -91,7 +101,12 @@ internal sealed class TwitchChatLog
         switch (message.Command)
         {
             case "PRIVMSG":
-                Add(FromPrivmsg(message));
+                // The user's own message may already be here, added when Twitch confirmed sending it.
+                if (!HasLine(message.Tag("id")))
+                    Add(FromPrivmsg(message));
+                break;
+            case "USERSTATE":
+                Own = new TwitchOwnChatState(message.Tag("display-name"), message.Tag("color"), ParseBadges(message.Tag("badges")));
                 break;
             case "USERNOTICE":
                 Add(FromUserNotice(message));
@@ -141,6 +156,68 @@ internal sealed class TwitchChatLog
             if (line.Login == login)
                 line.Deleted = true;
         }
+    }
+
+    /// <summary>
+    /// Adds a message the user sent, once Twitch confirmed it. A chat connection logged in as the user doesn't
+    /// get the user's own messages back, so without this they'd never show. Skipped when a line with the same
+    /// id is already here.
+    /// </summary>
+    public void AddOwnMessage(string id, string login, string fallbackDisplayName, IReadOnlyList<TwitchChatSegment> segments)
+    {
+        if (HasLine(id))
+            return;
+
+        var own = Own;
+        var name = own?.DisplayName is { Length: > 0 } displayName ? displayName : fallbackDisplayName;
+        Add(new TwitchChatLine
+        {
+            Kind = TwitchChatLineKind.Message,
+            Id = id,
+            Login = login.ToLowerInvariant(),
+            DisplayName = DisplayName(name, login.ToLowerInvariant()),
+            Color = own?.Color ?? string.Empty,
+            Badges = own?.Badges ?? [],
+            Segments = segments,
+        });
+    }
+
+    private bool HasLine(string id) =>
+        id.Length > 0 && lines.Any(line => line.Id == id);
+
+    /// <summary>
+    /// A message the user typed, split into text and emotes by name, since Twitch's emote positions only come
+    /// with messages it delivers. <paramref name="emoteId"/> gives an emote's id for a word, or null.
+    /// </summary>
+    internal static IReadOnlyList<TwitchChatSegment> SegmentByNames(string text, Func<string, string?> emoteId)
+    {
+        var segments = new List<TwitchChatSegment>();
+        var pending = new StringBuilder();
+        var words = text.Split(' ');
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (i > 0)
+                pending.Append(' ');
+
+            if (words[i].Length > 0 && emoteId(words[i]) is { Length: > 0 } id)
+            {
+                if (pending.Length > 0)
+                {
+                    segments.Add(new TwitchChatSegment(TwitchChatSegmentKind.Text, pending.ToString()));
+                    pending.Clear();
+                }
+
+                segments.Add(new TwitchChatSegment(TwitchChatSegmentKind.Emote, words[i], id));
+            }
+            else
+            {
+                pending.Append(words[i]);
+            }
+        }
+
+        if (pending.Length > 0)
+            segments.Add(new TwitchChatSegment(TwitchChatSegmentKind.Text, pending.ToString()));
+        return segments;
     }
 
     private void Add(TwitchChatLine line)

@@ -30,7 +30,8 @@ internal sealed record TwitchStream(
     DateTimeOffset StartedAt,
     string ThumbnailUrl);
 
-internal readonly record struct TwitchSendResult(bool Sent, string Error);
+/// <summary>Whether Twitch sent a chat message, why not, and the id it gave the message.</summary>
+internal readonly record struct TwitchSendResult(bool Sent, string Error, string MessageId = "");
 
 /// <summary>
 /// The user's Twitch account, logged in with Twitch's device code login: the plugin gets a code, the user
@@ -302,7 +303,7 @@ internal sealed class TwitchAccount : IDisposable
                     return new TwitchSendResult(false, "Twitch didn't say whether it was sent.");
 
                 return sent.IsSent
-                    ? new TwitchSendResult(true, string.Empty)
+                    ? new TwitchSendResult(true, string.Empty, sent.MessageId ?? string.Empty)
                     : new TwitchSendResult(false, sent.DropReason?.Message is { Length: > 0 } reason ? reason : "Twitch didn't send it.");
             }
 
@@ -763,6 +764,7 @@ internal sealed class TwitchAccount : IDisposable
 
     private sealed class HelixSent
     {
+        [JsonPropertyName("message_id")] public string? MessageId { get; set; }
         [JsonPropertyName("is_sent")] public bool IsSent { get; set; }
         [JsonPropertyName("drop_reason")] public HelixDropReason? DropReason { get; set; }
     }

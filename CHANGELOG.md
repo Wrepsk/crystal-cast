@@ -6,7 +6,11 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ### Changed
 
-- Logged in to Twitch, chat now connects as your account instead of as a guest, so you show in the channel's list of who's in chat. This needs one more Twitch permission: if you logged in before this version, log out and in again once (the Twitch tab says so).
+- Logged in to Twitch, chat now connects as your account instead of as a guest, so you show in the channel's list of who's in chat. This needs one more Twitch permission: if you logged in before this version, log out and in again once (the Twitch tab says so). Your own messages show as soon as Twitch confirms them, with your name color, badges and emotes.
+
+### Fixed
+
+- Opening the Twitch chat in its own window (or putting it back) no longer leaves it paused, which hid new messages below the visible area.
 
 ## 0.9.9.1 - 2026-11-17
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using CrystalCast.Browser.WebView2;
@@ -239,9 +240,10 @@ public sealed class TwitchAccountTests : IDisposable
     private sealed class FakeTwitch : HttpMessageHandler
     {
         private readonly Dictionary<string, List<(int Status, string Body)>> answers = new();
-        public Dictionary<string, string> Bodies { get; } = new();
-        public Dictionary<string, string> LastAuthorization { get; } = new();
-        public Dictionary<string, string> LastQuery { get; } = new();
+        // The account checks its token in the background while a test calls it, so requests can overlap.
+        public ConcurrentDictionary<string, string> Bodies { get; } = new();
+        public ConcurrentDictionary<string, string> LastAuthorization { get; } = new();
+        public ConcurrentDictionary<string, string> LastQuery { get; } = new();
 
         public void On(string method, string path, int status, string body)
         {

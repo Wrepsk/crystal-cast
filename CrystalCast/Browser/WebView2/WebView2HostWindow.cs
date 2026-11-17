@@ -98,6 +98,8 @@ internal sealed class WebView2HostWindow : IDisposable
         if (hwnd == IntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to create WebView2 capture host window.");
 
+        // A class registered by an earlier load of the plugin in this game session has no cursor; set it here.
+        SetClassLongPtr(hwnd, GclpHCursor, ArrowCursor);
         var window = new WebView2HostWindow(hwnd, Math.Max(1, width), Math.Max(1, height));
         Windows[hwnd] = new WeakReference<WebView2HostWindow>(window);
         return window;
@@ -218,7 +220,10 @@ internal sealed class WebView2HostWindow : IDisposable
                 WindowExtraBytes = 0,
                 Instance = instance,
                 Icon = IntPtr.Zero,
-                Cursor = IntPtr.Zero,
+                // Without a cursor of its own, the window shows none wherever the browser doesn't set one.
+                // Under Wine the browser's cursor changes (it runs in another process) don't arrive, so the
+                // cursor vanished over the page.
+                Cursor = ArrowCursor,
                 Background = IntPtr.Zero,
                 MenuName = null,
                 ClassName = ClassName,
@@ -330,6 +335,18 @@ internal sealed class WebView2HostWindow : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr GetModuleHandle(string? moduleName);
+
+    private const int GclpHCursor = -12;
+    private const int IdcArrow = 32512;
+
+    /// <summary>Windows' standard arrow cursor; shared by the system, so it's never destroyed.</summary>
+    private static IntPtr ArrowCursor => LoadCursor(IntPtr.Zero, (IntPtr)IdcArrow);
+
+    [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+    private static extern IntPtr LoadCursor(IntPtr instance, IntPtr cursorName);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")]
+    private static extern IntPtr SetClassLongPtr(IntPtr window, int index, IntPtr value);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern ushort RegisterClassEx(ref WndClassEx windowClass);

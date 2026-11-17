@@ -8,6 +8,10 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 - The Twitch and YouTube login windows no longer close when you click elsewhere; close them with their close button, or **Cancel** or **Done** in the tab. **Show window** in the tab brings a login window back to the front. **Show controls** still closes when you click away.
 
+### Fixed
+
+- On Linux (Wine), the mouse cursor no longer disappears over a browser window brought forward by **Show controls** or a login.
+
 ## 0.9.9 - 2026-11-16
 
 ### Added

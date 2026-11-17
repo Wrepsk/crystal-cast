@@ -26,6 +26,19 @@ internal static class ConfigurationMigration
             changed = true;
         }
 
+        if (!Rooms.RoomMemberKeys.IsValid(configuration.RoomMemberKey))
+        {
+            configuration.RoomMemberKey = Rooms.RoomMemberKeys.Create();
+            changed = true;
+        }
+
+        var persistentRooms = Rooms.RoomMemberKeys.CleanRoomList(configuration.PersistentRooms);
+        if (persistentRooms.Count != configuration.PersistentRooms.Count)
+        {
+            configuration.PersistentRooms = persistentRooms;
+            changed = true;
+        }
+
         if (configuration.SourceKind != ScreenSourceKind.Browser)
         {
             configuration.SourceKind = ScreenSourceKind.Browser;

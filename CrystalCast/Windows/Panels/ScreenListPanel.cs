@@ -198,6 +198,13 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
                 if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
                     roomActions.Rooms.StopSharing(activeScreen.ScreenId);
             }
+
+            // Only worth showing to people in a persistent room; checked means it shows there.
+            if (roomActions.Rooms.Persistent.Count > 0
+                && Ui.MenuItem("Share in persistent rooms", selected: activeScreen.ShareInPersistentRooms, icon: FontAwesomeIcon.Users))
+            {
+                roomActions.Rooms.SetSharedInPersistentRooms(activeScreen, !activeScreen.ShareInPersistentRooms);
+            }
         }
 
         // People who joined see the room too: who's in it, and the host's state.

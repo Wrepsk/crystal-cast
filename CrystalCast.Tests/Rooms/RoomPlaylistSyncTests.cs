@@ -138,7 +138,7 @@ public sealed class RoomPlaylistSyncTests
         RoomPlaylistSync.TryAcceptAdd(host, "https://www.youtube.com/watch?v=aqz-KE-bpKQ", out _);
         state.Playlist = RoomPlaylistSync.BuildState(host);
 
-        Assert.Equal((true, true), policy.Decide(state, 1_250));
+        Assert.True(policy.Decide(state, 1_250));
     }
 
     [Fact]

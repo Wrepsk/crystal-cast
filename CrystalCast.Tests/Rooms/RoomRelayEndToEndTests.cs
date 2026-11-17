@@ -71,6 +71,38 @@ public sealed class RoomRelayEndToEndTests
         Assert.True(refused.Refused);
     }
 
+    [Fact]
+    public async Task PersistentRoomsLetMembersShareAndKeepStrangersOut()
+    {
+        if (string.IsNullOrWhiteSpace(Relay))
+            return;
+
+        Assert.True(RoomRelayApi.TryParseRelayUri(Relay, out var relay));
+        var ownerKey = RoomMemberKeys.Create();
+        var created = await RoomRelayApi.CreatePersistentRoomAsync(relay, "Club", "hunter2", ownerKey, "Owner", TestContext.Current.CancellationToken);
+        Assert.True(created.Error.Length == 0, created.Error);
+
+        using var owner = RoomRelayConnection.ForPersistentRoom(relay, created.Code, ownerKey, "Owner", string.Empty);
+        var welcome = await NextAsync(owner, m => m.Type == "welcome");
+        Assert.Equal(("owner", "Club", true), (welcome.Role, welcome.Name, welcome.PasswordSet));
+
+        using var stranger = RoomRelayConnection.ForPersistentRoom(relay, created.Code, RoomMemberKeys.Create(), "Stranger", "wrong");
+        for (var i = 0; i < 50 && !stranger.Refused; i++)
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.True(stranger.Refused);
+        Assert.Equal("password", stranger.RefusalReason);
+
+        using var member = RoomRelayConnection.ForPersistentRoom(relay, created.Code, RoomMemberKeys.Create(), "Mia", "hunter2");
+        Assert.Equal("member", (await NextAsync(member, m => m.Type == "welcome")).Role);
+
+        owner.Send(new { type = "state", screenId = "stage", state = new RoomScreenState { Name = "Stage", Url = "https://youtu.be/x" } });
+        var shared = await NextAsync(member, m => m.Type == "state");
+        Assert.Equal(("stage", "Stage", welcome.You), (shared.ScreenId, shared.State!.Name, shared.Owner));
+
+        owner.Send(new { type = "delete" });
+        await NextAsync(member, m => m.Type == "closed");
+    }
+
     private static async Task<RoomRelayMessage> NextAsync(RoomRelayConnection connection, Func<RoomRelayMessage, bool> match)
     {
         for (var i = 0; i < 100; i++)

@@ -4,14 +4,13 @@ using CrystalCast.Ipc;
 namespace CrystalCast.Rooms;
 
 /// <summary>
-/// Decides when a shared screen's state goes to the relay: right away when something a viewer would notice
-/// changes (link, play/pause, rate, a seek, the screen moving), and otherwise as a heartbeat every
-/// <see cref="HeartbeatMs"/> so viewers who drifted catch up. Heartbeats are marked as such so the relay
-/// doesn't store them.
+/// Decides when a shared screen's state goes to the relay: only when something a viewer would notice changes
+/// (link, play/pause, rate, a seek, the screen moving), or when the host's own player has drifted from what it
+/// last told the room, for example after it buffered. Nothing is sent while playback just runs: viewers work
+/// out the position from the last state, so a quiet room costs no relay requests.
 /// </summary>
 internal sealed class RoomHostSendPolicy
 {
-    public const long HeartbeatMs = 10_000;
     public const long SeekToleranceMs = 2_000;
 
     private string lastFingerprint = string.Empty;
@@ -20,27 +19,24 @@ internal sealed class RoomHostSendPolicy
     private bool lastPaused = true;
     private float lastRate = 1.0f;
 
-    /// <summary>Returns whether to send now, and whether it is a real change (true) or a heartbeat (false).</summary>
-    public (bool Send, bool Change) Decide(RoomScreenState state, long nowMs)
+    /// <summary>
+    /// Whether to send <paramref name="state"/> now. While the host's player is <paramref name="buffering"/>,
+    /// its position standing still is not sent as a seek; the correction goes out once, when it plays again.
+    /// </summary>
+    public bool Decide(RoomScreenState state, long nowMs, bool buffering = false)
     {
         var fingerprint = Fingerprint(state);
         var expected = lastPositionMs + (lastPaused ? 0 : (long)((nowMs - lastSentAtMs) * Math.Max(0f, lastRate)));
-        var seeked = lastSentAtMs != 0 && Math.Abs(state.PositionMs - expected) > SeekToleranceMs;
-
-        bool change;
-        if (fingerprint != lastFingerprint || seeked)
-            change = true;
-        else if (nowMs - lastSentAtMs >= HeartbeatMs)
-            change = false;
-        else
-            return (false, false);
+        var seeked = lastSentAtMs != 0 && !buffering && Math.Abs(state.PositionMs - expected) > SeekToleranceMs;
+        if (fingerprint == lastFingerprint && !seeked)
+            return false;
 
         lastFingerprint = fingerprint;
         lastSentAtMs = nowMs;
         lastPositionMs = state.PositionMs;
         lastPaused = state.Paused;
         lastRate = state.Rate;
-        return (true, change);
+        return true;
     }
 
     /// <summary>Everything except the playback position, which moves on its own while playing.</summary>
@@ -57,6 +53,48 @@ internal sealed class RoomHostSendPolicy
         RoomPlaylistSync.Fingerprint(state.Playlist));
 
     private static string F(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+}
+
+/// <summary>
+/// Tells when a player says it is playing but its position stopped moving: it is buffering. Works from the
+/// position reports every player page sends, so it needs nothing from the site itself.
+/// </summary>
+internal sealed class PlaybackStallTracker
+{
+    /// <summary>How long the position may stand still while playing before it counts as buffering.</summary>
+    public const long StallMs = 1_500;
+
+    /// <summary>Less movement than this between reports is standing still.</summary>
+    private const long MinimumAdvanceMs = 100;
+
+    private long anchorPositionMs = -1;
+    private long anchorAtMs;
+
+    public bool Buffering { get; private set; }
+
+    /// <param name="playing">Whether the player says it is playing.</param>
+    /// <param name="positionMs">The position the player last reported, not extrapolated.</param>
+    /// <param name="reportedAtMs">When the player reported it.</param>
+    public bool Update(bool playing, long positionMs, long reportedAtMs)
+    {
+        if (!playing || reportedAtMs <= 0)
+        {
+            anchorPositionMs = -1;
+            Buffering = false;
+            return false;
+        }
+
+        if (anchorPositionMs < 0 || Math.Abs(positionMs - anchorPositionMs) >= MinimumAdvanceMs || reportedAtMs < anchorAtMs)
+        {
+            anchorPositionMs = positionMs;
+            anchorAtMs = reportedAtMs;
+            Buffering = false;
+            return false;
+        }
+
+        Buffering = reportedAtMs - anchorAtMs >= StallMs;
+        return Buffering;
+    }
 }
 
 /// <summary>
@@ -122,6 +160,9 @@ internal sealed class RoomViewerApplied
     public string Url { get; set; } = string.Empty;
     public bool? Paused { get; set; }
     public long LastSeekAtMs { get; set; }
+
+    /// <summary>Drift seeks in a row, each soon after the last; every one doubles the wait before the next.</summary>
+    public int SeekStreak { get; set; }
 }
 
 /// <summary>Turns the host's state into an update for the viewer's copy of the screen.</summary>
@@ -133,6 +174,22 @@ internal static class RoomViewerPlan
     /// <summary>After a seek the player needs time to load before its position means anything.</summary>
     public const long SeekCooldownMs = 5_000;
 
+    /// <summary>Longest wait between drift seeks, for a viewer whose connection can't keep up.</summary>
+    public const long MaxSeekCooldownMs = 60_000;
+
+    /// <summary>A drift seek this long after the last one starts a new streak.</summary>
+    public const long StreakResetMs = 60_000;
+
+    /// <summary>
+    /// How long to wait after a drift seek before the next. A viewer on a slow connection buffers after every
+    /// seek and falls behind again; seeking every few seconds would keep it buffering forever.
+    /// </summary>
+    public static long SeekCooldownFor(int streak)
+    {
+        var doublings = Math.Clamp(streak - 1, 0, 4);
+        return Math.Min(MaxSeekCooldownMs, SeekCooldownMs << doublings);
+    }
+
     /// <summary>Where the host's video is now, given when its position was taken.</summary>
     public static long ExpectedPositionMs(RoomScreenState state, long receivedAtRelayMs, long relayNowMs)
     {
@@ -142,13 +199,14 @@ internal static class RoomViewerPlan
 
     /// <summary>
     /// Whether the viewer's player is far enough from the host's to seek, and not still settling after the
-    /// last seek.
+    /// last seek. Never while it is <paramref name="buffering"/>: it seeks once, when it plays again.
     /// </summary>
-    public static bool HasDrifted(long expectedPositionMs, long? localPositionMs, long localNowMs, RoomViewerApplied applied)
+    public static bool HasDrifted(long expectedPositionMs, long? localPositionMs, long localNowMs, RoomViewerApplied applied, bool buffering = false)
     {
-        return localPositionMs is { } local
+        return !buffering
+            && localPositionMs is { } local
             && Math.Abs(local - expectedPositionMs) > SeekToleranceMs
-            && localNowMs - applied.LastSeekAtMs >= SeekCooldownMs;
+            && localNowMs - applied.LastSeekAtMs >= SeekCooldownFor(applied.SeekStreak);
     }
 
     /// <param name="localPositionMs">The viewer's own playback position now, if its player reports one.</param>
@@ -160,13 +218,36 @@ internal static class RoomViewerPlan
         RoomLocation viewerLocation,
         long? localPositionMs,
         long localNowMs,
-        RoomViewerApplied applied)
+        RoomViewerApplied applied,
+        bool buffering = false)
+    {
+        var label = $"Room {RoomCode.Format(code)}";
+        return Build(
+            new RoomMirrorTarget(RoomCode.ScreenIdFor(code), label, label),
+            state, receivedAtRelayMs, relayNowMs, viewerLocation, localPositionMs, localNowMs, applied, buffering);
+    }
+
+    /// <summary>Same as the room-code overload, for any copy of a shared screen.</summary>
+    public static ScreenIpcMutationRequest Build(
+        RoomMirrorTarget target,
+        RoomScreenState state,
+        long receivedAtRelayMs,
+        long relayNowMs,
+        RoomLocation viewerLocation,
+        long? localPositionMs,
+        long localNowMs,
+        RoomViewerApplied applied,
+        bool buffering = false)
     {
         var expected = ExpectedPositionMs(state, receivedAtRelayMs, relayNowMs);
         var urlChanged = !string.Equals(state.Url, applied.Url, StringComparison.Ordinal);
         var pausedChanged = applied.Paused != state.Paused;
-        var drifted = HasDrifted(expected, localPositionMs, localNowMs, applied);
+        var drifted = HasDrifted(expected, localPositionMs, localNowMs, applied, buffering);
         var seek = urlChanged ? expected > SeekToleranceMs : pausedChanged || drifted;
+        if (urlChanged)
+            applied.SeekStreak = 0;
+        else if (drifted)
+            applied.SeekStreak = localNowMs - applied.LastSeekAtMs < StreakResetMs ? applied.SeekStreak + 1 : 1;
 
         var source = new ScreenSourcePatchDto
         {
@@ -191,14 +272,14 @@ internal static class RoomViewerPlan
         applied.Paused = state.Paused;
         return new ScreenIpcMutationRequest
         {
-            ScreenId = RoomCode.ScreenIdFor(code),
-            Name = string.IsNullOrWhiteSpace(state.Name) ? $"Room {RoomCode.Format(code)}" : state.Name,
+            ScreenId = target.ScreenId,
+            Name = string.IsNullOrWhiteSpace(state.Name) ? target.FallbackName : target.DecorateName(state.Name),
             OwnerId = OwnerId,
             CreateIfMissing = true,
-            Enabled = viewerLocation.SamePlaceAs(state.Location),
+            Enabled = target.Visible && viewerLocation.SamePlaceAs(state.Location),
             Provider = state.Provider,
             SourceControlsLocked = true,
-            SourceControlsOwnerId = $"Room {RoomCode.Format(code)}",
+            SourceControlsOwnerId = target.ControlsOwner,
             Placement = new ScreenPlacementPatchDto
             {
                 Mode = ScreenPlacementMode.World,
@@ -219,5 +300,42 @@ internal static class RoomViewerPlan
             },
             Source = source,
         };
+    }
+}
+
+/// <summary>Which local screen shows a copy of someone's shared screen, and how it is labelled.</summary>
+/// <param name="ScreenId">The local copy's screen id; the same shared screen always maps to the same one.</param>
+/// <param name="FallbackName">The name when the sharer's screen has none.</param>
+/// <param name="ControlsOwner">Shown where the screen's controls are locked, as who controls it.</param>
+/// <param name="NameSuffix">Added after the sharer's screen name, such as who shares it.</param>
+/// <param name="Visible">False keeps the copy hidden wherever the viewer is.</param>
+internal readonly record struct RoomMirrorTarget(
+    string ScreenId,
+    string FallbackName,
+    string ControlsOwner,
+    string NameSuffix = "",
+    bool Visible = true)
+{
+    public string DecorateName(string name) => NameSuffix.Length == 0 ? name : $"{name} {NameSuffix}";
+}
+
+/// <summary>
+/// When a connection pings the relay to learn its clock. A few quick pings right after connecting find a
+/// fast round trip; after that the clock barely drifts, so one every few minutes is plenty. Each ping is a
+/// relay request, and a room that only plays costs nothing else.
+/// </summary>
+internal static class RoomPingSchedule
+{
+    public const int StartupPings = 3;
+    public const long StartupIntervalMs = 2_000;
+    public const long SteadyIntervalMs = 10 * 60 * 1000;
+
+    public static bool Due(int pingsSent, long lastPingAtMs, long nowMs)
+    {
+        if (pingsSent == 0)
+            return true;
+
+        var interval = pingsSent < StartupPings ? StartupIntervalMs : SteadyIntervalMs;
+        return nowMs - lastPingAtMs >= interval;
     }
 }

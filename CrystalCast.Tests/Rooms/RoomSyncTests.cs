@@ -107,20 +107,54 @@ public sealed class RoomHostSendPolicyTests
     };
 
     [Fact]
-    public void FirstStateIsSentAsAChange()
+    public void FirstStateIsSent()
     {
         var policy = new RoomHostSendPolicy();
-        Assert.Equal((true, true), policy.Decide(Playing(0), 1_000));
+        Assert.True(policy.Decide(Playing(0), 1_000));
     }
 
     [Fact]
-    public void NormalPlaybackOnlySendsHeartbeats()
+    public void NormalPlaybackSendsNothing()
     {
         var policy = new RoomHostSendPolicy();
         policy.Decide(Playing(0), 1_000);
 
-        Assert.Equal((false, false), policy.Decide(Playing(5_000), 6_000));
-        Assert.Equal((true, false), policy.Decide(Playing(10_000), 11_000));
+        Assert.False(policy.Decide(Playing(5_000), 6_000));
+        Assert.False(policy.Decide(Playing(10_000), 11_000));
+        Assert.False(policy.Decide(Playing(600_000), 601_000));
+    }
+
+    [Fact]
+    public void AHostThatFellBehindSendsACorrection()
+    {
+        var policy = new RoomHostSendPolicy();
+        policy.Decide(Playing(0), 1_000);
+
+        // The player stalled for five seconds without saying so.
+        Assert.True(policy.Decide(Playing(5_000), 11_000));
+    }
+
+    [Fact]
+    public void BufferingHoldsTheCorrectionUntilPlaybackResumes()
+    {
+        var policy = new RoomHostSendPolicy();
+        policy.Decide(Playing(0), 1_000);
+
+        Assert.False(policy.Decide(Playing(2_000), 9_000, buffering: true));
+        Assert.False(policy.Decide(Playing(2_000), 15_000, buffering: true));
+        Assert.True(policy.Decide(Playing(2_500), 15_500));
+        Assert.False(policy.Decide(Playing(3_500), 16_500));
+    }
+
+    [Fact]
+    public void BufferingStillSendsRealChanges()
+    {
+        var policy = new RoomHostSendPolicy();
+        policy.Decide(Playing(0), 1_000);
+
+        var paused = Playing(1_000);
+        paused.Paused = true;
+        Assert.True(policy.Decide(paused, 9_000, buffering: true));
     }
 
     [Fact]
@@ -131,7 +165,7 @@ public sealed class RoomHostSendPolicyTests
 
         var paused = Playing(500);
         paused.Paused = true;
-        Assert.Equal((true, true), policy.Decide(paused, 1_500));
+        Assert.True(policy.Decide(paused, 1_500));
     }
 
     [Fact]
@@ -140,7 +174,7 @@ public sealed class RoomHostSendPolicyTests
         var policy = new RoomHostSendPolicy();
         policy.Decide(Playing(0), 1_000);
 
-        Assert.Equal((true, true), policy.Decide(Playing(60_000), 1_250));
+        Assert.True(policy.Decide(Playing(60_000), 1_250));
     }
 
     [Fact]
@@ -151,7 +185,7 @@ public sealed class RoomHostSendPolicyTests
 
         var moved = Playing(250);
         moved.PositionX = 3.0f;
-        Assert.Equal((true, true), policy.Decide(moved, 1_250));
+        Assert.True(policy.Decide(moved, 1_250));
     }
 }
 
@@ -301,6 +335,55 @@ public sealed class RoomViewerPlanTests
     }
 
     [Fact]
+    public void NoSeekWhileBuffering()
+    {
+        var applied = new RoomViewerApplied();
+        RoomViewerPlan.Build("ABCD2345", State(0), 0, 0, Venue, null, 0, applied);
+
+        var buffering = RoomViewerPlan.Build("ABCD2345", State(20_000), 0, 0, Venue, 10_000, 10_000, applied, buffering: true);
+        Assert.Null(buffering.Source!.PositionMs);
+
+        var resumed = RoomViewerPlan.Build("ABCD2345", State(20_000), 0, 0, Venue, 10_000, 10_500, applied);
+        Assert.Equal(20_000, resumed.Source!.PositionMs);
+    }
+
+    [Fact]
+    public void SeekCooldownDoublesUpToAMinute()
+    {
+        Assert.Equal(
+            [5_000L, 5_000L, 10_000L, 20_000L, 40_000L, 60_000L, 60_000L],
+            new[] { 0, 1, 2, 3, 4, 5, 9 }.Select(RoomViewerPlan.SeekCooldownFor).ToArray());
+    }
+
+    [Fact]
+    public void EachDriftSeekSoonAfterTheLastWaitsLonger()
+    {
+        var applied = new RoomViewerApplied();
+        RoomViewerPlan.Build("ABCD2345", State(0), 0, 0, Venue, null, 0, applied);
+
+        long? SeekAt(long now) => RoomViewerPlan.Build("ABCD2345", State(100_000), 0, 0, Venue, 0, now, applied).Source!.PositionMs;
+        Assert.NotNull(SeekAt(10_000));
+        Assert.Null(SeekAt(14_000));
+        Assert.NotNull(SeekAt(15_000));
+        Assert.Null(SeekAt(24_000));
+        Assert.NotNull(SeekAt(25_000));
+        Assert.Equal(3, applied.SeekStreak);
+    }
+
+    [Fact]
+    public void AQuietMinuteStartsANewStreak()
+    {
+        var applied = new RoomViewerApplied();
+        RoomViewerPlan.Build("ABCD2345", State(0), 0, 0, Venue, null, 0, applied);
+        applied.LastSeekAtMs = 1_000;
+        applied.SeekStreak = 4;
+
+        var seek = RoomViewerPlan.Build("ABCD2345", State(100_000), 0, 0, Venue, 0, 200_000, applied);
+        Assert.Equal(100_000, seek.Source!.PositionMs);
+        Assert.Equal(1, applied.SeekStreak);
+    }
+
+    [Fact]
     public void PausingSeeksToTheHostsPausePoint()
     {
         var applied = new RoomViewerApplied();
@@ -372,5 +455,51 @@ public sealed class RoomRelayAddressTests
         Assert.Equal(BrowserSourceProviderKind.Twitch, message.State!.Provider);
         Assert.Equal(4, message.State.Location.Ward);
         Assert.Equal(-1, message.State.Location.Plot);
+    }
+}
+
+public sealed class PlaybackStallTrackerTests
+{
+    [Fact]
+    public void MovingPlaybackIsNotBuffering()
+    {
+        var stall = new PlaybackStallTracker();
+        for (long t = 1_000; t < 10_000; t += 500)
+            Assert.False(stall.Update(true, t, t));
+    }
+
+    [Fact]
+    public void APositionStandingStillWhilePlayingIsBuffering()
+    {
+        var stall = new PlaybackStallTracker();
+        Assert.False(stall.Update(true, 5_000, 1_000));
+        Assert.False(stall.Update(true, 5_000, 2_000));
+        Assert.True(stall.Update(true, 5_020, 2_600));
+        Assert.True(stall.Buffering);
+
+        Assert.False(stall.Update(true, 5_600, 3_200));
+    }
+
+    [Fact]
+    public void PausedIsNeverBuffering()
+    {
+        var stall = new PlaybackStallTracker();
+        stall.Update(true, 5_000, 1_000);
+        Assert.False(stall.Update(false, 5_000, 5_000));
+        Assert.False(stall.Update(true, 5_000, 5_500));
+    }
+}
+
+public sealed class RoomPingScheduleTests
+{
+    [Fact]
+    public void ThreeQuickPingsThenOneEveryTenMinutes()
+    {
+        Assert.True(RoomPingSchedule.Due(0, 0, 0));
+        Assert.False(RoomPingSchedule.Due(1, 0, 1_999));
+        Assert.True(RoomPingSchedule.Due(1, 0, 2_000));
+        Assert.True(RoomPingSchedule.Due(2, 0, 2_000));
+        Assert.False(RoomPingSchedule.Due(3, 0, 599_999));
+        Assert.True(RoomPingSchedule.Due(3, 0, 600_000));
     }
 }

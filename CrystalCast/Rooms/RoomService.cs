@@ -9,10 +9,9 @@ namespace CrystalCast.Rooms;
 /// follows it. Only the host controls it, and the copy only shows where the host is.
 /// Everything runs on the game's main thread; the relay connections queue their messages for it.
 /// </summary>
-internal sealed class RoomService : IDisposable
+internal sealed partial class RoomService : IDisposable
 {
     private const long TickMs = 250;
-    private const long PingMs = 15_000;
     private const long DriftCheckMs = 2_000;
 
     private readonly Configuration configuration;
@@ -48,6 +47,7 @@ internal sealed class RoomService : IDisposable
         }
 
         framework.Update += OnFrameworkUpdate;
+        StartPersistentRooms();
     }
 
     public IReadOnlyList<HostedRoom> Hosted => hosted;
@@ -143,11 +143,16 @@ internal sealed class RoomService : IDisposable
             room.Connection?.Rename(name);
         foreach (var room in joined)
             room.Connection.Rename(name);
+        foreach (var session in persistent)
+            session.Connection?.Rename(name);
     }
 
     /// <summary>The user deleted a joined room's screen: leave that room too.</summary>
     public void OnRoomScreenDeleted(BrowserScreenProfile screen)
     {
+        if (OnPersistentMirrorDeleted(screen))
+            return;
+
         var room = joined.FirstOrDefault(candidate => RoomCode.ScreenIdFor(candidate.Code) == screen.ScreenId);
         if (room != null)
             Leave(room.Code, removeScreen: false);
@@ -164,6 +169,8 @@ internal sealed class RoomService : IDisposable
 
         foreach (var room in joined.ToList())
             Leave(room.Code, removeScreen: true);
+
+        DisposePersistentRooms();
     }
 
     private void Leave(string code, bool removeScreen)
@@ -185,7 +192,7 @@ internal sealed class RoomService : IDisposable
             return;
 
         lastTickMs = now;
-        if (hosted.Count == 0 && joined.Count == 0)
+        if (hosted.Count == 0 && joined.Count == 0 && persistent.Count == 0)
             return;
 
         try
@@ -197,6 +204,8 @@ internal sealed class RoomService : IDisposable
 
             foreach (var room in joined.ToList())
                 TickViewer(room, location, now);
+
+            TickPersistentRooms(location, now, unixNow);
         }
         catch (Exception ex)
         {
@@ -283,9 +292,12 @@ internal sealed class RoomService : IDisposable
         }
 
         var state = BuildHostState(screen, envelope, placement, location, unixNow);
-        var (send, change) = room.Policy.Decide(state, Environment.TickCount64);
-        if (send)
-            connection.Send(new { type = "state", change, state });
+        var buffering = room.Stall.Update(
+            envelope.Playback.State == ScreenPlaybackState.Playing,
+            envelope.Playback.PositionMs,
+            envelope.Playback.HostTimestampUnixMs);
+        if (room.Policy.Decide(state, Environment.TickCount64, buffering))
+            connection.Send(new { type = "state", change = true, state });
     }
 
     internal static RoomScreenState BuildHostState(
@@ -335,7 +347,7 @@ internal sealed class RoomService : IDisposable
             {
                 case "welcome":
                     room.HostConnected = message.HostConnected ?? false;
-                    room.LastPingAtMs = 0;
+                    room.PingsSent = 0;
                     if (message.State != null)
                     {
                         room.State = message.State;
@@ -382,8 +394,9 @@ internal sealed class RoomService : IDisposable
             return;
         }
 
-        if (room.Connection.Status == RoomConnectionStatus.Connected && now - room.LastPingAtMs >= PingMs)
+        if (room.Connection.Status == RoomConnectionStatus.Connected && RoomPingSchedule.Due(room.PingsSent, room.LastPingAtMs, now))
         {
+            room.PingsSent++;
             room.LastPingAtMs = now;
             room.Connection.Send(new { type = "ping", t = now });
         }
@@ -396,20 +409,21 @@ internal sealed class RoomService : IDisposable
         room.WasInPlace = inPlace;
 
         var relayNow = room.Clock.RelayNow(now);
-        var localPosition = inPlace ? ReadLocalPosition(room) : null;
+        var (localPosition, buffering) = inPlace ? ReadLocalPlayback(RoomCode.ScreenIdFor(room.Code), room.Stall) : (null, false);
         var drifted = now - room.LastDriftCheckMs >= DriftCheckMs
             && RoomViewerPlan.HasDrifted(
                 RoomViewerPlan.ExpectedPositionMs(room.State, room.ReceivedAt, relayNow),
                 localPosition,
                 now,
-                room.Applied);
+                room.Applied,
+                buffering);
         if (now - room.LastDriftCheckMs >= DriftCheckMs)
             room.LastDriftCheckMs = now;
 
         if (!newState && !placeChanged && !drifted)
             return;
 
-        var request = RoomViewerPlan.Build(room.Code, room.State, room.ReceivedAt, relayNow, location, localPosition, now, room.Applied);
+        var request = RoomViewerPlan.Build(room.Code, room.State, room.ReceivedAt, relayNow, location, localPosition, now, room.Applied, buffering);
         var result = IpcJsonService.Deserialize<ScreenIpcMutationResponse>(ipc.ApplyRoomUpdate(request));
         room.Error = result is { Success: false } ? result.Error : string.Empty;
 
@@ -426,6 +440,9 @@ internal sealed class RoomService : IDisposable
     /// </summary>
     public bool RequestAdd(BrowserScreenProfile screen, string input, out string error)
     {
+        if (TryRequestPersistentAdd(screen, input, out var handled, out error))
+            return handled;
+
         var room = joined.FirstOrDefault(candidate => RoomCode.ScreenIdFor(candidate.Code) == screen.ScreenId);
         if (room == null)
         {
@@ -452,16 +469,20 @@ internal sealed class RoomService : IDisposable
         return true;
     }
 
-    /// <summary>The joined screen's own playback position now, when its player reports one.</summary>
-    private long? ReadLocalPosition(JoinedRoom room)
+    /// <summary>
+    /// A room screen's own playback position now, when its player reports one, and whether that player is
+    /// buffering.
+    /// </summary>
+    private (long? PositionMs, bool Buffering) ReadLocalPlayback(string screenId, PlaybackStallTracker stall)
     {
-        var screen = configuration.FindBrowserScreen(RoomCode.ScreenIdFor(room.Code));
+        var screen = configuration.FindBrowserScreen(screenId);
         if (screen == null || !ipc.TryBuildRoomState(screen, out var envelope, out _))
-            return null;
+            return (null, false);
 
         var playback = envelope.Playback;
+        var buffering = stall.Update(playback.State == ScreenPlaybackState.Playing, playback.PositionMs, playback.HostTimestampUnixMs);
         if (playback.HostTimestampUnixMs <= 0 || playback.DurationMs <= 0 && playback.PositionMs <= 0)
-            return null;
+            return (null, false);
 
         var position = playback.PositionMs;
         if (playback.State == ScreenPlaybackState.Playing)
@@ -470,7 +491,7 @@ internal sealed class RoomService : IDisposable
             position += (long)(Math.Max(0, elapsed) * Math.Max(0f, playback.Rate));
         }
 
-        return position;
+        return (position, buffering);
     }
 
     /// <summary>The last room that closed on its own, so the window can say why.</summary>
@@ -485,6 +506,7 @@ internal sealed class HostedRoom(string screenId, Uri relay)
     public string Code { get; set; } = string.Empty;
     public RoomRelayConnection? Connection { get; set; }
     public RoomHostSendPolicy Policy { get; set; } = new();
+    public PlaybackStallTracker Stall { get; } = new();
     public int Viewers { get; set; }
 
     /// <summary>Who is in the room; empty until the relay sends the list (older relays never do).</summary>
@@ -507,6 +529,8 @@ internal sealed class JoinedRoom(string code, RoomRelayConnection connection)
     public IReadOnlyList<RoomMember> Members { get; set; } = [];
     public bool WasInPlace { get; set; }
     public long LastPingAtMs { get; set; }
+    public int PingsSent { get; set; }
+    public PlaybackStallTracker Stall { get; } = new();
     public long LastDriftCheckMs { get; set; }
     public string ClosedReason { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;

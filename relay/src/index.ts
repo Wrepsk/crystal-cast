@@ -7,14 +7,16 @@
 // usernames (never character names); the relay sends the list whenever someone joins, leaves or renames.
 
 import { DurableObject } from "cloudflare:workers";
+import { cleanName, json, normalizeCode, randomCode, randomHex, sha256 } from "./util";
+import { PersistentRoom, createPersistentRoom } from "./persistent";
+
+export { PersistentRoom };
 
 export interface Env {
   ROOMS: DurableObjectNamespace<Room>;
+  PERSISTENT_ROOMS: DurableObjectNamespace<PersistentRoom>;
 }
 
-/** No 0/O, 1/I/L: codes are read aloud and typed by hand. */
-const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
-const CODE_LENGTH = 8;
 const MAX_VIEWERS = 200;
 /** A state with a full 100-video playlist of links is well under this. */
 const MAX_MESSAGE_BYTES = 32 * 1024;
@@ -26,8 +28,6 @@ const VIEWER_ADD_INTERVAL_MS = 2000;
 const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
 /** Host messages allowed per second; more are dropped. */
 const HOST_MESSAGES_PER_SECOND = 20;
-/** Longest username, in characters. */
-const MAX_NAME_LENGTH = 24;
 /** Least time between two name changes from the same connection. */
 const RENAME_INTERVAL_MS = 1000;
 
@@ -51,6 +51,19 @@ export default {
       }
 
       return env.ROOMS.get(env.ROOMS.idFromName(code)).fetch(request);
+    }
+
+    if (request.method === "POST" && parts.length === 1 && parts[0] === "persistent") {
+      return createPersistentRoom(request, env.PERSISTENT_ROOMS);
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[0] === "persistent" && parts[2] === "socket") {
+      const code = normalizeCode(parts[1]);
+      if (!code) {
+        return json({ error: "That room code isn't valid." }, 400);
+      }
+
+      return env.PERSISTENT_ROOMS.get(env.PERSISTENT_ROOMS.idFromName(code)).fetch(request);
     }
 
     return json({ error: "Not found." }, 404);
@@ -394,61 +407,4 @@ export class Room extends DurableObject<Env> {
       // Closed between the check and the send.
     }
   }
-}
-
-/**
- * A name others will see: whitespace (tabs and line breaks included) made single spaces, other control and
- * formatting characters removed, at most MAX_NAME_LENGTH characters. Empty becomes "Guest". CrystalCast cleans
- * names the same way (RoomUsername.Clean), so what someone types is what others see.
- */
-function cleanName(raw: string | null | undefined): string {
-  const spaced = (raw ?? "").replace(/\s+/g, " ").replace(/\p{C}/gu, "").replace(/ {2,}/g, " ");
-  const cleaned = [...spaced.trim()]
-    .slice(0, MAX_NAME_LENGTH)
-    .join("")
-    .trim();
-  return cleaned.length > 0 ? cleaned : "Guest";
-}
-
-function normalizeCode(raw: string): string | null {
-  const code = raw.toUpperCase().replace(/[^0-9A-Z]/g, "");
-  if (code.length !== CODE_LENGTH) {
-    return null;
-  }
-
-  for (const character of code) {
-    if (!CODE_ALPHABET.includes(character)) {
-      return null;
-    }
-  }
-
-  return code;
-}
-
-function randomCode(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
-  let code = "";
-  for (const byte of bytes) {
-    code += CODE_ALPHABET[byte % CODE_ALPHABET.length];
-  }
-
-  return code;
-}
-
-function randomHex(byteCount: number): string {
-  return [...crypto.getRandomValues(new Uint8Array(byteCount))]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }

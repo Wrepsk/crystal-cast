@@ -260,7 +260,7 @@ internal sealed partial class YouTubePanel
         var hovered = ImGui.IsItemHovered();
         if (hovered)
         {
-            ImGui.SetTooltip(locked
+            Ui.Tooltip(locked
                 ? $"{video.Title}\nLocked by {SourceControlUi.LockedOwner(screen)}"
                 : playing ? $"{video.Title}\nPlaying on this screen" : $"{video.Title}\nClick to play on this screen");
         }

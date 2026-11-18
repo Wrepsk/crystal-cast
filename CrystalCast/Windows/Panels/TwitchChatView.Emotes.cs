@@ -183,7 +183,7 @@ internal sealed partial class TwitchChatView
             if (ImGui.IsItemHovered())
             {
                 dl.AddRectFilled(min, min + new Vector2(cell), U32(ControlHover), S(4.0f));
-                ImGui.SetTooltip(emote.Name);
+                Ui.Tooltip(emote.Name);
             }
 
             if (images.Get(TwitchImageCache.EmoteUrl(emote.Id)) is { } image)

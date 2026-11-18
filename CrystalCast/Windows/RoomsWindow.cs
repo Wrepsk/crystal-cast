@@ -9,7 +9,7 @@ using Ui = CrystalCast.Windows.Style.CrystalCastUiWidgets;
 namespace CrystalCast.Windows;
 
 /// <summary>Share your screens under a room code and join other people's rooms.</summary>
-internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
+internal sealed partial class RoomsWindow : CrystalCastWindow, IDisposable
 {
     private readonly RoomService rooms;
     private readonly Configuration configuration;
@@ -19,6 +19,8 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
     private string shareError = string.Empty;
     private string copiedCode = string.Empty;
     private long copiedAtTick;
+    private int tab;
+    private static readonly string[] TabLabels = ["Quick rooms", "Persistent rooms"];
 
     public RoomsWindow(RoomService rooms, Configuration configuration, Action openSettings)
         : base("Rooms###CrystalCastRooms", ImGuiWindowFlags.NoCollapse)
@@ -42,6 +44,7 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
     public void Share(BrowserScreenProfile screen)
     {
         shareError = rooms.Share(screen, out var error) ? string.Empty : error;
+        tab = 0;
         Open();
     }
 
@@ -68,9 +71,18 @@ internal sealed class RoomsWindow : CrystalCastWindow, IDisposable
             Ui.VerticalSpace(12.0f);
         }
 
-        DrawSharing();
-        Ui.VerticalSpace(20.0f);
-        DrawJoining();
+        tab = Ui.Tabs("RoomsTabs", TabLabels, tab);
+        Ui.VerticalSpace(12.0f);
+        if (tab == 0)
+        {
+            DrawSharing();
+            Ui.VerticalSpace(20.0f);
+            DrawJoining();
+        }
+        else
+        {
+            DrawPersistent();
+        }
     }
 
     private void DrawSharing()

@@ -58,4 +58,50 @@ internal static class RoomRelayApi
         answer.Code = code;
         return answer;
     }
+
+    /// <summary>Makes a persistent room owned by <paramref name="memberKey"/>.</summary>
+    public static async Task<PersistentRoomCreateResponse> CreatePersistentRoomAsync(
+        Uri relayBaseUri,
+        string name,
+        string password,
+        string memberKey,
+        string username,
+        CancellationToken token)
+    {
+        var endpoint = new Uri(relayBaseUri, $"{relayBaseUri.AbsolutePath.TrimEnd('/')}/persistent");
+        var json = IpcJsonService.Serialize(new
+        {
+            name,
+            password = RoomMemberKeys.HashPassword(password),
+            key = memberKey,
+            username = RoomUsername.Display(username),
+        });
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        using var response = await Http.PostAsync(endpoint, content, token).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+        PersistentRoomCreateResponse? answer = null;
+        try
+        {
+            answer = IpcJsonService.Deserialize<PersistentRoomCreateResponse>(body);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Handled below.
+        }
+
+        if (!response.IsSuccessStatusCode || answer == null || !RoomCode.TryNormalize(answer.Code, out var code))
+        {
+            return new PersistentRoomCreateResponse
+            {
+                Error = string.IsNullOrWhiteSpace(answer?.Error)
+                    ? response.StatusCode == System.Net.HttpStatusCode.NotFound
+                        ? "This relay doesn't support persistent rooms yet."
+                        : $"The relay answered {(int)response.StatusCode}."
+                    : answer!.Error,
+            };
+        }
+
+        answer.Code = code;
+        return answer;
+    }
 }

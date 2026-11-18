@@ -33,6 +33,21 @@ public class Configuration : IPluginConfiguration
     /// <summary>The name others in a room see for you. Starts out random, never the character's name.</summary>
     public string RoomUsername { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Secret that identifies this CrystalCast in persistent rooms, made once. The relay only keeps a hash of it,
+    /// so it knows you when you come back, and bans stick. Never shown or sent anywhere but the relay.
+    /// </summary>
+    public string RoomMemberKey { get; set; } = string.Empty;
+
+    /// <summary>Persistent rooms you're in, remembered between sessions.</summary>
+    public List<PersistentRoomEntry> PersistentRooms { get; set; } = [];
+
+    /// <summary>Share your own screens into the persistent rooms you're connected to.</summary>
+    public bool PersistentRoomsShareMyScreens { get; set; } = true;
+
+    /// <summary>Show the screens others share in persistent rooms.</summary>
+    public bool PersistentRoomsShowOthersScreens { get; set; } = true;
+
     // Version 1 compatibility fields. They are read only when creating the first browser screen.
     public ScreenPlacementMode LocalVideoPlacementMode { get; set; } = ScreenPlacementMode.World;
     public float PositionX { get; set; }
@@ -410,6 +425,9 @@ public sealed class BrowserScreenProfile
     /// <summary>While this screen is shared in a room: whether the people who joined may add videos.</summary>
     public bool PlaylistAllowRoomAdds { get; set; }
 
+    /// <summary>Whether this screen is shared into the persistent rooms you're connected to.</summary>
+    public bool ShareInPersistentRooms { get; set; } = true;
+
     public bool Normalize(string defaultName, ISet<string> usedScreenIds)
     {
         var changed = false;
@@ -543,6 +561,7 @@ public sealed class BrowserScreenProfile
         clone.PlaylistAllowIpcAdds = PlaylistAllowIpcAdds;
         clone.PlaylistAllowUserAdds = PlaylistAllowUserAdds;
         clone.PlaylistAllowRoomAdds = PlaylistAllowRoomAdds;
+        clone.ShareInPersistentRooms = ShareInPersistentRooms;
         return clone;
     }
 }
@@ -722,4 +741,16 @@ public sealed class ScreenPlacementSettings
         Furniture = source.Furniture?.Copy();
         Normalize();
     }
+}
+
+/// <summary>A persistent room this CrystalCast is a member of.</summary>
+public sealed class PersistentRoomEntry
+{
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>The room's name as the relay last said; only for showing.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Connect to this room when the plugin starts.</summary>
+    public bool AutoJoin { get; set; } = true;
 }

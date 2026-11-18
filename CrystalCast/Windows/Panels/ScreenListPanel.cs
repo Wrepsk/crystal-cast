@@ -16,6 +16,9 @@ internal sealed record ScreenRoomActions(RoomService Rooms, Action<BrowserScreen
 internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata, ScreenRoomActions? roomActions = null)
 {
     private string renamingScreenId = string.Empty;
+
+    /// <summary>Where a right-click opened the screen menu; null when the ... button opened it.</summary>
+    private Vector2? menuAtMouse;
     private string renameDraft = string.Empty;
     private bool focusRename;
 
@@ -49,7 +52,11 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
 
         ImGui.SameLine(0.0f, S(4.0f));
         if (Ui.IconButton("##ScreenMore", FontAwesomeIcon.EllipsisH, "More screen actions"))
+        {
+            menuAtMouse = null;
             Ui.OpenMenu("ScreenActions");
+        }
+
         var menuAnchor = ImGui.GetItemRectMax();
         changed |= DrawScreenMenu(config, activeScreen, canAddUserScreen, onScreenDeleted, onIpcDeleteRequested, menuAnchor);
 
@@ -114,11 +121,12 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             }
 
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(screen.Enabled ? screen.Name : $"{screen.Name} (screen off)");
+                Ui.Tooltip(screen.Enabled ? screen.Name : $"{screen.Name} (screen off)");
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
             {
                 config.ActiveBrowserScreenId = screen.ScreenId;
                 changed = true;
+                menuAtMouse = ImGui.GetMousePos();
                 Ui.OpenMenu("ScreenActions");
             }
 
@@ -148,7 +156,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
         Action<BrowserScreenProfile> onIpcDeleteRequested,
         Vector2 anchor)
     {
-        if (!Ui.BeginMenu("ScreenActions", anchor))
+        if (!Ui.BeginMenu("ScreenActions", menuAtMouse ?? anchor, atPoint: menuAtMouse != null))
             return false;
 
         var changed = false;
@@ -191,24 +199,19 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
                 if (Ui.MenuItem("Share this screen", icon: FontAwesomeIcon.ShareAlt))
                     roomActions.Share(activeScreen);
             }
-            else
+            else if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
             {
-                if (Ui.MenuItem("Show room code", icon: FontAwesomeIcon.ShareAlt))
-                    roomActions.OpenRooms();
-                if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
-                    roomActions.Rooms.StopSharing(activeScreen.ScreenId);
+                roomActions.Rooms.StopSharing(activeScreen.ScreenId);
+            }
+
+            // Only worth showing to people in a persistent room; checked means it shows there.
+            if (roomActions.Rooms.Persistent.Count > 0
+                && Ui.MenuItem("Share in persistent rooms", selected: activeScreen.ShareInPersistentRooms, icon: FontAwesomeIcon.Users))
+            {
+                roomActions.Rooms.SetSharedInPersistentRooms(activeScreen, !activeScreen.ShareInPersistentRooms);
             }
         }
 
-        // People who joined see the room too: who's in it, and the host's state.
-        if (activeScreen != null && RoomService.IsRoomScreen(activeScreen)
-            && Ui.MenuItem("Show room", icon: FontAwesomeIcon.Users))
-        {
-            roomActions.OpenRooms();
-        }
-
-        if (Ui.MenuItem("Join a room…", icon: FontAwesomeIcon.Users))
-            roomActions.OpenRooms();
     }
 
     internal bool DeleteScreen(Configuration config, BrowserScreenProfile screen, bool hide, Action<BrowserScreenProfile, bool> onScreenDeleted)

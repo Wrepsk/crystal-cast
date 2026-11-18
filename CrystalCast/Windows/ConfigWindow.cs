@@ -673,6 +673,23 @@ public sealed class ConfigWindow : CrystalCastWindow, IDisposable
                 : "Rooms you start or join from now on use this relay. Clear it to use the CrystalCast relay.");
 
         Ui.VerticalSpace(SectionGap);
+        Ui.SectionHeader("Persistent rooms", "Rooms that stay until their owner deletes them. Everyone connected shares their screens, and sees the others' where the sharer is.");
+        var shareMine = config.PersistentRoomsShareMyScreens;
+        if (Ui.SwitchLabeled("##PersistentShareMine", "Share my screens", ref shareMine,
+                tooltip: "Turn off to only watch. You can also stop sharing one screen from its ... menu."))
+        {
+            config.PersistentRoomsShareMyScreens = shareMine;
+            changed = true;
+        }
+
+        var showOthers = config.PersistentRoomsShowOthersScreens;
+        if (Ui.SwitchLabeled("##PersistentShowOthers", "Show other people's screens", ref showOthers))
+        {
+            config.PersistentRoomsShowOthersScreens = showOthers;
+            changed = true;
+        }
+
+        Ui.VerticalSpace(SectionGap);
         Ui.SectionHeader("Using rooms", "Open a screen's ... menu in the main window: Share this screen gives you a code, and Join a room lets you enter someone else's. Only the person sharing controls the screen, and it shows only where they are.");
         Ui.RowLabel("Rooms window", LabelWidth, LabelGap);
         if (Ui.Button("Open rooms"))

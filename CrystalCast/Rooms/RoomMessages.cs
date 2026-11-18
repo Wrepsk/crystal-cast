@@ -133,6 +133,43 @@ public sealed class RoomRelayMessage
 
     /// <summary>Everyone in the room: the host first, then viewers in the order they joined.</summary>
     public List<RoomMember>? Members { get; set; }
+
+    // Persistent rooms only.
+
+    /// <summary>The room's name (welcome, room).</summary>
+    public string Name { get; set; } = string.Empty;
+    public bool? PasswordSet { get; set; }
+
+    /// <summary>This member's id in the room (welcome).</summary>
+    public string You { get; set; } = string.Empty;
+
+    /// <summary>Who shares the screen a state, unshare or hidden message is about.</summary>
+    public string Owner { get; set; } = string.Empty;
+    public string ScreenId { get; set; } = string.Empty;
+
+    /// <summary>This member's screens the relay still has from before (welcome).</summary>
+    public List<string>? Yours { get; set; }
+
+    /// <summary>Screens a moderator hid for everyone (welcome).</summary>
+    public List<PersistentScreenRef>? HiddenScreens { get; set; }
+
+    /// <summary>Whether the screen is now hidden for everyone (hidden).</summary>
+    public bool? Hidden { get; set; }
+
+    /// <summary>Banned people; only sent to moderators and the owner (members).</summary>
+    public List<PersistentBan>? Bans { get; set; }
+}
+
+public sealed class PersistentScreenRef
+{
+    public string Owner { get; set; } = string.Empty;
+    public string ScreenId { get; set; } = string.Empty;
+}
+
+public sealed class PersistentBan
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
 }
 
 /// <summary>One person in a room, by the username they chose.</summary>
@@ -143,11 +180,26 @@ public sealed class RoomMember
 
     /// <summary>This entry is the one receiving the list.</summary>
     public bool You { get; set; }
+
+    // Persistent rooms only.
+
+    /// <summary>The member's public id, used to kick, ban or promote them.</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>"owner", "mod" or "member".</summary>
+    public string Role { get; set; } = string.Empty;
+    public bool Online { get; set; }
 }
 
 public sealed class RoomCreateResponse
 {
     public string Code { get; set; } = string.Empty;
     public string HostKey { get; set; } = string.Empty;
+    public string Error { get; set; } = string.Empty;
+}
+
+public sealed class PersistentRoomCreateResponse
+{
+    public string Code { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;
 }

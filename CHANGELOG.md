@@ -4,9 +4,42 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 
 ## Unreleased
 
+### Changed
+
+- Persistent rooms show as cards: the code with a copy button, who's online and the connection status at a glance, with members, screens and settings under Manage (or click the room's name). Your rooms come first, then Join and Create.
+- A screen's ... menu keeps only Share this screen and Share in persistent rooms; everything else is under the Rooms button.
+- Tooltips are smaller and wrap long text.
+- The Rooms and Twitch chat windows no longer show Dalamud's ≡ pin button in the title bar.
+
+### Fixed
+
+- "Share in persistent rooms" no longer runs under its check mark in the screen menu.
+- Right-clicking a screen opens its menu at the mouse, not under the ... button.
+
+## 0.9.9.5 - 2026-11-17 (testing)
+
+### Fixed
+
+- Creating a persistent room no longer gets stuck on "Creating…" when you aren't in any room yet.
+
+## 0.9.9.4 - 2026-11-17 (testing)
+
+### Added
+
+- A **Rooms** button in the main window's top bar opens the Rooms window. It lights up while you're in a room.
+
+## 0.9.9.3 - 2026-11-17 (testing)
+
 ### Added
 
 - **7TV, BTTV and FFZ emotes** in Twitch chat: words that are emotes from these extensions show as pictures, including wide and zero-width (overlay) emotes. Animated ones show a still frame. Turn it off in **Settings > Source tabs**.
+- **Persistent rooms**, in the Rooms window's new tab. Create a room with a name and an optional password, or join one with its code; you only need the password the first time. Everyone connected shares their screens, and sees the others' where the sharer is. Rooms are remembered and reconnect when the game starts (turn off **Auto-join** per room). The owner can set or remove the password, rename the room, make moderators, hand the room over or delete it; owner and moderators can kick, ban and hide a screen for everyone. A room stays until its owner deletes it or everyone leaves.
+- Settings > Rooms: **Share my screens** and **Show other people's screens** for persistent rooms, and **Share in persistent rooms** in each screen's ... menu.
+
+### Changed
+
+- Rooms use far fewer relay requests: the host no longer sends a state every 10 seconds while nothing changes, and viewers ping the relay three times after connecting and then every 10 minutes instead of every 15 seconds.
+- Buffering is handled: a viewer whose video is buffering isn't sent back while it loads, and catches up once when it plays again. A viewer that keeps falling behind waits longer between catch-ups (up to a minute) instead of seeking every few seconds. A host that buffers sends one correction when it plays again.
 
 ## 0.9.9.2 - 2026-11-17
 

@@ -20,6 +20,10 @@ public abstract class CrystalCastWindow : Window
     protected CrystalCastWindow(string name, ImGuiWindowFlags flags = ImGuiWindowFlags.None)
         : base(name, flags)
     {
+        // No Dalamud options button (the ≡ in the title bar): it shows while any of these is allowed.
+        AllowPinning = false;
+        AllowClickthrough = false;
+        AllowBackgroundBlur = false;
     }
 
     /// <summary>The padding inside the window. Dialogs use the default.</summary>

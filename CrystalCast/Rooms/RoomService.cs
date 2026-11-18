@@ -401,15 +401,31 @@ internal sealed partial class RoomService : IDisposable
             room.Connection.Send(new { type = "ping", t = now });
         }
 
-        if (room.State == null)
+        if (room.State == null || !location.IsKnown)
             return;
 
+        // The copy exists only where the host's screen is; elsewhere it would just sit in the screen list.
         var inPlace = location.SamePlaceAs(room.State.Location);
-        var placeChanged = room.WasInPlace != inPlace;
-        room.WasInPlace = inPlace;
+        if (!inPlace)
+        {
+            room.WasInPlace = false;
+            if (room.CopyShown)
+            {
+                ipc.RemoveRoomScreen(RoomCode.ScreenIdFor(room.Code));
+                room.CopyShown = false;
+                room.Applied.Url = string.Empty;
+                room.Applied.Paused = null;
+                room.Applied.SeekStreak = 0;
+            }
+
+            return;
+        }
+
+        var placeChanged = !room.WasInPlace || !room.CopyShown;
+        room.WasInPlace = true;
 
         var relayNow = room.Clock.RelayNow(now);
-        var (localPosition, buffering) = inPlace ? ReadLocalPlayback(RoomCode.ScreenIdFor(room.Code), room.Stall) : (null, false);
+        var (localPosition, buffering) = room.CopyShown ? ReadLocalPlayback(RoomCode.ScreenIdFor(room.Code), room.Stall) : (null, false);
         var drifted = now - room.LastDriftCheckMs >= DriftCheckMs
             && RoomViewerPlan.HasDrifted(
                 RoomViewerPlan.ExpectedPositionMs(room.State, room.ReceivedAt, relayNow),
@@ -426,8 +442,9 @@ internal sealed partial class RoomService : IDisposable
         var request = RoomViewerPlan.Build(room.Code, room.State, room.ReceivedAt, relayNow, location, localPosition, now, room.Applied, buffering);
         var result = IpcJsonService.Deserialize<ScreenIpcMutationResponse>(ipc.ApplyRoomUpdate(request));
         room.Error = result is { Success: false } ? result.Error : string.Empty;
+        room.CopyShown = result is not { Success: false };
 
-        if (newState && configuration.FindBrowserScreen(RoomCode.ScreenIdFor(room.Code)) is { } joinedScreen
+        if ((newState || placeChanged) && configuration.FindBrowserScreen(RoomCode.ScreenIdFor(room.Code)) is { } joinedScreen
             && RoomPlaylistSync.Mirror(joinedScreen, room.State.Playlist))
         {
             configuration.Save();
@@ -528,6 +545,9 @@ internal sealed class JoinedRoom(string code, RoomRelayConnection connection)
     /// <summary>Who is in the room; empty until the relay sends the list (older relays never do).</summary>
     public IReadOnlyList<RoomMember> Members { get; set; } = [];
     public bool WasInPlace { get; set; }
+
+    /// <summary>Whether the local copy of the host's screen exists; it's removed while you're somewhere else.</summary>
+    public bool CopyShown { get; set; }
     public long LastPingAtMs { get; set; }
     public int PingsSent { get; set; }
     public PlaybackStallTracker Stall { get; } = new();

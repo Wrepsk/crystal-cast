@@ -220,6 +220,8 @@ internal sealed partial class RoomsWindow
             var note = owner?.Name ?? "someone";
             if (session.Dismissed.Contains(mirror.LocalScreenId))
                 note += ", removed by you";
+            else if (!mirror.Shown && configuration.PersistentRoomsShowOthersScreens && !session.IsHiddenForEveryone(mirror.Owner, mirror.ScreenId))
+                note += ", in another area";
             Ui.RowText(note, TextTertiary, f => f.Small);
 
             if (session.IsModerator && owner != null && CanModerate(session.Role, owner.Role))

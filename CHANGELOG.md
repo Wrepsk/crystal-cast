@@ -2,6 +2,12 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
+## Unreleased
+
+### Changed
+
+- Screens shared in a room only appear in your screen list while you're where they are. Elsewhere they're left out entirely instead of sitting there turned off, so they no longer take screen slots. The Rooms window still lists them as "in another area".
+
 ## 0.9.9.6 - 2026-11-18
 
 ### Changed

@@ -475,12 +475,23 @@ internal sealed partial class RoomService
                 continue;
             }
 
-            var state = mirror.State!;
-            var inPlace = location.SamePlaceAs(state.Location);
-            var placeChanged = mirror.WasInPlace != inPlace || !mirror.Shown;
-            mirror.WasInPlace = inPlace;
+            // Between areas (loading screens) nothing changes, so a copy isn't torn down and rebuilt for nothing.
+            if (!location.IsKnown)
+                continue;
 
-            var (localPosition, buffering) = inPlace && mirror.Shown ? ReadLocalPlayback(mirror.LocalScreenId, mirror.Stall) : (null, false);
+            // A copy exists only where its screen is: elsewhere it would just sit in the screen list, turned off.
+            var state = mirror.State!;
+            if (!location.SamePlaceAs(state.Location))
+            {
+                HideMirror(mirror);
+                mirror.WasInPlace = false;
+                continue;
+            }
+
+            var placeChanged = !mirror.WasInPlace || !mirror.Shown;
+            mirror.WasInPlace = true;
+
+            var (localPosition, buffering) = mirror.Shown ? ReadLocalPlayback(mirror.LocalScreenId, mirror.Stall) : (null, false);
             var checkDrift = now - mirror.LastDriftCheckMs >= DriftCheckMs;
             if (checkDrift)
                 mirror.LastDriftCheckMs = now;
@@ -502,7 +513,7 @@ internal sealed partial class RoomService
             session.Error = result is { Success: false } ? result.Error : string.Empty;
             mirror.Shown = result is not { Success: false };
 
-            if (mirror.NewState && configuration.FindBrowserScreen(mirror.LocalScreenId) is { } copy
+            if ((mirror.NewState || placeChanged) && configuration.FindBrowserScreen(mirror.LocalScreenId) is { } copy
                 && RoomPlaylistSync.Mirror(copy, state.Playlist))
             {
                 configuration.Save();

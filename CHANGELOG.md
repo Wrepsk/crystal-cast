@@ -2,7 +2,7 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
-## Unreleased
+## 0.9.9.7 - 2026-11-18
 
 ### Changed
 

@@ -2,6 +2,12 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
+## Unreleased
+
+### Fixed
+
+- A screen whose window capture breaks (seen while a new video loads) restarts its capture instead of freezing on its last frame, and only switches to the fallback capture if that keeps failing. The failure is now written to the Dalamud log.
+
 ## 0.9.9.7 - 2026-11-18
 
 ### Changed

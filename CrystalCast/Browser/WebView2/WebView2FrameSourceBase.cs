@@ -464,6 +464,10 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
         private WebView2WindowCaptureSession? windowCaptureSession;
         private Task? captureLoopTask;
         private bool windowCaptureStartRequested;
+
+        /// <summary>A second window-capture restart this soon after the last one gives up on window capture.</summary>
+        private const long CaptureRestartWindowMs = 30_000;
+        private long lastCaptureRestartTick;
         private bool playerReady;
         private bool webViewCreated;
         private volatile bool browserControlsVisible;
@@ -745,7 +749,26 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
             }
             catch (Exception ex)
             {
+                owner.log.Warning(ex, "CrystalCast {Source:l} browser command failed.", owner.CaptureLogName);
                 owner.browserStatus = $"WebView2 command failed: {ex.Message}";
+
+                // A broken window-capture session would freeze the screen on its last frame. Start a fresh one,
+                // as turning the screen off and on does; only when that keeps failing does JPEG capture take over.
+                if (windowCaptureSession != null)
+                {
+                    DisposeWindowCaptureSession();
+                    var now = Environment.TickCount64;
+                    if (lastCaptureRestartTick != 0 && now - lastCaptureRestartTick < CaptureRestartWindowMs)
+                    {
+                        owner.browserStatus = $"WebView2 window capture keeps failing, using JPEG fallback: {ex.Message}";
+                        EnsureCaptureLoopStarted();
+                    }
+                    else
+                    {
+                        lastCaptureRestartTick = now;
+                        StartWindowCaptureOrFallback();
+                    }
+                }
             }
         }
 
@@ -951,12 +974,25 @@ internal abstract class WebView2FrameSourceBase : IVideoFrameSource, INativeVide
             });
         }
 
+        /// <summary>
+        /// Always leaves no session behind, even when disposing it throws: the capture loop only takes over once
+        /// the session is gone.
+        /// </summary>
         private void DisposeWindowCaptureSession()
         {
-            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-                windowCaptureSession?.Dispose();
-
+            var session = windowCaptureSession;
             windowCaptureSession = null;
+            if (session == null || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+                return;
+
+            try
+            {
+                session.Dispose();
+            }
+            catch (Exception ex)
+            {
+                owner.log.Warning(ex, "CrystalCast {Source:l} window capture did not shut down cleanly.", owner.CaptureLogName);
+            }
         }
 
         private void ApplyBrowserMute(bool audioEnabled, float volume)

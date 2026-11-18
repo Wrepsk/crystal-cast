@@ -2,6 +2,18 @@
 
 Notable changes to CrystalCast are documented here. Release tags use the project version without a leading `v`.
 
+## Unreleased
+
+### Changed
+
+- Persistent rooms show as cards: the code with a copy button, who's online and the connection status at a glance, with members, screens and settings under Manage (or click the room's name). Your rooms come first, then Join and Create.
+- A screen's ... menu keeps only Share this screen and Share in persistent rooms; everything else is under the Rooms button.
+- Tooltips are smaller and wrap long text.
+
+### Fixed
+
+- "Share in persistent rooms" no longer runs under its check mark in the screen menu.
+
 ## 0.9.9.5 - 2026-11-17 (testing)
 
 ### Fixed

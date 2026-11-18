@@ -114,7 +114,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             }
 
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(screen.Enabled ? screen.Name : $"{screen.Name} (screen off)");
+                Ui.Tooltip(screen.Enabled ? screen.Name : $"{screen.Name} (screen off)");
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
             {
                 config.ActiveBrowserScreenId = screen.ScreenId;
@@ -191,12 +191,9 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
                 if (Ui.MenuItem("Share this screen", icon: FontAwesomeIcon.ShareAlt))
                     roomActions.Share(activeScreen);
             }
-            else
+            else if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
             {
-                if (Ui.MenuItem("Show room code", icon: FontAwesomeIcon.ShareAlt))
-                    roomActions.OpenRooms();
-                if (Ui.MenuItem("Stop sharing", icon: FontAwesomeIcon.Stop))
-                    roomActions.Rooms.StopSharing(activeScreen.ScreenId);
+                roomActions.Rooms.StopSharing(activeScreen.ScreenId);
             }
 
             // Only worth showing to people in a persistent room; checked means it shows there.
@@ -207,15 +204,6 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             }
         }
 
-        // People who joined see the room too: who's in it, and the host's state.
-        if (activeScreen != null && RoomService.IsRoomScreen(activeScreen)
-            && Ui.MenuItem("Show room", icon: FontAwesomeIcon.Users))
-        {
-            roomActions.OpenRooms();
-        }
-
-        if (Ui.MenuItem("Join a room…", icon: FontAwesomeIcon.Users))
-            roomActions.OpenRooms();
     }
 
     internal bool DeleteScreen(Configuration config, BrowserScreenProfile screen, bool hide, Action<BrowserScreenProfile, bool> onScreenDeleted)

@@ -620,7 +620,7 @@ internal sealed partial class TwitchChatView(TwitchAccount account, Configuratio
         }
 
         if (piece.Tooltip.Length > 0 && ImGui.IsWindowHovered() && ImGui.IsMouseHoveringRect(pos, max))
-            ImGui.SetTooltip(piece.Tooltip);
+            Ui.Tooltip(piece.Tooltip);
     }
 
     private static int FitChars(string word, float width)

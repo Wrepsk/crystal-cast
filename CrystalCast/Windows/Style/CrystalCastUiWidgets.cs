@@ -185,7 +185,7 @@ internal static class CrystalCastUiWidgets
         ImGui.PopStyleColor(4);
 
         if (tooltip != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip(tooltip);
+            Tooltip(tooltip);
 
         // Ghost "hover" turns the label primary.
         if (kind == ButtonKind.Ghost && !disabled && !on && textColor == null && ImGui.IsItemHovered())
@@ -204,6 +204,31 @@ internal static class CrystalCastUiWidgets
         }
 
         return pressed && !disabled;
+    }
+
+    /// <summary>
+    /// A hover tooltip with tight padding and wrapped text. Windows push wide padding that a plain
+    /// <c>ImGui.SetTooltip</c> would inherit.
+    /// </summary>
+    public static void Tooltip(string text)
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, S(8.0f, 6.0f));
+        ImGui.PushStyleVar(ImGuiStyleVar.PopupBorderSize, 1.0f);
+        ImGui.PushStyleColor(ImGuiCol.PopupBg, Raised);
+        ImGui.PushStyleColor(ImGuiCol.Border, StrongLine);
+        ImGui.BeginTooltip();
+        using (Font(f => f.Small))
+        {
+            ImGui.PushTextWrapPos(S(280.0f));
+            ImGui.PushStyleColor(ImGuiCol.Text, TextSecondary);
+            ImGui.TextUnformatted(text);
+            ImGui.PopStyleColor();
+            ImGui.PopTextWrapPos();
+        }
+
+        ImGui.EndTooltip();
+        ImGui.PopStyleColor(2);
+        ImGui.PopStyleVar(2);
     }
 
     public static float ButtonWidth(string label)
@@ -248,7 +273,7 @@ internal static class CrystalCastUiWidgets
         DrawIcon(dl, pos + (size * 0.5f), icon, iconColor);
 
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && !string.IsNullOrEmpty(tooltip))
-            ImGui.SetTooltip(tooltip);
+            Tooltip(tooltip);
 
         return clicked && !disabled;
     }
@@ -335,7 +360,7 @@ internal static class CrystalCastUiWidgets
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(tooltip ?? "Drag horizontally to adjust. Double-click or right-click to enter an exact value.");
+            Tooltip(tooltip ?? "Drag horizontally to adjust. Double-click or right-click to enter an exact value.");
 
         if (!disabled)
             changed |= DrawExactValuePopup(id, ref value, minimum, maximum, format, clamp: minimum < maximum);
@@ -494,7 +519,11 @@ internal static class CrystalCastUiWidgets
 
     public static bool MenuItem(string label, bool selected = false, bool disabled = false, bool danger = false, FontAwesomeIcon? icon = null)
     {
-        var width = Math.Max(ImGui.GetContentRegionAvail().X, S(172.0f));
+        // Wide enough for the icon, the label and the check mark, so a long label never runs under the check.
+        float needed;
+        using (Font(f => f.Body))
+            needed = S(8.0f) + (icon != null ? S(24.0f) : 0.0f) + ImGui.CalcTextSize(VisibleLabel(label)).X + S(36.0f);
+        var width = Math.Max(Math.Max(ImGui.GetContentRegionAvail().X, S(172.0f)), needed);
         var size = new Vector2(width, FrameHeight);
         var pos = ImGui.GetCursorScreenPos();
         if (disabled)
@@ -581,7 +610,7 @@ internal static class CrystalCastUiWidgets
         }
 
         if (tooltip != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip(tooltip);
+            Tooltip(tooltip);
 
         DrawSwitch(ImGui.GetWindowDrawList(), new Vector2(pos.X, pos.Y + ((FrameHeight - track.Y) * 0.5f)), itemId, value, hovered, disabled);
         return changed;
@@ -726,7 +755,7 @@ internal static class CrystalCastUiWidgets
         }
 
         if (hovered || active)
-            ImGui.SetTooltip(showReadout ? "Drag to adjust. Right-click to enter an exact value." : readout(value));
+            Tooltip(showReadout ? "Drag to adjust. Right-click to enter an exact value." : readout(value));
 
         var current = Math.Clamp((value - minimum) / range, 0.0f, 1.0f);
         float? detentFraction = detent is { } d ? Math.Clamp((d - minimum) / range, 0.0f, 1.0f) : null;
@@ -1039,7 +1068,7 @@ internal static class CrystalCastUiWidgets
         }
 
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip(tooltip);
+            Tooltip(tooltip);
         return clicked && !disabled;
     }
 
@@ -1110,7 +1139,7 @@ internal static class CrystalCastUiWidgets
             dl.AddText(new Vector2(pos.X, pos.Y + artSize.Y + S(6.0f)), U32(disabled ? CrystalCastUiTheme.TextDisabled : TextSecondary), label);
 
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip(tooltip);
+            Tooltip(tooltip);
         return clicked && !disabled;
     }
 

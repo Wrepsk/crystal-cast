@@ -369,7 +369,7 @@ internal sealed class PlaylistPanel(ScreenPlaylistAdvancer advancer, ScreenState
             dl.AddText(new Vector2(textX, start.Y + S(31.0f)), U32(TextTertiary), Ui.Ellipsize(DescribeEntry(entry, current), textWidth));
 
         if (ImGui.IsWindowHovered() && ImGui.IsMouseHoveringRect(thumbMin, new Vector2(textX + textWidth, start.Y + height)))
-            ImGui.SetTooltip($"{title}\n{entry.Url}");
+            Ui.Tooltip($"{title}\n{entry.Url}");
 
         ImGui.PushID(entry.EntryId);
         var buttonY = start.Y + ((height - Ui.FrameHeight) * 0.5f);

@@ -9,6 +9,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 - Persistent rooms show as cards: the code with a copy button, who's online and the connection status at a glance, with members, screens and settings under Manage (or click the room's name). Your rooms come first, then Join and Create.
 - A screen's ... menu keeps only Share this screen and Share in persistent rooms; everything else is under the Rooms button.
 - Tooltips are smaller and wrap long text.
+- The Rooms and Twitch chat windows no longer show Dalamud's ≡ pin button in the title bar.
 
 ### Fixed
 

@@ -16,6 +16,9 @@ internal sealed record ScreenRoomActions(RoomService Rooms, Action<BrowserScreen
 internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetadataService metadata, ScreenRoomActions? roomActions = null)
 {
     private string renamingScreenId = string.Empty;
+
+    /// <summary>Where a right-click opened the screen menu; null when the ... button opened it.</summary>
+    private Vector2? menuAtMouse;
     private string renameDraft = string.Empty;
     private bool focusRename;
 
@@ -49,7 +52,11 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
 
         ImGui.SameLine(0.0f, S(4.0f));
         if (Ui.IconButton("##ScreenMore", FontAwesomeIcon.EllipsisH, "More screen actions"))
+        {
+            menuAtMouse = null;
             Ui.OpenMenu("ScreenActions");
+        }
+
         var menuAnchor = ImGui.GetItemRectMax();
         changed |= DrawScreenMenu(config, activeScreen, canAddUserScreen, onScreenDeleted, onIpcDeleteRequested, menuAnchor);
 
@@ -119,6 +126,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
             {
                 config.ActiveBrowserScreenId = screen.ScreenId;
                 changed = true;
+                menuAtMouse = ImGui.GetMousePos();
                 Ui.OpenMenu("ScreenActions");
             }
 
@@ -148,7 +156,7 @@ internal sealed class ScreenListPanel(WorldScreenManager renderer, PlaylistMetad
         Action<BrowserScreenProfile> onIpcDeleteRequested,
         Vector2 anchor)
     {
-        if (!Ui.BeginMenu("ScreenActions", anchor))
+        if (!Ui.BeginMenu("ScreenActions", menuAtMouse ?? anchor, atPoint: menuAtMouse != null))
             return false;
 
         var changed = false;

@@ -13,6 +13,7 @@ Notable changes to CrystalCast are documented here. Release tags use the project
 ### Fixed
 
 - "Share in persistent rooms" no longer runs under its check mark in the screen menu.
+- Right-clicking a screen opens its menu at the mouse, not under the ... button.
 
 ## 0.9.9.5 - 2026-11-17 (testing)
 

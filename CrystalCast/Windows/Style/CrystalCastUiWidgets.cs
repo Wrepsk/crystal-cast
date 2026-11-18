@@ -499,13 +499,20 @@ internal static class CrystalCastUiWidgets
         ImGui.OpenPopup($"##CrystalCastMenu{id}");
     }
 
-    public static bool BeginMenu(string id, Vector2 anchorMax)
+    /// <summary>
+    /// Draws an open menu. By default it hangs below <paramref name="anchorMax"/> with its right edge there (under a
+    /// button); with <paramref name="atPoint"/> its top-left corner sits at that point instead (a right-click).
+    /// </summary>
+    public static bool BeginMenu(string id, Vector2 anchorMax, bool atPoint = false)
     {
         var popupId = $"##CrystalCastMenu{id}";
         if (!ImGui.IsPopupOpen(popupId))
             return false;
 
-        ImGui.SetNextWindowPos(new Vector2(anchorMax.X, anchorMax.Y + S(4.0f)), ImGuiCond.Appearing, new Vector2(1.0f, 0.0f));
+        if (atPoint)
+            ImGui.SetNextWindowPos(anchorMax, ImGuiCond.Appearing, Vector2.Zero);
+        else
+            ImGui.SetNextWindowPos(new Vector2(anchorMax.X, anchorMax.Y + S(4.0f)), ImGuiCond.Appearing, new Vector2(1.0f, 0.0f));
         ImGui.SetNextWindowSizeConstraints(new Vector2(S(180.0f), 0.0f), new Vector2(S(320.0f), S(400.0f)));
         PushPopupStyle();
         if (ImGui.BeginPopup(popupId, ImGuiWindowFlags.NoMove))
